@@ -6,6 +6,8 @@ It will give you a list of assignments to a specific user or device.
 
 ## Demo
 
+https://github.com/ugurkocde/IntuneAssignmentsScanner/assets/43906965/607ab9b1-2dfc-4d9f-8d4c-9b764026b96d
+
 ## Features
 
 - Checks which users or devices are assigned to specific Intune policies.
