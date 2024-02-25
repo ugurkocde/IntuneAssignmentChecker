@@ -4,6 +4,8 @@ The `IntuneAssignmentsChecker.ps1` PowerShell script checks the assignments of p
 
 It will give you a list of assignments to a specific user or device.
 
+## Demo
+
 ## Features
 
 - Checks which users or devices are assigned to specific Intune policies.
