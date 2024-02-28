@@ -1,6 +1,6 @@
 # Intune Assignments Checker
 
-The `IntuneAssignmentsChecker.ps1` PowerShell script checks the assignments of policies in Microsoft Intune based on Users (UPN) and Devices.
+The `IntuneAssignmentsChecker.ps1` PowerShell script checks the assignments of policies, profiles and applications in Microsoft Intune based on Users (UPN) and Devices.
 
 It will give you a list of assignments to a specific user or device.
 
