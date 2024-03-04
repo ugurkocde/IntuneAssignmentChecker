@@ -4,7 +4,7 @@ The `Intune Assignment Checker` script is here to simplify your life. It will pr
 
 ## Demo
 
-https://github.com/ugurkocde/IntuneAssignmentChecker/assets/43906965/098fba4f-87a9-42e3-87b1-f91c47a4b50b
+https://github.com/ugurkocde/IntuneAssignmentChecker/assets/43906965/3d0311f2-d537-4c31-9ef9-41c6500490a4
 
 ## Features
 
