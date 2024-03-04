@@ -11,7 +11,7 @@
 
 # Overview
 
-The `Intune Assignment Checker` script is here to simplify your life. It will provide a detailed overview of assigned Intune Configuration Profiles, Compliance Policies, and applications for user, groups and devices.
+The `Intune Assignment Checker` script is here to simplify your life. It will provide a detailed overview of assigned Intune Configuration Profiles, Compliance Policies, and Applications for user, groups and devices.
 
 Website: https://intuneassignmentchecker.ugurkoc.de/
 
