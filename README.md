@@ -1,5 +1,16 @@
 # Intune Assignment Checker
 
+<div align="center">
+  <a href="https://www.linkedin.com/in/ugurkocde/" target="_blank">
+    <img src="https://img.shields.io/badge/Connect on LinkedIn-blue?style=for-the-badge&logo=linkedin&logoColor=white" alt="LinkedIn Badge"/>
+  </a>
+  <a href="https://twitter.com/UgurKocDe" target="_blank">
+    <img src="https://img.shields.io/badge/Follow on X (Twitter)-black?style=for-the-badge&logo=x&logoColor=white" alt="Twitter Badge"/>
+  </a>
+</div>
+
+# Overview
+
 The `Intune Assignment Checker` script is here to simplify your life. It will provide a detailed overview of assigned Intune Configuration Profiles, Compliance Policies, and applications for user, groups and devices.
 
 ## Demo
