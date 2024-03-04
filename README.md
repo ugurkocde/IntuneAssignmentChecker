@@ -29,7 +29,7 @@ Ensure that you have granted admin consent for these permissions in the Azure po
 
 ## Setup
 
-1. Clone this repository or download the `IntuneAssignmentsChecker.ps1` script.
+1. Clone this repository or download the `IntuneAssignmentChecker.ps1` script.
 2. Fill in your Entra ID application registration details (App ID, Tenant ID, and Secret) at the beginning of the script.
 
 ```powershell
