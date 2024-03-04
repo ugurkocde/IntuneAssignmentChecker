@@ -43,18 +43,19 @@ $secret = '<YourSecretHere>' # Secret of the App Registration
 
 ## Usage
 
-To run the script, open PowerShell and navigate to the directory containing IntuneAssignmentsChecker.ps1. Run the script using:
+To run the script, open PowerShell and navigate to the directory containing IntuneAssignmentChecker.ps1. Run the script using:
 
 ```powershell
-.\IntuneAssignmentsChecker.ps1
+.\IntuneAssignmentChecker.ps1
 ```
 
 Follow the on-screen instructions to select the type of entity you want to check the assignments for in Intune:
 
 - 1 for Users
-- 2 for Devices
-- 3 to Check Permissions
-- 4 to Exit
+- 2 for Groups
+- 3 for Devices
+- 4 to Check Permissions
+- 5 to Exit
 
 ## Contributing
 
