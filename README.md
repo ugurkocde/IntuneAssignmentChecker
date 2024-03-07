@@ -34,9 +34,10 @@ Before running this script, you need:
 - An Entra ID application registration with the following permissions granted:
   - `User.Read.All`
   - `Group.Read.All`
+  - `Device.Read.All`
+  - `DeviceManagementApps.Read.All`
   - `DeviceManagementConfiguration.Read.All`
   - `DeviceManagementManagedDevices.Read.All`
-  - `Device.Read.All`
 
 Ensure that you have granted admin consent for these permissions in the Azure portal.
 
