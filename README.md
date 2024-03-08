@@ -2,10 +2,10 @@
 
 <div align="center">
     <a href="https://twitter.com/UgurKocDe" target="_blank">
-    <img src="https://img.shields.io/badge/Follow on X (Twitter)-black?style=for-the-badge&logo=x&logoColor=white" alt="Twitter Badge" style="width: 250px; height: 40px;" />
+    <img src="https://img.shields.io/badge/Follow on Twitter-black?style=for-the-badge&logo=x&logoColor=white" alt="Twitter Badge" style="width: 200px; height: 40px;" />
   </a>
   <a href="https://www.linkedin.com/in/ugurkocde/" target="_blank">
-    <img src="https://img.shields.io/badge/Connect on LinkedIn-blue?style=for-the-badge&logo=linkedin&logoColor=white" alt="LinkedIn Badge" style="width: 250px; height: 40px;" />
+    <img src="https://img.shields.io/badge/Connect on LinkedIn-blue?style=for-the-badge&logo=linkedin&logoColor=white" alt="LinkedIn Badge" style="width: 200px; height: 40px;" />
   </a>
 
   <a href="https://www.buymeacoffee.com/ugurkocde">
