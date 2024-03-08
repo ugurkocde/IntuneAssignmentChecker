@@ -1,12 +1,19 @@
 # Intune Assignment Checker
 
 <div align="center">
+    <a href="https://twitter.com/UgurKocDe" target="_blank">
+    <img src="https://img.shields.io/badge/Follow on X (Twitter)-black?style=for-the-badge&logo=x&logoColor=white" alt="Twitter Badge" style="width: 250px; height: 40px;" />
+  </a>
   <a href="https://www.linkedin.com/in/ugurkocde/" target="_blank">
-    <img src="https://img.shields.io/badge/Connect on LinkedIn-blue?style=for-the-badge&logo=linkedin&logoColor=white" alt="LinkedIn Badge"/>
+    <img src="https://img.shields.io/badge/Connect on LinkedIn-blue?style=for-the-badge&logo=linkedin&logoColor=white" alt="LinkedIn Badge" style="width: 250px; height: 40px;" />
   </a>
-  <a href="https://twitter.com/UgurKocDe" target="_blank">
-    <img src="https://img.shields.io/badge/Follow on X (Twitter)-black?style=for-the-badge&logo=x&logoColor=white" alt="Twitter Badge"/>
+
+  <a href="https://www.buymeacoffee.com/ugurkocde">
+    <img src="https://img.buymeacoffee.com/button-api/?text=Buy me a coffee&emoji=☕&slug=ugurkocde&button_colour=FFDD00&font_colour=000000&font_family=Cookie&outline_colour=000000&coffee_colour=ffffff" style="width: 200px; height: 40px;" />
   </a>
+</div>
+
+
 </div>
 
 # Overview
