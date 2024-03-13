@@ -1,6 +1,5 @@
 # Intune Assignment Checker
 # Author: Ugur Koc (Socials: @ugurkocde)
-# Version: 1.0.0
 # Description: This script checks the assignments of Intune Configuration Policies and Device Configurations based on the groups that the user or device is a member of in Microsoft Entra (formerly Azure AD).
 
 # Disclaimer: This script is provided AS IS without warranty of any kind. I am not responsible for any damage caused by this script. Use it at your own risk.
@@ -21,7 +20,7 @@ $secret = '<YourAppSecretHere>' # Secret of the App Registration
 # Autoupdate function
 
 # Version of the local script
-$localVersion = "1.0.0"
+$localVersion = "1.1.0"
 
 # URL to the version file on GitHub
 $versionUrl = "https://raw.githubusercontent.com/ugurkocde/IntuneAssignmentChecker/main/version.txt"
@@ -99,10 +98,12 @@ do {
     Write-Host "1. User(s)" -ForegroundColor Yellow
     Write-Host "2. Group(s)" -ForegroundColor Yellow
     Write-Host "3. Device(s)" -ForegroundColor Yellow
-    Write-Host "4. Check Permissions" -ForegroundColor Yellow
-    Write-Host "5. Exit" -ForegroundColor Red
+    Write-Host "4. Show all 'All User' Assignments" -ForegroundColor Yellow
+    Write-Host "5. Show all 'All Device' Assignments" -ForegroundColor Yellow 
+    Write-Host "6. Check Permissions" -ForegroundColor Yellow
+    Write-Host "7. Exit" -ForegroundColor Red
 
-    $selection = Read-Host "Please enter your choice (1, 2, 3, 4 or 5)"
+    $selection = Read-Host "Please enter your choice (1, 2, 3, 4, 5, 6 or 7)"
     switch ($selection) {
         '1' {
             Write-Host "User selection chosen" -ForegroundColor Green
@@ -149,10 +150,12 @@ do {
                 $userRelevantCompliancePolicies = @()
                 $userRelevantAppsRequired = @()
                 $userRelevantAppsAvailable = @()
+                $userRelevantAppsUninstall = @()
 
                 # Define URIs for Intune Configuration Policies, Device Configurations, Compliance Policies, and Applications
                 $policiesUri = "https://graph.microsoft.com/beta/deviceManagement/configurationPolicies"
                 $deviceConfigsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceConfigurations"
+                $groupPolicyUri = "https://graph.microsoft.com/beta/deviceManagement/groupPolicyConfigurations"
                 $complianceUri = "https://graph.microsoft.com/beta/deviceManagement/deviceCompliancePolicies"
                 $appUri = "https://graph.microsoft.com/beta/deviceAppManagement/mobileApps"
 
@@ -163,13 +166,53 @@ do {
                 foreach ($policy in $policiesResponse.value) {
                     $policyName = $policy.name
                     $policyId = $policy.id
-
+                
                     $assignmentsUri = "https://graph.microsoft.com/beta/deviceManagement/configurationPolicies('$policyId')/assignments"
                     $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
-
+                
                     foreach ($assignment in $assignmentResponse.value) {
-                        if ($userGroupIds -contains $assignment.target.groupId) {
+                        $assignmentReason = $null  # Clear previous reason
+                
+                        if ($assignment.target.'@odata.type' -eq '#microsoft.graph.allLicensedUsersAssignmentTarget') {
+                            $assignmentReason = "All Users"
+                        }
+                        elseif ($userGroupIds -contains $assignment.target.groupId) {
+                            $assignmentReason = "Group Assignment"
+                        }
+                
+                        if ($assignmentReason) {
+                            # Attach the assignment reason to the policy
+                            Add-Member -InputObject $policy -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentReason -Force
                             $userRelevantPolicies += $policy
+                            break
+                        }
+                    }
+                }
+
+                # Get Intune Group Policy Configurations
+                $groupPoliciesResponse = Invoke-MgGraphRequest -Uri $groupPolicyUri -Method Get
+
+                # Check each group policy for assignments that match user's groups
+                foreach ($grouppolicy in $groupPoliciesResponse.value) {
+                    $groupPolicyName = $grouppolicy.displayName
+                    $groupPolicyId = $grouppolicy.id
+                
+                    $assignmentsUri = "https://graph.microsoft.com/beta/deviceManagement/groupPolicyConfigurations('$groupPolicyId')/assignments"
+                    $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
+                
+                    foreach ($assignment in $assignmentResponse.value) {
+                        $assignmentReason = $null  # Clear previous reason
+                
+                        if ($assignment.target.'@odata.type' -eq '#microsoft.graph.allLicensedUsersAssignmentTarget') {
+                            $assignmentReason = "All Users"
+                        }
+                        elseif ($userGroupIds -contains $assignment.target.groupId) {
+                            $assignmentReason = "Group Assignment"
+                        }
+                
+                        if ($assignmentReason) {
+                            Add-Member -InputObject $grouppolicy -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentReason -Force
+                            $userRelevantPolicies += $grouppolicy
                             break
                         }
                     }
@@ -178,7 +221,7 @@ do {
                 # Get Intune Device Configurations
                 $deviceConfigsResponse = Invoke-MgGraphRequest -Uri $deviceConfigsUri -Method Get
 
-                # Check each device configuration for assignments that match user's groups
+                # Check each device configuration for assignments that match user's groups or all licensed users
                 foreach ($config in $deviceConfigsResponse.value) {
                     $configName = $config.displayName
                     $configId = $config.id
@@ -187,12 +230,24 @@ do {
                     $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
 
                     foreach ($assignment in $assignmentResponse.value) {
-                        if ($userGroupIds -contains $assignment.target.groupId) {
+                        $assignmentReason = $null  # Clear previous reason
+
+                        if ($assignment.target.'@odata.type' -eq '#microsoft.graph.allLicensedUsersAssignmentTarget') {
+                            $assignmentReason = "All Users"
+                        }
+                        elseif ($userGroupIds -contains $assignment.target.groupId) {
+                            $assignmentReason = "Group Assignment"
+                        }
+
+                        if ($assignmentReason) {
+                            # Attach the assignment reason to the config object
+                            Add-Member -InputObject $config -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentReason -Force
                             $userRelevantPolicies += $config
                             break
                         }
                     }
                 }
+
 
                 # Get Intune Compliance Policies
                 $complianceResponse = Invoke-MgGraphRequest -Uri $complianceUri -Method Get
@@ -223,25 +278,43 @@ do {
 
                     # Construct the URI to get assignments for the current app
                     $assignmentsUri = "https://graph.microsoft.com/beta/deviceAppManagement/mobileApps('$appId')/assignments"
-    
+
                     # Fetch the assignments for the app
                     $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
 
                     # Iterate over each assignment to check if the user's groups are targeted
                     foreach ($assignment in $assignmentResponse.value) {
-                        if ($userGroupIds -contains $assignment.target.groupId) {
-                            if ($assignment.intent -eq "required") {
-                                $userRelevantAppsRequired += $app
-                                # Break out of the loop once a relevant app is found to avoid duplicates
-                                break
-                            }
-                            elseif ($assignment.intent -eq "available") {
-                                $userRelevantAppsAvailable += $app
-                                # Continue checking in case the app has both "required" and "available" intents for different groups
+                        $assignmentReason = $null  # Clear previous reason
+
+                        if ($assignment.target.'@odata.type' -eq '#microsoft.graph.allLicensedUsersAssignmentTarget') {
+                            $assignmentReason = "All Users"
+                        }
+                        elseif ($userGroupIds -contains $assignment.target.groupId) {
+                            $assignmentReason = "Group Assignment"
+                        }
+
+                        if ($assignmentReason) {
+                            # Add a new property to the app object to store the assignment reason
+                            Add-Member -InputObject $app -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentReason -Force
+
+                            switch ($assignment.intent) {
+                                "required" {
+                                    $userRelevantAppsRequired += $app
+                                    if ($assignmentReason -eq "All Users") { break }
+                                }
+                                "available" {
+                                    $userRelevantAppsAvailable += $app
+                                    if ($assignmentReason -eq "All Users") { break }
+                                }
+                                "uninstall" {
+                                    $userRelevantAppsUninstall += $app
+                                    if ($assignmentReason -eq "All Users") { break }
+                                }
                             }
                         }
                     }
                 }
+
 
                 Write-Host "Intune Profiles and Apps have been successfully fetched for the user." -ForegroundColor Green
 
@@ -257,35 +330,84 @@ do {
                 foreach ($policy in $userRelevantPolicies) {
                     $policyName = if ([string]::IsNullOrWhiteSpace($policy.name)) { $policy.displayName } else { $policy.name }
                     $policyId = $policy.id
-                    Write-Host "Configuration Profile Name: $policyName, Policy ID: $($policyId)" -ForegroundColor White
+                    $assignmentReason = $policy.AssignmentReason
+                
+                    # Output formatting based on assignment reason
+                    if ($assignmentReason -eq "All Users") {
+                        Write-Host "Configuration Profile Name: $policyName, Policy ID: $policyId, Assignment Reason: $assignmentReason" -ForegroundColor White
+                    }
+                    else {
+                        # If the assignment reason is not "All Users", don't include the assignment reason in the output
+                        Write-Host "Configuration Profile Name: $policyName, Policy ID: $policyId" -ForegroundColor White
+                    }
                 }
 
                 # Separator and heading for Compliance Policies
                 Write-Host "------- Assigned Compliance Policies -------" -ForegroundColor Cyan
 
                 foreach ($compliancepolicy in $userRelevantCompliancePolicies) {
-                    # Check if displayName is not null or empty, otherwise use name
-                    $compliancepolicyName = $compliancepolicy.displayName
+                    $compliancepolicyName = if ([string]::IsNullOrWhiteSpace($compliancepolicy.name)) { $compliancepolicy.displayName } else { $compliancepolicy.name }
                     $compliancepolicyId = $compliancepolicy.id
-                    Write-Host "Compliance Policy Name: $compliancepolicyName, App ID: $compliancepolicyId" -ForegroundColor White
+                    $assignmentReason = $compliancepolicy.AssignmentReason
+                
+                    # Output formatting based on assignment reason
+                    if ($assignmentReason -eq "All Users") {
+                        Write-Host "Compliance Policy Name: $compliancepolicyName, Policy ID: $compliancepolicyId, Assignment Reason: $assignmentReason" -ForegroundColor White
+                    }
+                    else {
+                        Write-Host "Compliance Policy Name: $compliancepolicyName, Policy ID: $compliancepolicyId" -ForegroundColor White
+                    }
                 }
 
-                # Separator and heading for Assigned Apps
+                # Separator and heading for Assigned Apps (Required)
                 Write-Host "------- Assigned Apps (Required) -------" -ForegroundColor Cyan
 
                 foreach ($app in $userRelevantAppsRequired) {
-                    $appName = $app.displayName
+                    $appName = if ([string]::IsNullOrWhiteSpace($app.name)) { $app.displayName } else { $app.name }
                     $appId = $app.id
-                    Write-Host "App Name: $appName, App ID: $appId" -ForegroundColor White
+                    $assignmentReason = $app.AssignmentReason
+                
+                    # Output formatting based on assignment reason
+                    if ($assignmentReason -eq "All Users") {
+                        Write-Host "App Name: $appName, App ID: $appId, Assignment Reason: $assignmentReason" -ForegroundColor White
+                    }
+                    else {
+                        Write-Host "App Name: $appName, App ID: $appId" -ForegroundColor White
+                    }
                 }
 
-                # Separator and heading for Assigned Apps
+                # Separator and heading for Assigned Apps (Available)
                 Write-Host "------- Assigned Apps (Available) -------" -ForegroundColor Cyan
 
                 foreach ($app in $userRelevantAppsAvailable) {
-                    $appName = $app.displayName
+                    $appName = if ([string]::IsNullOrWhiteSpace($app.name)) { $app.displayName } else { $app.name }
                     $appId = $app.id
-                    Write-Host "App Name: $appName, App ID: $appId" -ForegroundColor White
+                    $assignmentReason = $app.AssignmentReason
+                
+                    # Output formatting based on assignment reason
+                    if ($assignmentReason -eq "All Users") {
+                        Write-Host "App Name: $appName, App ID: $appId, Assignment Reason: $assignmentReason" -ForegroundColor White
+                    }
+                    else {
+                        Write-Host "App Name: $appName, App ID: $appId" -ForegroundColor White
+                    }
+                }
+
+                # Separator and heading for Assigned Apps (Uninstall)
+                Write-Host "------- Assigned Apps (Uninstall) -------" -ForegroundColor Cyan
+                
+                foreach ($app in $deviceRelevantAppsUninstall) {
+                    $appName = if ([string]::IsNullOrWhiteSpace($app.name)) { $app.displayName } else { $app.name }
+                    $appId = $app.id
+                    $assignmentReason = $app.AssignmentReason
+                
+                    # Output formatting based on assignment reason
+                    if ($assignmentReason -eq "All Users") {
+                        Write-Host "App Name: $appName, App ID: $appId, Assignment Reason: $assignmentReason" -ForegroundColor White
+                    }
+                    else {
+                        Write-Host "App Name: $appName, App ID: $appId" -ForegroundColor White
+                    }
                 }
 
             }
@@ -434,6 +556,10 @@ do {
                                 $GroupRelevantAppsAvailable += $app
                                 # Continue checking in case the app has both "required" and "available" intents for different groups
                             }
+                            elseif ($assignment.intent -eq "uninstall") {
+                                $GroupRelevantAppsUninstall += $app
+                                # Continue checking in case the app has both "required" and "available" intents for different groups
+                            }
                         }
                     }
                 }
@@ -535,27 +661,69 @@ do {
                 $deviceRelevantCompliancePolicies = @()
                 $deviceRelevantAppsRequired = @()
                 $deviceRelevantAppsAvailable = @()
+                $deviceRelevantAppsUninstall = @()
 
                 # Define URIs for Intune Configuration Policies, Device Configurations, Compliance Policies, and Applications
                 $policiesUri = "https://graph.microsoft.com/beta/deviceManagement/configurationPolicies"
                 $deviceConfigsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceConfigurations"
+                $groupPolicyUri = "https://graph.microsoft.com/beta/deviceManagement/groupPolicyConfigurations"
                 $complianceUri = "https://graph.microsoft.com/beta/deviceManagement/deviceCompliancePolicies"
                 $appUri = "https://graph.microsoft.com/beta/deviceAppManagement/mobileApps"
 
                 # Get Intune Configuration Policies
                 $policiesResponse = Invoke-MgGraphRequest -Uri $policiesUri -Method Get
 
-                # Check each configuration policy for assignments that match device groups
+                # Check each configuration policy for assignments that match the device
                 foreach ($policy in $policiesResponse.value) {
                     $policyName = $policy.name
                     $policyId = $policy.id
-
+                
                     $assignmentsUri = "https://graph.microsoft.com/beta/deviceManagement/configurationPolicies('$policyId')/assignments"
                     $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
-
+                
                     foreach ($assignment in $assignmentResponse.value) {
-                        if ($entradeviceGroupIds -contains $assignment.target.groupId) {
+                        $assignmentReason = $null  # Clear previous reason
+                
+                        if ($assignment.target.'@odata.type' -eq '#microsoft.graph.allDevicesAssignmentTarget') {
+                            $assignmentReason = "All Devices"
+                        }
+                        elseif ($entradeviceGroupIds -contains $assignment.target.groupId) {
+                            $assignmentReason = "Group Assignment"
+                        }
+                
+                        if ($assignmentReason) {
+                            # Attach the assignment reason to the policy
+                            Add-Member -InputObject $policy -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentReason -Force
                             $deviceRelevantPolicies += $policy
+                            break
+                        }
+                    }
+                }
+                
+                # Get Intune Group Policy Configurations
+                $groupPoliciesResponse = Invoke-MgGraphRequest -Uri $groupPolicyUri -Method Get
+
+                # Check each group policy for assignments that match user's groups
+                foreach ($grouppolicy in $groupPoliciesResponse.value) {
+                    $groupPolicyName = $grouppolicy.displayName
+                    $groupPolicyId = $grouppolicy.id
+                
+                    $assignmentsUri = "https://graph.microsoft.com/beta/deviceManagement/groupPolicyConfigurations('$groupPolicyId')/assignments"
+                    $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
+                
+                    foreach ($assignment in $assignmentResponse.value) {
+                        $assignmentReason = $null  # Clear previous reason
+                
+                        if ($assignment.target.'@odata.type' -eq '#microsoft.graph.allDevicesAssignmentTarget') {
+                            $assignmentReason = "All Devices"
+                        }
+                        elseif ($entradeviceGroupIds -contains $assignment.target.groupId) {
+                            $assignmentReason = "Group Assignment"
+                        }
+                
+                        if ($assignmentReason) {
+                            Add-Member -InputObject $grouppolicy -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentReason -Force
+                            $deviceRelevantPolicies += $grouppolicy
                             break
                         }
                     }
@@ -564,21 +732,32 @@ do {
                 # Get Intune Device Configurations
                 $deviceConfigsResponse = Invoke-MgGraphRequest -Uri $deviceConfigsUri -Method Get
 
-                # Check each device configuration for assignments that match devices groups
+                # Check each device configuration for assignments that match devices groups or are assigned to all users or all devices
                 foreach ($config in $deviceConfigsResponse.value) {
                     $configName = $config.displayName
                     $configId = $config.id
-
+                
                     $assignmentsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceConfigurations('$configId')/assignments"
                     $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
-
+                
                     foreach ($assignment in $assignmentResponse.value) {
-                        if ($entradeviceGroupIds -contains $assignment.target.groupId) {
+                        $assignmentReason = $null  # Clear previous reason
+                
+                        if ($assignment.target.'@odata.type' -eq '#microsoft.graph.allDevicesAssignmentTarget') {
+                            $assignmentReason = "All Devices"
+                        }
+                        elseif ($entradeviceGroupIds -contains $assignment.target.groupId) {
+                            $assignmentReason = "Group Assignment"
+                        }
+                
+                        if ($assignmentReason) {
+                            # Attach the assignment reason to the config object
+                            Add-Member -InputObject $config -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentReason -Force
                             $deviceRelevantPolicies += $config
                             break
                         }
                     }
-                }
+                }                
 
                 # Get Intune Compliance Policies
                 $complianceResponse = Invoke-MgGraphRequest -Uri $complianceUri -Method Get
@@ -592,12 +771,24 @@ do {
                     $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
 
                     foreach ($assignment in $assignmentResponse.value) {
-                        if ($entradeviceGroupIds -contains $assignment.target.groupId) {
+                        $assignmentReason = $null  # Clear previous reason
+
+                        if ($assignment.target.'@odata.type' -eq '#microsoft.graph.allDevicesAssignmentTarget') {
+                            $assignmentReason = "All Devices"
+                        }
+                        elseif ($entradeviceGroupIds -contains $assignment.target.groupId) {
+                            $assignmentReason = "Group Assignment"
+                        }
+
+                        if ($assignmentReason) {
+                            # Attach the assignment reason to the compliance policy
+                            Add-Member -InputObject $compliancepolicy -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentReason -Force
                             $deviceRelevantCompliancePolicies += $compliancepolicy
                             break
                         }
                     }
                 }
+
      
                 # Get Intune Applications
                 $appResponse = Invoke-MgGraphRequest -Uri $appUri -Method Get
@@ -615,18 +806,36 @@ do {
 
                     # Iterate over each assignment to check if the devices groups are targeted
                     foreach ($assignment in $assignmentResponse.value) {
-                        if ($entradeviceGroupIds -contains $assignment.target.groupId) {
-                            if ($assignment.intent -eq "required") {
-                                $deviceRelevantAppsRequired += $app
-                                # Break out of the loop once a relevant app is found to avoid duplicates
-                                break
-                            }
-                            elseif ($assignment.intent -eq "available") {
-                                $deviceRelevantAppsAvailable += $app
-                                # Continue checking in case the app has both "required" and "available" intents for different groups
+                        $assignmentReason = $null  # Clear previous reason
+
+                        if ($assignment.target.'@odata.type' -eq '#microsoft.graph.allDevicesAssignmentTarget') {
+                            $assignmentReason = "All Devices"
+                        }
+                        elseif ($entradeviceGroupIds -contains $assignment.target.groupId) {
+                            $assignmentReason = "Group Assignment"
+                        }
+
+                        if ($assignmentReason) {
+                            # Add a new property to the app object to store the assignment reason
+                            Add-Member -InputObject $app -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentReason -Force
+
+                            switch ($assignment.intent) {
+                                "required" {
+                                    $deviceRelevantAppsRequired += $app
+                                    if ($assignmentReason -eq "All Devices") { break }
+                                }
+                                "available" {
+                                    $deviceRelevantAppsAvailable += $app
+                                    if ($assignmentReason -eq "All Devices") { break }
+                                }
+                                "uninstall" {
+                                    $deviceRelevantAppsUninstall += $app
+                                    if ($assignmentReason -eq "All Devices") { break }
+                                }
                             }
                         }
                     }
+
                 }
 
                 Write-Host "Intune Profiles and Apps have been successfully fetched for the device." -ForegroundColor Green
@@ -643,44 +852,394 @@ do {
                 foreach ($policy in $deviceRelevantPolicies) {
                     $policyName = if ([string]::IsNullOrWhiteSpace($policy.name)) { $policy.displayName } else { $policy.name }
                     $policyId = $policy.id
-                    Write-Host "Configuration Profile Name: $policyName, Policy ID: $($policyId)" -ForegroundColor White
+                    $assignmentReason = $policy.AssignmentReason
+                
+                    # Output formatting based on assignment reason
+                    if ($assignmentReason -eq "All Devices") {
+                        Write-Host "Configuration Profile Name: $policyName, Policy ID: $policyId, Assignment Reason: $assignmentReason" -ForegroundColor White
+                    }
+                    else {
+                        # If the assignment reason is not "All Devices", don't include the assignment reason in the output
+                        Write-Host "Configuration Profile Name: $policyName, Policy ID: $policyId" -ForegroundColor White
+                    }
                 }
-
+                
                 # Separator and heading for Compliance Policies
                 Write-Host "------- Assigned Compliance Policies -------" -ForegroundColor Cyan
 
                 foreach ($compliancepolicy in $deviceRelevantCompliancePolicies) {
-                    # Check if displayName is not null or empty, otherwise use name
-                    $compliancepolicyName = $compliancepolicy.displayName
+                    $compliancepolicyName = if ([string]::IsNullOrWhiteSpace($compliancepolicy.name)) { $compliancepolicy.displayName } else { $compliancepolicy.name }
                     $compliancepolicyId = $compliancepolicy.id
-                    Write-Host "Compliance Policy Name: $compliancepolicyName, App ID: $compliancepolicyId" -ForegroundColor White
+                    $assignmentReason = $compliancepolicy.AssignmentReason
+                
+                    # Output formatting based on assignment reason
+                    if ($assignmentReason -eq "All Devices") {
+                        Write-Host "Compliance Policy Name: $compliancepolicyName, Policy ID: $compliancepolicyId, Assignment Reason: $assignmentReason" -ForegroundColor White
+                    }
+                    else {
+                        Write-Host "Compliance Policy Name: $compliancepolicyName, Policy ID: $compliancepolicyId" -ForegroundColor White
+                    }
                 }
-
-                # Separator and heading for Assigned Apps
+                
+                # Separator and heading for Assigned Apps (Required)
                 Write-Host "------- Assigned Apps (Required) -------" -ForegroundColor Cyan
-
+                
                 foreach ($app in $deviceRelevantAppsRequired) {
-                    $appName = $app.displayName
+                    $appName = if ([string]::IsNullOrWhiteSpace($app.name)) { $app.displayName } else { $app.name }
                     $appId = $app.id
-                    Write-Host "App Name: $appName, App ID: $appId" -ForegroundColor White
+                    $assignmentReason = $app.AssignmentReason
+                
+                    # Output formatting based on assignment reason
+                    if ($assignmentReason -eq "All Devices") {
+                        Write-Host "App Name: $appName, App ID: $appId, Assignment Reason: $assignmentReason" -ForegroundColor White
+                    }
+                    else {
+                        Write-Host "App Name: $appName, App ID: $appId" -ForegroundColor White
+                    }
                 }
-
-                # Separator and heading for Assigned Apps
+                
+                # Separator and heading for Assigned Apps (Available)
                 Write-Host "------- Assigned Apps (Available) -------" -ForegroundColor Cyan
-
+                
                 foreach ($app in $deviceRelevantAppsAvailable) {
-                    $appName = $app.displayName
+                    $appName = if ([string]::IsNullOrWhiteSpace($app.name)) { $app.displayName } else { $app.name }
                     $appId = $app.id
-                    Write-Host "App Name: $appName, App ID: $appId" -ForegroundColor White
+                    $assignmentReason = $app.AssignmentReason
+                
+                    # Output formatting based on assignment reason
+                    if ($assignmentReason -eq "All Devices") {
+                        Write-Host "App Name: $appName, App ID: $appId, Assignment Reason: $assignmentReason" -ForegroundColor White
+                    }
+                    else {
+                        Write-Host "App Name: $appName, App ID: $appId" -ForegroundColor White
+                    }
                 }
 
+                # Separator and heading for Assigned Apps (Uninstall)
+                Write-Host "------- Assigned Apps (Uninstall) -------" -ForegroundColor Cyan
+                
+                foreach ($app in $deviceRelevantAppsUninstall) {
+                    $appName = if ([string]::IsNullOrWhiteSpace($app.name)) { $app.displayName } else { $app.name }
+                    $appId = $app.id
+                    $assignmentReason = $app.AssignmentReason
+                
+                    # Output formatting based on assignment reason
+                    if ($assignmentReason -eq "All Devices") {
+                        Write-Host "App Name: $appName, App ID: $appId, Assignment Reason: $assignmentReason" -ForegroundColor White
+                    }
+                    else {
+                        Write-Host "App Name: $appName, App ID: $appId" -ForegroundColor White
+                    }
+                }
 
             }
 
         }
 
-
         '4' {
+            
+            Write-Host "'Show all `All User` Assignments' chosen" -ForegroundColor Green
+
+            Write-Host "Fetching Intune Profiles and Applications ... (this takes a few seconds)" -ForegroundColor Yellow
+
+            # Initialize collections to hold relevant policies and applications
+            $allUserPolicies = @()
+            $allUserDeviceConfigs = @()
+            $allUserCompliancePolicies = @()
+            $allUserApps = @()
+        
+            # Define URIs for Intune Configuration Policies, Device Configurations, Compliance Policies, and Applications
+            $policiesUri = "https://graph.microsoft.com/beta/deviceManagement/configurationPolicies"
+            $deviceConfigsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceConfigurations"
+            $complianceUri = "https://graph.microsoft.com/beta/deviceManagement/deviceCompliancePolicies"
+            $appUri = "https://graph.microsoft.com/beta/deviceAppManagement/mobileApps"
+        
+            # Fetch and process Configuration Policies
+            $policiesResponse = Invoke-MgGraphRequest -Uri $policiesUri -Method Get
+            foreach ($policy in $policiesResponse.value) {
+                $policyId = $policy.id
+                $assignmentsUri = "https://graph.microsoft.com/beta/deviceManagement/configurationPolicies('$policyId')/assignments"
+                $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
+                
+                foreach ($assignment in $assignmentResponse.value) {
+                    if ($assignment.target.'@odata.type' -eq '#microsoft.graph.allLicensedUsersAssignmentTarget') {
+                        $allUserPolicies += $policy
+                        break
+                    }
+                }
+            }
+
+            # Fetch and process Device Configurations
+
+            $deviceConfigsResponse = Invoke-MgGraphRequest -Uri $deviceConfigsUri -Method Get
+            foreach ($config in $deviceConfigsResponse.value) {
+                $configId = $config.id
+                $assignmentsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceConfigurations('$configId')/assignments"
+                $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
+                
+                foreach ($assignment in $assignmentResponse.value) {
+                    if ($assignment.target.'@odata.type' -eq '#microsoft.graph.allLicensedUsersAssignmentTarget') {
+                        $allUserPolicies += $policy
+                        break
+                    }
+                }
+            }
+
+            # Fetch and process Compliance Policies
+
+            $complianceResponse = Invoke-MgGraphRequest -Uri $complianceUri -Method Get
+            foreach ($compliancepolicy in $complianceResponse.value) {
+                $compliancepolicyId = $compliancepolicy.id
+                $compliancepolicyName = $compliancepolicy.displayName
+                $assignmentsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceCompliancePolicies('$compliancepolicyId')/assignments"
+                $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
+                
+                foreach ($assignment in $assignmentResponse.value) {
+                    if ($assignment.target.'@odata.type' -eq '#microsoft.graph.allLicensedUsersAssignmentTarget') {
+                        $allUserCompliancePolicies += $compliancepolicy
+                        break
+                    }
+                }
+            }
+
+            # Fetch and process Applications
+            $appResponse = Invoke-MgGraphRequest -Uri $appUri -Method Get
+
+            # Initialize collections to hold all user relevant applications
+            $allUserAppsRequired = @()
+            $allUserAppsAvailable = @()
+            $allUserAppsUninstall = @()
+
+            # Iterate over each application
+            foreach ($app in $appResponse.value) {
+                $appName = $app.displayName
+                $appId = $app.id
+
+                # Construct the URI to get assignments for the current app
+                $assignmentsUri = "https://graph.microsoft.com/beta/deviceAppManagement/mobileApps('$appId')/assignments"
+
+                # Fetch the assignments for the app
+                $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
+
+                # Iterate over each assignment to check if the assignment is targeted at all users
+                foreach ($assignment in $assignmentResponse.value) {
+                    if ($assignment.target.'@odata.type' -eq '#microsoft.graph.allLicensedUsersAssignmentTarget') {
+                        # Add a new property to the app object to store the assignment reason
+                        Add-Member -InputObject $app -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Users" -Force
+
+                        switch ($assignment.intent) {
+                            "required" {
+                                $allUserAppsRequired += $app
+                                break
+                            }
+                            "available" {
+                                $allUserAppsAvailable += $app
+                                break
+                            }
+                            "uninstall" {
+                                $allUserAppsUninstall += $app
+                                break
+                            }
+                        }
+                    }
+                }
+            }
+
+        
+            # Repeat similar logic for Device Configurations, Compliance Policies, and Applications...
+        
+            # Display the fetched 'All User' Configuration Policies
+            Write-Host "------- 'All User' Configuration Policies -------" -ForegroundColor Cyan
+            foreach ($policy in $allUserPolicies) {
+                $policyName = if ([string]::IsNullOrWhiteSpace($policy.name)) { $policy.displayName } else { $policy.name }
+                Write-Host "Configuration Profile Name: $policyName, Policy ID: $($policy.id)" -ForegroundColor White
+            }
+
+            # Display the fetched 'All User' Compliance Policies
+            Write-Host "------- 'All User' Compliance Policies -------" -ForegroundColor Cyan
+            foreach ($compliancepolicy in $allUserCompliancePolicies) {
+                $compliancepolicyName = if ([string]::IsNullOrWhiteSpace($compliancepolicy.name)) { $compliancepolicy.displayName } else { $compliancepolicy.name }
+                Write-Host "Compliance Policy Name: $compliancepolicyName, Policy ID: $($compliancepolicy.id)" -ForegroundColor White
+            }
+
+            # Display the fetched 'All User' Applications (Required)
+            Write-Host "------- 'All User' Applications (Required) -------" -ForegroundColor Cyan
+            foreach ($app in $allUserAppsRequired) {
+                $appName = if ([string]::IsNullOrWhiteSpace($app.name)) { $app.displayName } else { $app.name }
+                $appId = $app.id
+                Write-Host "App Name: $appName, App ID: $appId, Assignment Reason: All Users" -ForegroundColor White
+            }
+
+            # Display the fetched 'All User' Applications (Available)
+            Write-Host "------- 'All User' Applications (Available) -------" -ForegroundColor Cyan
+            foreach ($app in $allUserAppsAvailable) {
+                $appName = if ([string]::IsNullOrWhiteSpace($app.name)) { $app.displayName } else { $app.name }
+                $appId = $app.id
+                Write-Host "App Name: $appName, App ID: $appId, Assignment Reason: All Users" -ForegroundColor White
+            }
+
+            # Display the fetched 'All User' Applications (Uninstall)
+            Write-Host "------- 'All User' Applications (Uninstall) -------" -ForegroundColor Cyan
+            foreach ($app in $allUserAppsUninstall) {
+                $appName = if ([string]::IsNullOrWhiteSpace($app.name)) { $app.displayName } else { $app.name }
+                $appId = $app.id
+                Write-Host "App Name: $appName, App ID: $appId, Assignment Reason: All Users" -ForegroundColor White
+            }
+        }
+
+        '5' {
+            
+            Write-Host "'Show all `All Devices` Assignments' chosen" -ForegroundColor Green
+
+            Write-Host "Fetching Intune Profiles and Applications ... (this takes a few seconds)" -ForegroundColor Yellow
+
+            # Initialize collections to hold relevant policies and applications
+            $allUserPolicies = @()
+            $allUserDeviceConfigs = @()
+            $allUserCompliancePolicies = @()
+            $allUserApps = @()
+        
+            # Define URIs for Intune Configuration Policies, Device Configurations, Compliance Policies, and Applications
+            $policiesUri = "https://graph.microsoft.com/beta/deviceManagement/configurationPolicies"
+            $deviceConfigsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceConfigurations"
+            $complianceUri = "https://graph.microsoft.com/beta/deviceManagement/deviceCompliancePolicies"
+            $appUri = "https://graph.microsoft.com/beta/deviceAppManagement/mobileApps"
+        
+            # Fetch and process Configuration Policies
+            $policiesResponse = Invoke-MgGraphRequest -Uri $policiesUri -Method Get
+            foreach ($policy in $policiesResponse.value) {
+                $policyId = $policy.id
+                $assignmentsUri = "https://graph.microsoft.com/beta/deviceManagement/configurationPolicies('$policyId')/assignments"
+                $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
+                
+                foreach ($assignment in $assignmentResponse.value) {
+                    if ($assignment.target.'@odata.type' -eq '#microsoft.graph.allDevicesAssignmentTarget') {
+                        $allUserPolicies += $policy
+                        break
+                    }
+                }
+            }
+
+            # Fetch and process Device Configurations
+
+            $deviceConfigsResponse = Invoke-MgGraphRequest -Uri $deviceConfigsUri -Method Get
+            foreach ($config in $deviceConfigsResponse.value) {
+                $configId = $config.id
+                $assignmentsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceConfigurations('$configId')/assignments"
+                $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
+                
+                foreach ($assignment in $assignmentResponse.value) {
+                    if ($assignment.target.'@odata.type' -eq '#microsoft.graph.allDevicesAssignmentTarget') {
+                        $allUserPolicies += $policy
+                        break
+                    }
+                }
+            }
+
+            # Fetch and process Compliance Policies
+
+            $complianceResponse = Invoke-MgGraphRequest -Uri $complianceUri -Method Get
+            foreach ($compliancepolicy in $complianceResponse.value) {
+                $compliancepolicyId = $compliancepolicy.id
+                $compliancepolicyName = $compliancepolicy.displayName
+                $assignmentsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceCompliancePolicies('$compliancepolicyId')/assignments"
+                $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
+                
+                foreach ($assignment in $assignmentResponse.value) {
+                    if ($assignment.target.'@odata.type' -eq '#microsoft.graph.allDevicesAssignmentTarget') {
+                        $allUserCompliancePolicies += $compliancepolicy
+                        break
+                    }
+                }
+            }
+
+            # Fetch and process Applications
+            $appResponse = Invoke-MgGraphRequest -Uri $appUri -Method Get
+
+            # Initialize collections to hold all user relevant applications
+            $allUserAppsRequired = @()
+            $allUserAppsAvailable = @()
+            $allUserAppsUninstall = @()
+
+            # Iterate over each application
+            foreach ($app in $appResponse.value) {
+                $appName = $app.displayName
+                $appId = $app.id
+
+                # Construct the URI to get assignments for the current app
+                $assignmentsUri = "https://graph.microsoft.com/beta/deviceAppManagement/mobileApps('$appId')/assignments"
+
+                # Fetch the assignments for the app
+                $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
+
+                # Iterate over each assignment to check if the assignment is targeted at all users
+                foreach ($assignment in $assignmentResponse.value) {
+                    if ($assignment.target.'@odata.type' -eq '#microsoft.graph.allDevicesAssignmentTarget') {
+                        # Add a new property to the app object to store the assignment reason
+                        Add-Member -InputObject $app -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Users" -Force
+
+                        switch ($assignment.intent) {
+                            "required" {
+                                $allUserAppsRequired += $app
+                                break
+                            }
+                            "available" {
+                                $allUserAppsAvailable += $app
+                                break
+                            }
+                            "uninstall" {
+                                $allUserAppsUninstall += $app
+                                break
+                            }
+                        }
+                    }
+                }
+            }
+
+        
+            # Repeat similar logic for Device Configurations, Compliance Policies, and Applications...
+        
+            # Display the fetched 'All User' Configuration Policies
+            Write-Host "------- 'All Device' Configuration Policies -------" -ForegroundColor Cyan
+            foreach ($policy in $allUserPolicies) {
+                $policyName = if ([string]::IsNullOrWhiteSpace($policy.name)) { $policy.displayName } else { $policy.name }
+                Write-Host "Configuration Profile Name: $policyName, Policy ID: $($policy.id)" -ForegroundColor White
+            }
+
+            # Display the fetched 'All User' Compliance Policies
+            Write-Host "------- 'All Device' Compliance Policies -------" -ForegroundColor Cyan
+            foreach ($compliancepolicy in $allUserCompliancePolicies) {
+                $compliancepolicyName = if ([string]::IsNullOrWhiteSpace($compliancepolicy.name)) { $compliancepolicy.displayName } else { $compliancepolicy.name }
+                Write-Host "Compliance Policy Name: $compliancepolicyName, Policy ID: $($compliancepolicy.id)" -ForegroundColor White
+            }
+
+            # Display the fetched 'All User' Applications (Required)
+            Write-Host "------- 'All Device' Applications (Required) -------" -ForegroundColor Cyan
+            foreach ($app in $allUserAppsRequired) {
+                $appName = if ([string]::IsNullOrWhiteSpace($app.name)) { $app.displayName } else { $app.name }
+                $appId = $app.id
+                Write-Host "App Name: $appName, App ID: $appId, Assignment Reason: All Devices" -ForegroundColor White
+            }
+
+            # Display the fetched 'All User' Applications (Available)
+            Write-Host "------- 'All Device' Applications (Available) -------" -ForegroundColor Cyan
+            foreach ($app in $allUserAppsAvailable) {
+                $appName = if ([string]::IsNullOrWhiteSpace($app.name)) { $app.displayName } else { $app.name }
+                $appId = $app.id
+                Write-Host "App Name: $appName, App ID: $appId, Assignment Reason: All Devices" -ForegroundColor White
+            }
+
+            # Display the fetched 'All User' Applications (Uninstall)
+            Write-Host "------- 'All Device' Applications (Uninstall) -------" -ForegroundColor Cyan
+            foreach ($app in $allUserAppsUninstall) {
+                $appName = if ([string]::IsNullOrWhiteSpace($app.name)) { $app.displayName } else { $app.name }
+                $appId = $app.id
+                Write-Host "App Name: $appName, App ID: $appId, Assignment Reason: All Devices" -ForegroundColor White
+            }
+        }
+
+
+        '6' {
             Write-Host "Checking Permissions ..." -ForegroundColor Yellow
             # Permissions required for the script: User.Read.All, Group.Read.All, DeviceManagementConfiguration.Read.All, DeviceManagementManagedDevices.Read.All, Device.Read.All
 
@@ -691,6 +1250,7 @@ do {
                 "DeviceManagementConfiguration.Read.All"  = "Description: Read properties of Intune managed device configuration and device compliance policies and their assignment to groups.";
                 "DeviceManagementManagedDevices.Read.All" = "Description: Read the properties of devices managed by Intune";
                 "Device.Read.All"                         = "Description: Read devices' configuration information";
+                "DeviceManagementApps.Read.All"           = "Description: Read properties of Intune mobile apps";
             }
 
             $testEndpoints = @{
@@ -699,6 +1259,7 @@ do {
                 "DeviceManagementConfiguration.Read.All"  = "https://graph.microsoft.com/beta/deviceManagement/deviceConfigurations?$top=1";
                 "DeviceManagementManagedDevices.Read.All" = "https://graph.microsoft.com/beta/deviceManagement/managedDevices?$top=1";
                 "Device.Read.All"                         = "https://graph.microsoft.com/v1.0/devices?$top=1";
+                "DeviceManagementApps.Read.All"           = "https://graph.microsoft.com/beta/deviceAppManagement/mobileApps?$top=1";
             }
 
             foreach ($permission in $testEndpoints.Keys) {
@@ -716,19 +1277,19 @@ do {
         
 
         }
-        '5' {
+        '7' {
             Write-Host "Exiting..." -ForegroundColor Red
             exit
         }
         default {
-            Write-Host "Invalid choice, please select 1, 2, 3, 4 or 5." -ForegroundColor Red
+            Write-Host "Invalid choice, please select 1, 2, 3, 4, 5, 6 or 7." -ForegroundColor Red
         }
     }
 
     # Pause before showing the menu again
-    if ($selection -ne '5') {
+    if ($selection -ne '7') {
         Write-Host "Press any key to return to the main menu..." -ForegroundColor Cyan
         $null = $host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
     }
     
-} while ($selection -ne '4')
+} while ($selection -ne '7')
