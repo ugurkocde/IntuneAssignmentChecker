@@ -28,8 +28,13 @@ $versionUrl = "https://raw.githubusercontent.com/ugurkocde/IntuneAssignmentCheck
 # URL to the latest script on GitHub
 $scriptUrl = "https://raw.githubusercontent.com/ugurkocde/IntuneAssignmentChecker/main/IntuneAssignmentChecker.ps1"
 
-# Path to save the updated script
-$newScriptPath = Join-Path $PSScriptRoot "IntuneAssignmentChecker.ps1"
+# Determine the script path based on whether it's run as a file or from an IDE
+if ($PSScriptRoot) {
+    $newScriptPath = Join-Path $PSScriptRoot "IntuneAssignmentChecker.ps1"
+} else {
+    $currentDirectory = Get-Location
+    $newScriptPath = Join-Path $currentDirectory "IntuneAssignmentChecker.ps1"
+}
 
 # Flag to control auto-update behavior
 $autoUpdate = $true  # Set to $false to disable auto-update
