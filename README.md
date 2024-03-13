@@ -22,7 +22,7 @@
 
 <div align="center">
 
-Sign up for my newsletter to receive immediate notifications whenever I launch a new tool, script, or update.  
+Sign up for my newsletter to receive immediate notifications whenever I launch a new tool, script or update.  
 [Sign up to the Newsletter](https://newsletter.ugurkoc.de/)
 
 </div>
