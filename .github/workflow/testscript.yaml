@@ -1,0 +1,38 @@
+name: PowerShell Script CI
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Setup PowerShell
+        uses: actions/setup-powershell@v1
+
+      - name: Run PSScriptAnalyzer
+        run: |
+          Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
+          Invoke-ScriptAnalyzer -Path . -Recurse
+
+      - name: Syntax Check
+        run: |
+          Get-ChildItem -Path *.ps1 -Recurse | ForEach-Object {
+            Write-Host "Checking $($_.FullName)"
+            $errors = $null
+            $errors = powershell -Command {
+              $ErrorActionPreference = 'Stop'
+              . $_.FullName
+            }
+            if ($errors) {
+              Write-Error "Errors found in $($_.FullName)"
+              exit 1
+            }
+          }
+
+      - name: Run Pester Tests
+        if: always()
+        run: |
+          Install-Module Pester -Scope CurrentUser -Force
+          Invoke-Pester

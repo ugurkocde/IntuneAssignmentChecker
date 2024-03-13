@@ -1,6 +1,6 @@
 # Intune Assignment Checker
-# Author: Ugur Koc
-# Version: 1.0
+# Author: Ugur Koc (Socials: @ugurkocde)
+# Version: 1.0.0
 # Description: This script checks the assignments of Intune Configuration Policies and Device Configurations based on the groups that the user or device is a member of in Microsoft Entra (formerly Azure AD).
 
 # Disclaimer: This script is provided AS IS without warranty of any kind. I am not responsible for any damage caused by this script. Use it at your own risk.
@@ -9,13 +9,58 @@
 # Note: Only Read Permissions are necessary. This script does not make any changes to the assignments or in Intune in general.
 # Permissions required for the script: User.Read.All, Group.Read.All, DeviceManagementConfiguration.Read.All, DeviceManagementManagedDevices.Read.All, Device.Read.All
 
-
 ################################ Prerequisites #####################################################
 
 # Fill in your App ID, Tenant ID, and Secret
 $appid = '<YourAppIdHere>' # App ID of the App Registration
 $tenantid = '<YourTenantIdHere>' # Tenant ID of your EntraID
 $secret = '<YourAppSecretHere>' # Secret of the App Registration
+
+####################################################################################################
+
+# Autoupdate function
+
+# Version of the local script
+$localVersion = "1.0.0"
+
+# URL to the version file on GitHub
+$versionUrl = "https://raw.githubusercontent.com/ugurkocde/IntuneAssignmentChecker/main/version.txt"
+
+# URL to the latest script on GitHub
+$scriptUrl = "https://raw.githubusercontent.com/ugurkocde/IntuneAssignmentChecker/main/IntuneAssignmentChecker.ps1"
+
+# Path to save the updated script
+$newScriptPath = Join-Path $PSScriptRoot "IntuneAssignmentChecker.ps1"
+
+# Flag to control auto-update behavior
+$autoUpdate = $true  # Set to $false to disable auto-update
+
+try {
+    # Fetch the latest version number from GitHub
+    $latestVersion = Invoke-RestMethod -Uri $versionUrl
+
+    # Compare the local version with the latest version
+    if ($localVersion -ne $latestVersion) {
+        Write-Host "There is a new version available: $latestVersion. You are running $localVersion." -ForegroundColor Green
+
+        if ($autoUpdate) {
+            Write-Host "AutoUpdate is enabled. Downloading the latest version..." -ForegroundColor Yellow
+            try {
+                # Download the latest version of the script
+                Invoke-WebRequest -Uri $scriptUrl -OutFile $newScriptPath
+                Write-Host "The latest version has been downloaded to $newScriptPath" -ForegroundColor Yellow
+                Write-Host "Please restart the script to use the updated version." -ForegroundColor Yellow
+            } catch {
+                Write-Host "An error occurred while downloading the latest version. Please download it manually from: https://github.com/ugurkocde/IntuneAssignmentChecker" -ForegroundColor Red
+            }
+        } else {
+            Write-Host "Auto-update is disabled. Please download the latest version manually from: https://github.com/ugurkocde/IntuneAssignmentChecker" -ForegroundColor Yellow
+        }
+    }
+} catch {
+    Write-Host "Could not check for updates. Please ensure you have an internet connection and try again. If the issue persists, please download the latest version manually from: https://github.com/ugurkocde/IntuneAssignmentChecker" -ForegroundColor Red
+}
+
 
 ####################################################################################################
 
