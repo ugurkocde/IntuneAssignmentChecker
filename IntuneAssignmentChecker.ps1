@@ -569,13 +569,13 @@ do {
                     }
                 }
 
-                Write-Host "Intune Profiles and Apps have been successfully fetched for the device." -ForegroundColor Green
+                Write-Host "Intune Profiles and Apps have been successfully fetched for the group." -ForegroundColor Green
 
                 # Generating Results for the Device
                 Write-Host "Generating Results for $DeviceName..." -ForegroundColor Yellow
                 Start-Sleep -Seconds 1
 
-                Write-Host "Here are the Assignments for the Device: $DeviceName" -ForegroundColor Green
+                Write-Host "Here are the Assignments for the Group: $DeviceName" -ForegroundColor Green
 
                 # Separator and heading for Assigned Profiles
                 Write-Host "------- Assigned Configuration Profiles -------" -ForegroundColor Cyan
