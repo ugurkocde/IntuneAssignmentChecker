@@ -20,7 +20,7 @@ $secret = '<YourAppSecretHere>' # Secret of the App Registration
 # Autoupdate function
 
 # Version of the local script
-$localVersion = "1.2.0"
+$localVersion = "1.3.0"
 
 # URL to the version file on GitHub
 $versionUrl = "https://raw.githubusercontent.com/ugurkocde/IntuneAssignmentChecker/main/version.txt"
@@ -109,11 +109,12 @@ do {
     Write-Host "3. Device(s)" -ForegroundColor Yellow
     Write-Host "4. Show all 'All User' Assignments" -ForegroundColor Yellow
     Write-Host "5. Show all 'All Device' Assignments" -ForegroundColor Yellow 
-    Write-Host "6. Check Permissions" -ForegroundColor Yellow
-    Write-Host "7. Report a Bug or Request a Feature" -ForegroundColor Yellow
-    Write-Host "8. Exit" -ForegroundColor Red
-
-    $selection = Read-Host "Please enter your choice (1, 2, 3, 4, 5, 6, 7 or 8)"
+    Write-Host "6. Search for assignments by setting name" -ForegroundColor Yellow
+    Write-Host "7. Check Permissions" -ForegroundColor Yellow
+    Write-Host "8. Report a Bug or Request a Feature" -ForegroundColor Yellow
+    Write-Host "9. Exit" -ForegroundColor Red
+    
+    $selection = Read-Host "Please enter your choice (1, 2, 3, 4, 5, 6, 7, 8 or 9)"
     switch ($selection) {
 
         '1' {
@@ -487,7 +488,6 @@ do {
                 }
             }
         }
-
 
         '2' {
             Write-Host "Group selection chosen" -ForegroundColor Green
@@ -1586,18 +1586,90 @@ do {
         }
 
         '8' {
+            Write-Host "Search for Assignments by the Name of a Setting chosen" -ForegroundColor Green
+
+            # Prompt for DisplayNames
+            $displayNamesInput = Read-Host "Please enter the DisplayNames of the settings you want to search for (comma-separated)"
+            $displayNames = $displayNamesInput -split ',' | ForEach-Object { $_.Trim() }
+
+            # Define URIs for Intune Configuration Policies
+            $policiesUri = "https://graph.microsoft.com/beta/deviceManagement/configurationPolicies"
+            
+            # Get Intune Configuration Policies
+            $policiesResponse = Invoke-MgGraphRequest -Uri $policiesUri -Method Get
+
+            $foundSettings = @()
+
+            foreach ($policy in $policiesResponse.value) {
+                $policyId = $policy.id
+
+                # Fetch the policy name
+                $policyDetailUri = "https://graph.microsoft.com/beta/deviceManagement/configurationPolicies('$policyId')"
+                $policyDetailResponse = Invoke-MgGraphRequest -Uri $policyDetailUri -Method Get
+                $policyName = $policyDetailResponse.name
+
+                $settingsUri = "https://graph.microsoft.com/beta/deviceManagement/configurationPolicies('$policyId')/settings?`$expand=settingDefinitions&top=1000"
+                $settingsResponse = Invoke-MgGraphRequest -Uri $settingsUri -Method Get
+
+                foreach ($setting in $settingsResponse.value) {
+                    foreach ($definition in $setting.settingDefinitions) {
+                        if ($displayNames -contains $definition.displayName) {
+                            # Get Policy Assignments
+                            $assignmentsUri = "https://graph.microsoft.com/beta/deviceManagement/configurationPolicies('$policyId')/assignments"
+                            $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
+                            $assignments = @()
+                            foreach ($assignment in $assignmentResponse.value) {
+                                switch ($assignment.target.'@odata.type') {
+                                    '#microsoft.graph.allLicensedUsersAssignmentTarget' {
+                                        $assignments += 'All Users'
+                                    }
+                                    '#microsoft.graph.allDevicesAssignmentTarget' {
+                                        $assignments += 'All Devices'
+                                    }
+                                    default {
+                                        if ($assignment.target.groupId) {
+                                            $assignments += $assignment.target.groupId
+                                        } else {
+                                            $assignments += "Unknown"
+                                        }
+                                    }
+                                }
+                            }
+
+                            $foundSettings += [PSCustomObject]@{
+                                PolicyName               = $policyName
+                                PolicyId                 = $policyId
+                                SettingDisplayName       = $definition.displayName
+                                SettingDescription       = $definition.description
+                                "Assignments (GroupID)"  = $assignments -join ', '
+                            }
+                        }
+                    }
+                }
+            }
+
+            if ($foundSettings.Count -eq 0) {
+                Write-Host "No settings found with the provided displayNames" -ForegroundColor Red
+            } else {
+                Write-Host "Settings found with the provided displayNames:" -ForegroundColor Green
+                $foundSettings | Format-List
+            }
+        }
+
+        '9' {
             Write-Host "Exiting..." -ForegroundColor Red
             exit
         }
+
         default {
-            Write-Host "Invalid choice, please select 1, 2, 3, 4, 5, 6 or 7." -ForegroundColor Red
+            Write-Host "Invalid choice, please select 1, 2, 3, 4, 5, 6, 7 or 8." -ForegroundColor Red
         }
     }
 
     # Pause before showing the menu again
-    if ($selection -ne '7') {
+    if ($selection -ne '8') {
         Write-Host "Press any key to return to the main menu..." -ForegroundColor Cyan
         $null = $host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
     }
     
-} while ($selection -ne '7')
+} while ($selection -ne '8')
