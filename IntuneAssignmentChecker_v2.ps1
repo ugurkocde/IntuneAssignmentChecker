@@ -8,7 +8,7 @@
 # Note: Only Read Permissions are necessary. This script does not make any changes to the assignments or in Intune in general.
 # Permissions required for the script: User.Read.All, Group.Read.All, DeviceManagementConfiguration.Read.All, DeviceManagementManagedDevices.Read.All, Device.Read.All
 
-###################################### Prerequisites ###############################################
+################################ Prerequisites #####################################################
 
 # Fill in your App ID, Tenant ID, and Certificate Thumbprint
 $appid = '<YourAppIdHere>' # App ID of the App Registration
@@ -39,7 +39,7 @@ else {
 }
 
 # Flag to control auto-update behavior
-$autoUpdate = $true  # Set to $false to disable auto-update
+$autoUpdate = $false  # Set to $false to disable auto-update
 
 try {
     # Fetch the latest version number from GitHub
@@ -102,7 +102,7 @@ do {
     Write-Host "3. Device(s)" -ForegroundColor Yellow
     Write-Host "4. Show all 'All User' Assignments" -ForegroundColor Yellow
     Write-Host "5. Show all 'All Device' Assignments" -ForegroundColor Yellow 
-    Write-Host "6. Check Permissions" -ForegroundColor Yellow
+    Write-Host "6. Search for Assignments by Setting Name" -ForegroundColor Yellow
     Write-Host "7. Report a Bug or Request a Feature" -ForegroundColor Yellow
     Write-Host "8. Exit" -ForegroundColor Red
     
@@ -1963,11 +1963,7 @@ do {
         }
         
         '6' {
-            Write-Host "Opening GitHub Repository..." -ForegroundColor Green
-            Start-Process "https://github.com/ugurkocde/IntuneAssignmentChecker"
-        }
 
-        '7' {
             Write-Host "Search for Assignments by the Name of a Setting chosen" -ForegroundColor Green
 
             # Prompt for DisplayNames
@@ -2038,6 +2034,11 @@ do {
                 Write-Host "Settings found with the provided displayNames:" -ForegroundColor Green
                 $foundSettings | Format-List
             }
+        }
+
+        '7' {
+            Write-Host "Opening GitHub Repository..." -ForegroundColor Green
+            Start-Process "https://github.com/ugurkocde/IntuneAssignmentChecker"
         }
 
         '8' {
