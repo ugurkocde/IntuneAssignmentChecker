@@ -24,14 +24,14 @@ $certThumbprint = '<YourCertificateThumbprintHere>' # Thumbprint of the certific
 $localVersion = "2.0.0"
 
 # URL to the version file on GitHub
-$versionUrl = "https://raw.githubusercontent.com/ugurkocde/IntuneAssignmentChecker/main/version_2.txt"
+$versionUrl = "https://raw.githubusercontent.com/ugurkocde/IntuneAssignmentChecker/main/version_v2.txt"
 
 # URL to the latest script on GitHub
-$scriptUrl = "https://raw.githubusercontent.com/ugurkocde/IntuneAssignmentChecker/main/IntuneAssignmentChecker_2.ps1"
+$scriptUrl = "https://raw.githubusercontent.com/ugurkocde/IntuneAssignmentChecker/main/IntuneAssignmentChecker_v2.ps1"
 
 # Determine the script path based on whether it's run as a file or from an IDE
 if ($PSScriptRoot) {
-    $newScriptPath = Join-Path $PSScriptRoot "IntuneAssignmentChecker_2.ps1"
+    $newScriptPath = Join-Path $PSScriptRoot "IntuneAssignmentChecker_v2.ps1"
 }
 else {
     $currentDirectory = Get-Location
