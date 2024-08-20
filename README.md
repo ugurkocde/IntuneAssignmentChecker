@@ -89,7 +89,7 @@ Follow the on-screen instructions to select the type of entity you want to check
 3. Device(s)
 4. Show all 'All User' Assignments
 5. Show all 'All Device' Assignments
-6. Check Permissions
+6. Search for Assignments by Setting Name
 7. Report a Bug or Request a Feature
 8. Exit
 
