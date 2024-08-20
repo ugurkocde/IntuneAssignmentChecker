@@ -85,11 +85,23 @@ if (-not $appid -or $appid -eq '<YourAppIdHere>' -or
 
 # Connect to Microsoft Graph using certificate-based authentication
 try {
-    Connect-MgGraph -ClientId $appid -TenantId $tenantid -CertificateThumbprint $certThumbprint #You can use -CertificateName <Certificate subject> instead of –CertificateThumbprint 
+    $connectionResult = Connect-MgGraph -ClientId $appid -TenantId $tenantid -CertificateThumbprint $certThumbprint -NoWelcome -ErrorAction Stop #You can use -CertificateName <Certificate subject> instead of –CertificateThumbprint
+    
+    # Check if the connection was successful
+    if ($null -eq (Get-MgContext)) {
+        throw "Failed to establish a valid connection to Microsoft Graph."
+    }
+    
     Write-Host "Successfully connected to Microsoft Graph" -ForegroundColor Green
 }
 catch {
     Write-Host "Failed to connect to Microsoft Graph. Error: $_" -ForegroundColor Red
+    
+    # Additional error handling for certificate issues
+    if ($_.Exception.Message -like "*Certificate with thumbprint*was not found*") {
+        Write-Host "The specified certificate was not found or has expired. Please check your certificate configuration." -ForegroundColor Yellow
+    }
+    
     exit
 }
 
@@ -2042,6 +2054,8 @@ do {
         }
 
         '8' {
+            Write-Host "Disconnecting from Microsoft Graph..." -ForegroundColor Yellow
+            Disconnect-MgGraph | Out-Null
             Write-Host "Exiting..." -ForegroundColor Red
             exit
         }
