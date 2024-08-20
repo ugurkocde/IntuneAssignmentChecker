@@ -8,13 +8,10 @@
     <img src="https://img.shields.io/badge/Connect on LinkedIn-blue?style=for-the-badge&logo=linkedin&logoColor=white" alt="LinkedIn Badge"/>
   </a>
 
-  <a href="https://www.buymeacoffee.com/ugurkocde"><img src="https://img.buymeacoffee.com/button-api/?text=Buy me a coffee&emoji=☕&slug=ugurkocde&button_colour=FF5F5F&font_colour=ffffff&font_family=Cookie&outline_colour=000000&coffee_colour=FFDD00" style="width: 150px; height: 40px;" />
-  </a>
+<a href="https://www.buymeacoffee.com/ugurkocde"><img src="https://img.buymeacoffee.com/button-api/?text=Buy me a coffee&emoji=☕&slug=ugurkocde&button_colour=FF5F5F&font_colour=ffffff&font_family=Cookie&outline_colour=000000&coffee_colour=FFDD00" style="width: 150px; height: 40px;" />
+</a>
 
-  
-  
 </div>
-
 
 </div>
 
@@ -27,7 +24,6 @@ Sign up for my newsletter to receive immediate notifications whenever I launch a
 
 </div>
 
-
 ---
 
 # Overview
@@ -36,17 +32,17 @@ The `Intune Assignment Checker` script is here to simplify your life. It will pr
 
 Website: https://intuneassignmentchecker.ugurkoc.de/
 
-
-
 ## Demo
 
 https://github.com/ugurkocde/IntuneAssignmentChecker/assets/43906965/3d0311f2-d537-4c31-9ef9-41c6500490a4
 
 ## Features
 
-- Checks which users or devices are assigned to specific Intune policies.
-- Verifies the app registration permissions against Microsoft Graph to ensure it can retrieve the necessary information.
-- Provides descriptions for each permission to explain why it's necessary.
+- Checks assignments for users, groups, and devices in Intune.
+- Provides descriptions for each required permission.
+- Shows all 'All User' and 'All Device' assignments.
+- Supports certificate-based authentication.
+- Includes an auto-update feature.
 
 ## Prerequisites
 
@@ -66,14 +62,14 @@ Ensure that you have granted admin consent for these permissions in the Azure po
 
 ## Setup
 
-1. Clone this repository or download the `IntuneAssignmentChecker.ps1` script.
+1. Clone this repository or download the `IntuneAssignmentChecker_v2.ps1` script.
 2. Fill in your Entra ID application registration details (App ID, Tenant ID, and Secret) at the beginning of the script.
 
 ```powershell
 # Fill in your App ID, Tenant ID, and Secret
 $appid = '<YourAppIdHere>' # App ID of the App Registration
-$tenantid = '<YourTenantIdHere>' # Tenant ID of your Azure AD
-$secret = '<YourSecretHere>' # Secret of the App Registration
+$tenantid = '<YourTenantIdHere>' # Tenant ID of your EntraID
+$certThumbprint = '<YourCertificateThumbprintHere>' # Thumbprint of the certificate associated with the App Registration
 ```
 
 3. Run the script in PowerShell.
@@ -83,16 +79,19 @@ $secret = '<YourSecretHere>' # Secret of the App Registration
 To run the script, open PowerShell and navigate to the directory containing IntuneAssignmentChecker.ps1. Run the script using:
 
 ```powershell
-.\IntuneAssignmentChecker.ps1
+.\IntuneAssignmentChecker_v2.ps1
 ```
 
 Follow the on-screen instructions to select the type of entity you want to check the assignments for in Intune:
 
-- 1 for Users
-- 2 for Groups
-- 3 for Devices
-- 4 to Check Permissions
-- 5 to Exit
+1. User(s)
+2. Group(s)
+3. Device(s)
+4. Show all 'All User' Assignments
+5. Show all 'All Device' Assignments
+6. Check Permissions
+7. Report a Bug or Request a Feature
+8. Exit
 
 ## Contributing
 
