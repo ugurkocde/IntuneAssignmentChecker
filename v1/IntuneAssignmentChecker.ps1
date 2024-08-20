@@ -26,7 +26,7 @@ $localVersion = "1.3.0"
 $versionUrl = "https://raw.githubusercontent.com/ugurkocde/IntuneAssignmentChecker/main/version.txt"
 
 # URL to the latest script on GitHub
-$scriptUrl = "https://raw.githubusercontent.com/ugurkocde/IntuneAssignmentChecker/main/IntuneAssignmentChecker.ps1"
+$scriptUrl = "https://raw.githubusercontent.com/ugurkocde/IntuneAssignmentChecker/main/v1/IntuneAssignmentChecker.ps1"
 
 # Determine the script path based on whether it's run as a file or from an IDE
 if ($PSScriptRoot) {
@@ -1629,7 +1629,8 @@ do {
                                     default {
                                         if ($assignment.target.groupId) {
                                             $assignments += $assignment.target.groupId
-                                        } else {
+                                        }
+                                        else {
                                             $assignments += "Unknown"
                                         }
                                     }
@@ -1637,11 +1638,11 @@ do {
                             }
 
                             $foundSettings += [PSCustomObject]@{
-                                PolicyName               = $policyName
-                                PolicyId                 = $policyId
-                                SettingDisplayName       = $definition.displayName
-                                SettingDescription       = $definition.description
-                                "Assignments (GroupID)"  = $assignments -join ', '
+                                PolicyName              = $policyName
+                                PolicyId                = $policyId
+                                SettingDisplayName      = $definition.displayName
+                                SettingDescription      = $definition.description
+                                "Assignments (GroupID)" = $assignments -join ', '
                             }
                         }
                     }
@@ -1650,7 +1651,8 @@ do {
 
             if ($foundSettings.Count -eq 0) {
                 Write-Host "No settings found with the provided displayNames" -ForegroundColor Red
-            } else {
+            }
+            else {
                 Write-Host "Settings found with the provided displayNames:" -ForegroundColor Green
                 $foundSettings | Format-List
             }
