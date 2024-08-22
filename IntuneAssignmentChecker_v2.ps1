@@ -21,7 +21,7 @@ $certThumbprint = '<YourCertificateThumbprintHere>' # Thumbprint of the certific
 # Autoupdate function
 
 # Version of the local script
-$localVersion = "2.1.0"
+$localVersion = "2.2.0"
 
 # URL to the version file on GitHub
 $versionUrl = "https://raw.githubusercontent.com/ugurkocde/IntuneAssignmentChecker/main/version_v2.txt"
