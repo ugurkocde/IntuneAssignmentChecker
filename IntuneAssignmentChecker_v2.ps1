@@ -75,23 +75,57 @@ catch {
 
 # Do not change the following code
 
-# Check if any of the variables are not set or contain placeholder values
-if (-not $appid -or $appid -eq '<YourAppIdHere>' -or
-    -not $tenantid -or $tenantid -eq '<YourTenantIdHere>' -or
-    -not $certThumbprint -or $certThumbprint -eq '<YourCertificateThumbprintHere>') {
-    Write-Host "App ID, Tenant ID, or Certificate Thumbprint is missing or not set correctly. Please fill out all the necessary details." -ForegroundColor Red
-    exit
-}
-
 # Connect to Microsoft Graph using certificate-based authentication
 try {
-    $connectionResult = Connect-MgGraph -ClientId $appid -TenantId $tenantid -CertificateThumbprint $certThumbprint -NoWelcome -ErrorAction Stop
-    
-    # Check if the connection was successful
-    if ($null -eq (Get-MgContext)) {
-        throw "Failed to establish a valid connection to Microsoft Graph."
+
+    # Define required permissions with reasons
+    $requiredPermissions = @(
+        @{
+            Permission = "User.Read.All"
+            Reason     = "Required to read user profile information and check group memberships"
+        },
+        @{
+            Permission = "Group.Read.All"
+            Reason     = "Needed to read group information and memberships"
+        },
+        @{
+            Permission = "DeviceManagementConfiguration.Read.All"
+            Reason     = "Allows reading Intune device configuration policies and their assignments"
+        },
+        @{
+            Permission = "DeviceManagementApps.Read.All"
+            Reason     = "Necessary to read mobile app management policies and app configurations"
+        },
+        @{
+            Permission = "DeviceManagementManagedDevices.Read.All"
+            Reason     = "Required to read managed device information and compliance policies"
+        },
+        @{
+            Permission = "Device.Read.All"
+            Reason     = "Needed to read device information from Azure AD"
+        }
+    )
+
+        # Check if any of the variables are not set or contain placeholder values
+    if (-not $appid -or $appid -eq '<YourAppIdHere>' -or
+        -not $tenantid -or $tenantid -eq '<YourTenantIdHere>' -or
+        -not $certThumbprint -or $certThumbprint -eq '<YourCertificateThumbprintHere>') {
+        Write-Host "App ID, Tenant ID, or Certificate Thumbprint is missing or not set correctly." -ForegroundColor Red
+        $manualConnection = Read-Host "Would you like to attempt a manual interactive connection? (y/n)"
+        if ($manualConnection -eq 'y') {
+            # Manual connection using interactive login
+            write-host "Attempting manual interactive connection (you need privileges to consent permissions)..." -ForegroundColor Yellow
+            $permissionsList = ($requiredPermissions | ForEach-Object { $_.Permission }) -join ', '
+            $connectionResult = Connect-MgGraph -Scopes $permissionsList -NoWelcome -ErrorAction Stop
+        }
+        else {
+            Write-Host "Script execution cancelled by user." -ForegroundColor Red
+            exit
+        }
     }
-    
+    else {
+        $connectionResult = Connect-MgGraph -ClientId $appid -TenantId $tenantid -CertificateThumbprint $certThumbprint -NoWelcome -ErrorAction Stop
+    }
     Write-Host "Successfully connected to Microsoft Graph" -ForegroundColor Green
 
     # Define required permissions with reasons
