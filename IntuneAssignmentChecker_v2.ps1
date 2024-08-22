@@ -1,3 +1,4 @@
+#Requires -Version 7
 # Intune Assignment Checker
 # Author: Ugur Koc (Socials: @ugurkocde)
 # Description: This script checks the assignments of Intune Configuration Policies and Device Configurations based on the groups that the user or device is a member of in Microsoft Entra (formerly Azure AD).
