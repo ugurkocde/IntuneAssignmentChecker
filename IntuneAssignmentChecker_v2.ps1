@@ -75,23 +75,28 @@ catch {
 
 # Do not change the following code
 
-# Check if any of the variables are not set or contain placeholder values
-if (-not $appid -or $appid -eq '<YourAppIdHere>' -or
-    -not $tenantid -or $tenantid -eq '<YourTenantIdHere>' -or
-    -not $certThumbprint -or $certThumbprint -eq '<YourCertificateThumbprintHere>') {
-    Write-Host "App ID, Tenant ID, or Certificate Thumbprint is missing or not set correctly. Please fill out all the necessary details." -ForegroundColor Red
-    exit
-}
-
 # Connect to Microsoft Graph using certificate-based authentication
 try {
-    $connectionResult = Connect-MgGraph -ClientId $appid -TenantId $tenantid -CertificateThumbprint $certThumbprint -NoWelcome -ErrorAction Stop
-    
-    # Check if the connection was successful
-    if ($null -eq (Get-MgContext)) {
-        throw "Failed to establish a valid connection to Microsoft Graph."
+
+    # Check if any of the variables are not set or contain placeholder values
+    if (-not $appid -or $appid -eq '<YourAppIdHere>' -or
+        -not $tenantid -or $tenantid -eq '<YourTenantIdHere>' -or
+        -not $certThumbprint -or $certThumbprint -eq '<YourCertificateThumbprintHere>') {
+        Write-Host "App ID, Tenant ID, or Certificate Thumbprint is missing or not set correctly." -ForegroundColor Red
+        $manualConnection = Read-Host "Would you like to attempt a manual interactive connection? (yes/no)"
+        if ($manualConnection -eq 'yes') {
+            # Manual connection using interactive login
+            write-host "Attempting manual interactive connection (you need privileges to consent permissions)..." -ForegroundColor Yellow
+            $connectionResult = Connect-MgGraph -Scopes User.Read.All, Group.Read.All, DeviceManagementConfiguration.Read.All, DeviceManagementApps.Read.All, DeviceManagementManagedDevices.Read.All, Device.Read.All -NoWelcome -ErrorAction Stop
+        }
+        else {
+            Write-Host "Script execution cancelled by user." -ForegroundColor Red
+            exit
+        }
     }
-    
+    else {
+        $connectionResult = Connect-MgGraph -ClientId $appid -TenantId $tenantid -CertificateThumbprint $certThumbprint -NoWelcome -ErrorAction Stop
+    }
     Write-Host "Successfully connected to Microsoft Graph" -ForegroundColor Green
 
     # Define required permissions with reasons
