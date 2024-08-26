@@ -21,7 +21,7 @@ $certThumbprint = '<YourCertificateThumbprintHere>' # Thumbprint of the certific
 # Autoupdate function
 
 # Version of the local script
-$localVersion = "2.2.0"
+$localVersion = "2.3.0"
 
 # URL to the version file on GitHub
 $versionUrl = "https://raw.githubusercontent.com/ugurkocde/IntuneAssignmentChecker/main/version_v2.txt"
@@ -106,7 +106,7 @@ try {
         }
     )
 
-        # Check if any of the variables are not set or contain placeholder values
+    # Check if any of the variables are not set or contain placeholder values
     if (-not $appid -or $appid -eq '<YourAppIdHere>' -or
         -not $tenantid -or $tenantid -eq '<YourTenantIdHere>' -or
         -not $certThumbprint -or $certThumbprint -eq '<YourCertificateThumbprintHere>') {
@@ -128,34 +128,6 @@ try {
     }
     Write-Host "Successfully connected to Microsoft Graph" -ForegroundColor Green
 
-    # Define required permissions with reasons
-    $requiredPermissions = @(
-        @{
-            Permission = "User.Read.All"
-            Reason     = "Required to read user profile information and check group memberships"
-        },
-        @{
-            Permission = "Group.Read.All"
-            Reason     = "Needed to read group information and memberships"
-        },
-        @{
-            Permission = "DeviceManagementConfiguration.Read.All"
-            Reason     = "Allows reading Intune device configuration policies and their assignments"
-        },
-        @{
-            Permission = "DeviceManagementApps.Read.All"
-            Reason     = "Necessary to read mobile app management policies and app configurations"
-        },
-        @{
-            Permission = "DeviceManagementManagedDevices.Read.All"
-            Reason     = "Required to read managed device information and compliance policies"
-        },
-        @{
-            Permission = "Device.Read.All"
-            Reason     = "Needed to read device information from Azure AD"
-        }
-    )
-
     # Check and display the current permissions
     $context = Get-MgContext
     $currentPermissions = $context.Scopes
@@ -165,7 +137,11 @@ try {
     foreach ($permissionInfo in $requiredPermissions) {
         $permission = $permissionInfo.Permission
         $reason = $permissionInfo.Reason
-        if ($currentPermissions -contains $permission) {
+
+        # Check if either the exact permission or a "ReadWrite" version of it is granted
+        $hasPermission = $currentPermissions -contains $permission -or $currentPermissions -contains $permission.Replace(".Read", ".ReadWrite")
+
+        if ($hasPermission) {
             Write-Host "  [✓] $permission" -ForegroundColor Green
             Write-Host "      Reason: $reason" -ForegroundColor Gray
         }
@@ -197,6 +173,7 @@ try {
         }
     }
 }
+
 catch {
     Write-Host "Failed to connect to Microsoft Graph. Error: $_" -ForegroundColor Red
     
