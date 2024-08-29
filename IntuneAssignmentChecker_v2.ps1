@@ -266,7 +266,7 @@ do {
                 $userId = $userResponse.id
 
                 # Get User Group Memberships
-                $groupsUri = "https://graph.microsoft.com/v1.0/users/81896dc1-6b78-4e1e-b2c3-abd214918f0c/transitiveMemberOf?`$select=id,displayName"
+                $groupsUri = "https://graph.microsoft.com/v1.0/users/$userid/transitiveMemberOf?`$select=id,displayName"
                 $response = Invoke-MgGraphRequest -Uri $groupsUri -Method Get
                 $groupIds = $response.value | ForEach-Object { $_.id }
                 $groupNames = $response.value | ForEach-Object { $_.displayName }
