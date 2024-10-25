@@ -24,7 +24,7 @@ $certThumbprint = '<YourCertificateThumbprintHere>' # Thumbprint of the certific
 # Autoupdate function
 
 # Version of the local script
-$localVersion = "2.3.0"
+$localVersion = "2.4.0"
 
 # URL to the version file on GitHub
 $versionUrl = "https://raw.githubusercontent.com/ugurkocde/IntuneAssignmentChecker/main/version_v2.txt"
@@ -42,7 +42,7 @@ else {
 }
 
 # Flag to control auto-update behavior
-$autoUpdate = $true  # Set to $false to disable auto-update
+$autoUpdate = $false  # Set to $false to disable auto-update
 
 try {
     # Fetch the latest version number from GitHub
@@ -234,20 +234,225 @@ function Add-AppExportData($Category, $Apps) {
 
 ###### End of Export Functions ######
 
+function Show-AllPoliciesAndAssignments {
+    # Initialize arrays to store policy information
+    $allPolicies = @()
+    
+    # Fetch all policies
+    Write-Host "Fetching Configuration Profiles..." -ForegroundColor Yellow
+    $configProfiles = Get-ConfigurationProfiles
+    Write-Host "Fetching Settings Catalog Policies..." -ForegroundColor Yellow
+    $settingsCatalog = Get-SettingsCatalogPolicies
+    Write-Host "Fetching Compliance Policies..." -ForegroundColor Yellow
+    $compliancePolicies = Get-CompliancePolicies
+    
+    # Combine and sort all policies
+    $allPolicies = @($configProfiles + $settingsCatalog + $compliancePolicies)
+    
+    # Group by platform and sort
+    $platformGroups = $allPolicies | Group-Object -Property Platform | Sort-Object Name
+    
+    foreach ($platformGroup in $platformGroups) {
+        Write-Host "`n=== $($platformGroup.Name) Policies ===" -ForegroundColor Cyan
+        
+        $policies = $platformGroup.Group | Sort-Object PolicyType, DisplayName
+        
+        $policies | Format-Table -AutoSize -Property @(
+            @{Label = "Type"; Expression = { $_.PolicyType } },
+            @{Label = "Name"; Expression = { $_.DisplayName } },
+            @{Label = "Assignments"; Expression = { $_.AssignmentSummary } }
+        )
+    }
+    
+    # Offer to export to CSV
+    $export = Read-Host "Would you like to export this information to CSV? (y/n)"
+    if ($export -eq 'y') {
+        $exportPath = Show-SaveFileDialog -DefaultFileName "IntuneAllPolicies.csv"
+        if ($exportPath) {
+            $allPolicies | Export-Csv -Path $exportPath -NoTypeInformation
+            Write-Host "Exported to $exportPath" -ForegroundColor Green
+        }
+    }
+}
+
+function Get-SettingsCatalogPolicies {
+    $policies = @()
+    
+    # Fetch settings catalog policies
+    $settingsCatalogUri = "https://graph.microsoft.com/beta/deviceManagement/configurationPolicies"
+    $response = Invoke-MgGraphRequest -Uri $settingsCatalogUri -Method Get
+    
+    foreach ($policy in $response.value) {
+        $assignments = Get-PolicyAssignments -PolicyId $policy.id -PolicyType "configurationPolicies"
+        
+        $platform = switch ($policy.platforms) {
+            "windows10" { "Windows" }
+            "macOS" { "macOS" }
+            "iOS" { "iOS/iPadOS" }
+            "android" { "Android" }
+            default { 
+                
+                switch -Wildcard ($policy.platforms.ToLower()) {
+                    "*windows*" { "Windows" }
+                    "*macos*" { "macOS" }
+                    "*ios*" { "iOS/iPadOS" }
+                    "*android*" { "Android" }
+                    default { "Other" }
+                }
+            }
+        }
+        
+        $policies += [PSCustomObject]@{
+            PolicyType        = "Settings Catalog"
+            Platform          = $platform
+            DisplayName       = $policy.name
+            Id                = $policy.id
+            AssignmentSummary = ($assignments -join "; ")
+            RawAssignments    = $assignments
+        }
+    }
+    
+    return $policies
+}
+
+function Get-ConfigurationProfiles {
+    $profiles = @()
+    
+    # Fetch device configurations
+    $deviceConfigsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceConfigurations"
+    $response = Invoke-MgGraphRequest -Uri $deviceConfigsUri -Method Get
+    
+    foreach ($profile in $response.value) {
+        $assignments = Get-PolicyAssignments -PolicyId $profile.id -PolicyType "deviceConfigurations"
+        $platform = Get-PolicyPlatform -PolicyType $profile.'@odata.type'
+        
+        $profiles += [PSCustomObject]@{
+            PolicyType        = "Configuration Profile"
+            Platform          = $platform
+            DisplayName       = $profile.displayName
+            Id                = $profile.id
+            AssignmentSummary = ($assignments -join "; ")
+            RawAssignments    = $assignments
+        }
+    }
+    
+    return $profiles
+}
+
+function Get-CompliancePolicies {
+    $policies = @()
+    
+    # Fetch compliance policies
+    $complianceUri = "https://graph.microsoft.com/beta/deviceManagement/deviceCompliancePolicies"
+    $response = Invoke-MgGraphRequest -Uri $complianceUri -Method Get
+    
+    foreach ($policy in $response.value) {
+        $assignments = Get-PolicyAssignments -PolicyId $policy.id -PolicyType "deviceCompliancePolicies"
+        $platform = Get-PolicyPlatform -PolicyType $policy.'@odata.type'
+        
+        $policies += [PSCustomObject]@{
+            PolicyType        = "Compliance Policy"
+            Platform          = $platform
+            DisplayName       = $policy.displayName
+            Id                = $policy.id
+            AssignmentSummary = ($assignments -join "; ")
+            RawAssignments    = $assignments
+        }
+    }
+    
+    return $policies
+}
+
+function Get-PolicyAssignments {
+    param (
+        [string]$PolicyId,
+        [string]$PolicyType
+    )
+    
+    $assignments = @()
+    $assignmentsUri = "https://graph.microsoft.com/beta/deviceManagement/$PolicyType('$PolicyId')/assignments"
+    $response = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
+    
+    foreach ($assignment in $response.value) {
+        switch ($assignment.target.'@odata.type') {
+            '#microsoft.graph.allLicensedUsersAssignmentTarget' { 
+                $assignments += "All Users" 
+            }
+            '#microsoft.graph.allDevicesAssignmentTarget' { 
+                $assignments += "All Devices" 
+            }
+            '#microsoft.graph.groupAssignmentTarget' {
+                $groupId = $assignment.target.groupId
+                $groupName = Get-GroupName -GroupId $groupId
+                $assignments += $groupName
+            }
+        }
+    }
+    
+    return $assignments
+}
+
+function Get-GroupName {
+    param (
+        [string]$GroupId
+    )
+    
+    try {
+        $groupUri = "https://graph.microsoft.com/v1.0/groups/$GroupId"
+        $group = Invoke-MgGraphRequest -Uri $groupUri -Method Get
+        return $group.displayName
+    }
+    catch {
+        return "Unknown Group ($GroupId)"
+    }
+}
+
+function Get-PolicyPlatform {
+    param (
+        [string]$PolicyType
+    )
+    
+    switch -Wildcard ($PolicyType) {
+        "*windows*" { return "Windows" }
+        "*android*" { return "Android" }
+        "*ios*" { return "iOS/iPadOS" }
+        "*mac*" { return "macOS" }
+        default { return "Other" }
+    }
+}
+
+function Show-SaveFileDialog {
+    param (
+        [string]$DefaultFileName
+    )
+    
+    Add-Type -AssemblyName System.Windows.Forms
+    $saveFileDialog = New-Object System.Windows.Forms.SaveFileDialog
+    $saveFileDialog.Filter = "CSV files (*.csv)|*.csv|All files (*.*)|*.*"
+    $saveFileDialog.FileName = $DefaultFileName
+    $saveFileDialog.Title = "Save Policy Report"
+    
+    if ($saveFileDialog.ShowDialog() -eq 'OK') {
+        return $saveFileDialog.FileName
+    }
+    return $null
+}
+
 # Loop until the user decides to exit
 do {
-    # Main Menu for selection
+    # Update the menu display
     Write-Host "Select the type of entity you want to check the Assignments for in Intune:" -ForegroundColor Cyan
     Write-Host "1. User(s)" -ForegroundColor Yellow
     Write-Host "2. Group(s)" -ForegroundColor Yellow
     Write-Host "3. Device(s)" -ForegroundColor Yellow
-    Write-Host "4. Show all 'All User' Assignments" -ForegroundColor Yellow
-    Write-Host "5. Show all 'All Device' Assignments" -ForegroundColor Yellow 
-    Write-Host "6. Search for Assignments by Setting Name" -ForegroundColor Yellow
-    Write-Host "7. Report a Bug or Request a Feature" -ForegroundColor Yellow
-    Write-Host "8. Exit" -ForegroundColor Red
+    Write-Host "4. Show All Policies and Their Assignments" -ForegroundColor Yellow
+    Write-Host "5. Show all 'All User' Assignments" -ForegroundColor Yellow
+    Write-Host "6. Show all 'All Device' Assignments" -ForegroundColor Yellow
+    Write-Host "7. Search for Assignments by Setting Name" -ForegroundColor Yellow
+    Write-Host "8. Report a Bug or Request a Feature" -ForegroundColor Yellow
+    Write-Host "9. Exit" -ForegroundColor Red
     
-    $selection = Read-Host "Please enter your choice (1, 2, 3, 4, 5, 6, 7 or 8)"
+    $selection = Read-Host "Please enter your choice (1-9)"
     switch ($selection) {
 
         '1' {
@@ -988,7 +1193,7 @@ do {
                 # Display the fetched Applications (Available)
                 Write-Host "------- Applications (Available) -------" -ForegroundColor Cyan
                 foreach ($app in $GroupRelevantAppsAvailable) {
-                    $appName = if ([string]::IsNullOrWhiteSpace($app.name)) { $app.displayName } else { $app.name }
+                    $appName = if ([string]::IsNullOrWhiteSpace($app.name)) { $app.displayName } else { $app.displayName }
                     $appId = $app.id
                     Write-Host "App Name: $appName, App ID: $appId" -ForegroundColor White
                 }
@@ -1402,7 +1607,7 @@ do {
                 # Display the fetched Applications (Available)
                 Write-Host "------- Applications (Available) -------" -ForegroundColor Cyan
                 foreach ($app in $deviceRelevantAppsAvailable) {
-                    $appName = if ([string]::IsNullOrWhiteSpace($app.name)) { $app.displayName } else { $app.name }
+                    $appName = if ([string]::IsNullOrWhiteSpace($app.name)) { $app.displayName } else { $app.displayName }
                     $appId = $app.id
                     Write-Host "App Name: $appName, App ID: $appId" -ForegroundColor White
                 }
@@ -1463,8 +1668,13 @@ do {
                 }
             }
         }
-        
+
         '4' {
+            Write-Host "Fetching all policies and their assignments..." -ForegroundColor Green
+            Show-AllPoliciesAndAssignments
+        }
+        
+        '5' {
             Write-Host "'Show all `All User` Assignments' chosen" -ForegroundColor Green
             $script:defaultAssignmentReason = "All Users"
 
@@ -1798,7 +2008,7 @@ do {
             }
         }
 
-        '5' {
+        '6' {
             Write-Host "'Show all `All Devices` Assignments' chosen" -ForegroundColor Green
             $script:defaultAssignmentReason = "All Devices"
 
@@ -2133,7 +2343,7 @@ do {
             }
         }
         
-        '6' {
+        '7' {
 
 
             Write-Host "Search for Assignments by the Name of a Setting chosen" -ForegroundColor Green
@@ -2208,20 +2418,22 @@ do {
             }
         }
 
-        '7' {
+        '8' {
             Write-Host "Opening GitHub Repository..." -ForegroundColor Green
             Start-Process "https://github.com/ugurkocde/IntuneAssignmentChecker"
         }
 
-        '8' {
+        '9' {
             Write-Host "Disconnecting from Microsoft Graph..." -ForegroundColor Yellow
             Disconnect-MgGraph | Out-Null
             Write-Host "Exiting..." -ForegroundColor Red
             exit
         }
 
+
+
         default {
-            Write-Host "Invalid choice, please select 1, 2, 3, 4, 5, 6, 7 or 8." -ForegroundColor Red
+            Write-Host "Invalid choice, please select 1, 2, 3, 4, 5, 6, 7, 8 or 9." -ForegroundColor Red
             $script:defaultAssignmentReason = "N/A"
         }
     }
