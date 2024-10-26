@@ -1,10 +1,6 @@
 # 🔍Intune Assignment Checker
 
 <div align="center">
-  <a href="https://intuneassignmentchecker.ugurkoc.de/">
-    <img src="path/to/logo.png" alt="Intune Assignment Checker Logo" width="200"/>
-  </a>
-
   <p>
     <a href="https://twitter.com/UgurKocDe">
       <img src="https://img.shields.io/badge/Follow-@UgurKocDe-1DA1F2?style=flat&logo=x&logoColor=white" alt="Twitter Follow"/>
@@ -35,7 +31,7 @@
 
 ```powershell
 # Install Microsoft Graph PowerShell SDK
-Install-Module Microsoft.Graph -Scope CurrentUser
+Install-Module Microsoft.Graph.Authentication -Scope CurrentUser
 
 # Download and run the script
 .\IntuneAssignmentChecker_v2.ps1
@@ -58,8 +54,9 @@ Install-Module Microsoft.Graph -Scope CurrentUser
 ## 📋 Prerequisites
 
 ### Required PowerShell Modules
-- PowerShell 5.1 or higher
+- PowerShell 7.0 or higher
 - Microsoft Graph PowerShell SDK
+  - Specifically Microsoft.Graph.Authentication
 
 ### Required Permissions
 Your Entra ID application registration needs these permissions:
@@ -86,16 +83,61 @@ $certThumbprint = '<YourCertificateThumbprintHere>'
 
 ## 📖 Usage
 
-Run the script and choose from these options:
+The script provides a comprehensive menu-driven interface with the following options:
 
-1. 👤 Check User Assignments
-2. 👥 Check Group Assignments
-3. 💻 Check Device Assignments
-4. 📱 View All User Assignments
-5. 🖥️ View All Device Assignments
-6. 🔍 Search by Setting Name
-7. 🐛 Report Bug/Request Feature
-8. ❌ Exit
+### 🎯 Assignment Checks
+1. **Check User(s) Assignments**
+   - View all policies and apps assigned to specific users
+   - Supports checking multiple users (comma-separated)
+   - Shows direct and group-based assignments
+
+2. **Check Group(s) Assignments**
+   - View all policies and apps assigned to specific groups
+   - Supports checking multiple groups
+   - Shows assignment types (Include/Exclude)
+
+3. **Check Device(s) Assignments**
+   - View all policies and apps assigned to specific devices
+   - Supports checking multiple devices
+   - Shows inherited assignments from device groups
+
+### 📋 Policy Overview
+4. **Show All Policies and Their Assignments**
+   - Comprehensive view of all Intune policies
+   - Grouped by policy type and platform
+   - Includes assignment details
+
+5. **Show All 'All Users' Assignments**
+   - Lists policies assigned to all users
+   - Includes apps and configurations
+   - Helps identify broad-scope policies
+
+6. **Show All 'All Devices' Assignments**
+   - Lists policies assigned to all devices
+   - Shows platform-specific assignments
+   - Identifies universal device policies
+
+### ⚙️ Advanced Options
+7. **Search for Assignments by Setting Name**
+   - Search across all policy types
+   - Find specific settings or configurations
+   - Includes partial name matching
+
+8. **Show Policies Without Assignments**
+   - Identifies unassigned policies
+   - Grouped by policy type
+   - Helps clean up unused policies
+
+9. **Check for Empty Groups in Assignments**
+   - Finds assignments to empty groups
+   - Helps identify ineffective policies
+   - Supports CSV export of findings
+
+### 🛠️ System Options
+- **Exit (0)**: Safely disconnect and close
+- **Report Bug (99)**: Opens GitHub issues page
+
+All operations support CSV export for detailed analysis and reporting.
 
 ## 🤝 Contributing
 
