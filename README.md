@@ -17,14 +17,6 @@
   <a href="https://www.buymeacoffee.com/ugurkocde">
     <img src="https://img.buymeacoffee.com/button-api/?text=Buy me a coffee&emoji=☕&slug=ugurkocde&button_colour=FF5F5F&font_colour=ffffff&font_family=Cookie&outline_colour=000000&coffee_colour=FFDD00" width="150" alt="Buy Me A Coffee"/>
   </a>
-
-  <h3>
-    <a href="https://intuneassignmentchecker.ugurkoc.de/">Website</a>
-    <span> · </span>
-    <a href="#documentation">Documentation</a>
-    <span> · </span>
-    <a href="https://github.com/ugurkocde/IntuneAssignmentChecker/issues">Report Bug</a>
-  </h3>
 </div>
 
 ## 🚀 Quick Start
