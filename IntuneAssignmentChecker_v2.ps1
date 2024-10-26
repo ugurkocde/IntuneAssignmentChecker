@@ -524,7 +524,7 @@ function Show-Menu {
     Write-Host "  [99] Report a Bug or Request a Feature" -ForegroundColor White
     Write-Host ""
     
-    Write-Host "Select an option [0-11]: " -ForegroundColor Yellow -NoNewline
+    Write-Host "Select an option: " -ForegroundColor Yellow -NoNewline
 }
 
 # Loop until the user decides to exit
@@ -566,12 +566,19 @@ do {
                     $userId = $userResponse.id
 
                     # Get User Group Memberships
-                    $groupsUri = "https://graph.microsoft.com/v1.0/users/$userId/transitiveMemberOf?`$select=id,displayName"
-                    $response = Invoke-MgGraphRequest -Uri $groupsUri -Method Get -ErrorAction Stop
-                    $groupIds = $response.value | ForEach-Object { $_.id }
-                    $groupNames = $response.value | ForEach-Object { $_.displayName }
+                    try {
+                        $groupsUri = "https://graph.microsoft.com/v1.0/users/$userId/transitiveMemberOf?`$select=id,displayName"
+                        $response = Invoke-MgGraphRequest -Uri $groupsUri -Method Get -ErrorAction Stop
+                        $groupIds = $response.value | ForEach-Object { $_.id }
+                        $groupNames = $response.value | ForEach-Object { $_.displayName }
 
-                    Write-Host "User Group Memberships: $($groupNames -join ', ')" -ForegroundColor Green
+                        Write-Host "User Group Memberships: $($groupNames -join ', ')" -ForegroundColor Green
+                    }
+                    catch {
+                        Write-Host "Error fetching group memberships for user: $upn" -ForegroundColor Red
+                        Write-Host "Error details: $($_.Exception.Message)" -ForegroundColor Red
+                        continue
+                    }
 
                     Write-Host "Fetching Intune Profiles and Applications for the user ... (this takes a few seconds)" -ForegroundColor Yellow
 
@@ -966,17 +973,31 @@ do {
                     }
                 }
                 catch {
-                    if ($_.Exception.Response.StatusCode -eq 404) {
-                        Write-Host "User '$upn' not found in Entra ID. Please verify the UPN is correct." -ForegroundColor Red
+                    switch ($_.Exception.Response.StatusCode.value__) {
+                        404 { 
+                            Write-Host "User not found: $upn" -ForegroundColor Red 
+                            Write-Host "Please verify the User Principal Name is correct." -ForegroundColor Yellow
+                        }
+                        401 { 
+                            Write-Host "Unauthorized access when looking up user: $upn" -ForegroundColor Red 
+                            Write-Host "Please verify your permissions are correct." -ForegroundColor Yellow
+                        }
+                        403 { 
+                            Write-Host "Forbidden access when looking up user: $upn" -ForegroundColor Red 
+                            Write-Host "Please verify your permissions are correct." -ForegroundColor Yellow
+                        }
+                        429 { 
+                            Write-Host "Too many requests. Please try again later." -ForegroundColor Red 
+                            Write-Host "Waiting 30 seconds before continuing..." -ForegroundColor Yellow
+                            Start-Sleep -Seconds 30
+                            continue
+                        }
+                        default {
+                            Write-Host "Error occurred while checking user: $upn" -ForegroundColor Red
+                            Write-Host "Status Code: $($_.Exception.Response.StatusCode.value__)" -ForegroundColor Red
+                            Write-Host "Error Message: $($_.Exception.Message)" -ForegroundColor Red
+                        }
                     }
-                    elseif ($_.Exception.Response) {
-                        Write-Host "Error processing user '$upn': HTTP $($_.Exception.Response.StatusCode.value__) - $($_.Exception.Response.StatusDescription)" -ForegroundColor Red
-                    }
-                    else {
-                        Write-Host "Error processing user '$upn': $($_.Exception.Message)" -ForegroundColor Red
-                    }
-                    
-                    # Skip to the next user if there are more
                     continue
                 }
             }
