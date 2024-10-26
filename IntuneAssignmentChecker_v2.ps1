@@ -21,6 +21,16 @@ $certThumbprint = '<YourCertificateThumbprintHere>' # Thumbprint of the certific
 
 ####################################################################################################
 
+# Header
+
+Write-Host "🔍 INTUNE ASSIGNMENT CHECKER" -ForegroundColor Cyan
+Write-Host "Made by Ugur Koc with" -NoNewline; Write-Host " ❤️  and ☕" -NoNewline
+Write-Host " | Version" -NoNewline; Write-Host " $localVersion" -ForegroundColor Yellow -NoNewline
+Write-Host " | Last updated: " -NoNewline; Write-Host "2024-10-26" -ForegroundColor Magenta
+Write-Host ""
+Write-Host "Source: https://github.com/ugurkocde/IntuneAssignmentChecker" -ForegroundColor Cyan
+
+####################################################################################################
 # Autoupdate function
 
 # Version of the local script
@@ -47,11 +57,13 @@ $autoUpdate = $false  # Set to $false to disable auto-update
 try {
     # Fetch the latest version number from GitHub
     $latestVersion = Invoke-RestMethod -Uri $versionUrl
-
-    # Compare the local version with the latest version
-    if ($localVersion -ne $latestVersion) {
-        Write-Host "There is a new version available: $latestVersion. You are running $localVersion." -ForegroundColor Green
-
+    
+    # Compare versions using System.Version for proper semantic versioning
+    $local = [System.Version]::new($localVersion)
+    $latest = [System.Version]::new($latestVersion)
+    
+    if ($local -lt $latest) {
+        Write-Host "A new version is available: $latestVersion (you are running $localVersion)" -ForegroundColor Yellow
         if ($autoUpdate) {
             Write-Host "AutoUpdate is enabled. Downloading the latest version..." -ForegroundColor Yellow
             try {
@@ -65,12 +77,18 @@ try {
             }
         }
         else {
-            Write-Host "Auto-update is disabled. Please download the latest version manually from: https://github.com/ugurkocde/IntuneAssignmentChecker" -ForegroundColor Yellow
+            Write-Host "Auto-update is disabled. Get the latest version at:" -ForegroundColor Yellow
+            Write-Host "https://github.com/ugurkocde/IntuneAssignmentChecker" -ForegroundColor Cyan
+            Write-Host "" 
         }
+    }
+    elseif ($local -gt $latest) {
+        Write-Host "Note: You are running a pre-release version ($localVersion)" -ForegroundColor Magenta
+        Write-Host ""
     }
 }
 catch {
-    Write-Host "Could not check for updates. Please ensure you have an internet connection and try again. If the issue persists, please download the latest version manually from: https://github.com/ugurkocde/IntuneAssignmentChecker" -ForegroundColor Red
+    Write-Host "Unable to check for updates. Continue with current version..." -ForegroundColor Gray
 }
 
 
@@ -495,12 +513,7 @@ function Show-PoliciesWithoutAssignments {
 }
 
 
-function Show-Menu {
-    Clear-Host
-    Write-Host "Intune Assignment Checker - Main Menu" -ForegroundColor Cyan
-    Write-Host "=====================================" -ForegroundColor Cyan
-    Write-Host ""
-    
+function Show-Menu {    
     Write-Host "Assignment Checks:" -ForegroundColor Cyan
     Write-Host "  [1] Check User(s) Assignments" -ForegroundColor White
     Write-Host "  [2] Check Group(s) Assignments" -ForegroundColor White
@@ -529,7 +542,6 @@ function Show-Menu {
 
 # Loop until the user decides to exit
 do {
-    # Update the menu display
     Show-Menu
     $selection = Read-Host
     switch ($selection) {

@@ -1,102 +1,106 @@
-# Intune Assignment Checker
+# 🔍Intune Assignment Checker
 
 <div align="center">
-    <a href="https://twitter.com/UgurKocDe" target="_blank">
-    <img src="https://img.shields.io/badge/Follow on Twitter-black?style=for-the-badge&logo=x&logoColor=white" alt="Twitter Badge" />
-  </a>
-  <a href="https://www.linkedin.com/in/ugurkocde/" target="_blank">
-    <img src="https://img.shields.io/badge/Connect on LinkedIn-blue?style=for-the-badge&logo=linkedin&logoColor=white" alt="LinkedIn Badge"/>
+  <a href="https://intuneassignmentchecker.ugurkoc.de/">
+    <img src="path/to/logo.png" alt="Intune Assignment Checker Logo" width="200"/>
   </a>
 
-<a href="https://www.buymeacoffee.com/ugurkocde"><img src="https://img.buymeacoffee.com/button-api/?text=Buy me a coffee&emoji=☕&slug=ugurkocde&button_colour=FF5F5F&font_colour=ffffff&font_family=Cookie&outline_colour=000000&coffee_colour=FFDD00" style="width: 150px; height: 40px;" />
-</a>
+  <p>
+    <a href="https://twitter.com/UgurKocDe">
+      <img src="https://img.shields.io/badge/Follow-@UgurKocDe-1DA1F2?style=flat&logo=x&logoColor=white" alt="Twitter Follow"/>
+    </a>
+    <a href="https://www.linkedin.com/in/ugurkocde/">
+      <img src="https://img.shields.io/badge/LinkedIn-Connect-0A66C2?style=flat&logo=linkedin" alt="LinkedIn"/>
+    </a>
+    <a href="https://newsletter.ugurkoc.de/">
+      <img src="https://img.shields.io/badge/Newsletter-Subscribe-FF6B6B?style=flat" alt="Newsletter"/>
+    </a>
+    <img src="https://img.shields.io/github/license/ugurkocde/IntuneAssignmentChecker?style=flat" alt="License"/>
+  </p>
 
+  <a href="https://www.buymeacoffee.com/ugurkocde">
+    <img src="https://img.buymeacoffee.com/button-api/?text=Buy me a coffee&emoji=☕&slug=ugurkocde&button_colour=FF5F5F&font_colour=ffffff&font_family=Cookie&outline_colour=000000&coffee_colour=FFDD00" width="150" alt="Buy Me A Coffee"/>
+  </a>
+
+  <h3>
+    <a href="https://intuneassignmentchecker.ugurkoc.de/">Website</a>
+    <span> · </span>
+    <a href="#documentation">Documentation</a>
+    <span> · </span>
+    <a href="https://github.com/ugurkocde/IntuneAssignmentChecker/issues">Report Bug</a>
+  </h3>
 </div>
 
-</div>
-
----
-
-<div align="center">
-
-Sign up for my newsletter to receive immediate notifications whenever I launch a new tool, script or update.  
-[Sign up to the Newsletter](https://newsletter.ugurkoc.de/)
-
-</div>
-
----
-
-# Overview
-
-The `Intune Assignment Checker` script is here to simplify your life. It will provide a detailed overview of assigned Intune Configuration Profiles, Compliance Policies, and Applications for user, groups and devices.
-
-Website: https://intuneassignmentchecker.ugurkoc.de/
-
-## Demo
-
-https://github.com/ugurkocde/IntuneAssignmentChecker/assets/43906965/3d0311f2-d537-4c31-9ef9-41c6500490a4
-
-## Features
-
-- Checks assignments for users, groups, and devices in Intune.
-- Provides descriptions for each required permission.
-- Shows all 'All User' and 'All Device' assignments.
-- Supports certificate-based authentication.
-- Includes an auto-update feature.
-
-## Prerequisites
-
-Before running this script, you need:
-
-- PowerShell 5.1 or higher.
-- Microsoft Graph PowerShell SDK installed. You can install it using `Install-Module Microsoft.Graph -Scope CurrentUser`.
-- An Entra ID application registration with the following permissions granted:
-  - `User.Read.All`
-  - `Group.Read.All`
-  - `Device.Read.All`
-  - `DeviceManagementApps.Read.All`
-  - `DeviceManagementConfiguration.Read.All`
-  - `DeviceManagementManagedDevices.Read.All`
-
-Ensure that you have granted admin consent for these permissions in the Azure portal.
-
-## Setup
-
-1. Clone this repository or download the `IntuneAssignmentChecker_v2.ps1` script.
-2. Fill in your Entra ID application registration details (App ID, Tenant ID, and Secret) at the beginning of the script.
+## 🚀 Quick Start
 
 ```powershell
-# Fill in your App ID, Tenant ID, and Secret
-$appid = '<YourAppIdHere>' # App ID of the App Registration
-$tenantid = '<YourTenantIdHere>' # Tenant ID of your EntraID
-$certThumbprint = '<YourCertificateThumbprintHere>' # Thumbprint of the certificate associated with the App Registration
-```
+# Install Microsoft Graph PowerShell SDK
+Install-Module Microsoft.Graph -Scope CurrentUser
 
-3. Run the script in PowerShell.
-
-## Usage
-
-To run the script, open PowerShell and navigate to the directory containing IntuneAssignmentChecker.ps1. Run the script using:
-
-```powershell
+# Download and run the script
 .\IntuneAssignmentChecker_v2.ps1
 ```
 
-Follow the on-screen instructions to select the type of entity you want to check the assignments for in Intune:
+## ✨ Features
 
-1. User(s)
-2. Group(s)
-3. Device(s)
-4. Show all 'All User' Assignments
-5. Show all 'All Device' Assignments
-6. Search for Assignments by Setting Name
-7. Report a Bug or Request a Feature
-8. Exit
+- 🔍 Check assignments for users, groups, and devices
+- 📱 View all 'All User' and 'All Device' assignments
+- 🔐 Support for certificate-based authentication
+- 🔄 Built-in auto-update functionality
+- 📊 Detailed reporting of Configuration Profiles, Compliance Policies, and Applications
 
-## Contributing
+## 🎥 Demo
 
-Contributions to are welcome! Please feel free to submit pull requests or open issues to improve the script or suggest new features.
+<div align="center">
+  <video src="https://github.com/ugurkocde/IntuneAssignmentChecker/assets/43906965/3d0311f2-d537-4c31-9ef9-41c6500490a4" />
+</div>
 
-## License
+## 📋 Prerequisites
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+### Required PowerShell Modules
+- PowerShell 5.1 or higher
+- Microsoft Graph PowerShell SDK
+
+### Required Permissions
+Your Entra ID application registration needs these permissions:
+| Permission | Type | Description |
+|------------|------|-------------|
+| User.Read.All | Delegated | Read all users' full profiles |
+| Group.Read.All | Delegated | Read all groups |
+| Device.Read.All | Delegated | Read all devices |
+| DeviceManagementApps.Read.All | Delegated | Read Microsoft Intune apps |
+| DeviceManagementConfiguration.Read.All | Delegated | Read Microsoft Intune device configuration and policies |
+| DeviceManagementManagedDevices.Read.All | Delegated | Read Microsoft Intune devices |
+
+## 🛠️ Setup
+
+1. Create an Entra ID App Registration
+2. Grant and consent to required permissions
+3. Configure the script:
+```powershell
+# Update these values in IntuneAssignmentChecker_v2.ps1
+$appid = '<YourAppIdHere>'
+$tenantid = '<YourTenantIdHere>'
+$certThumbprint = '<YourCertificateThumbprintHere>'
+```
+
+## 📖 Usage
+
+Run the script and choose from these options:
+
+1. 👤 Check User Assignments
+2. 👥 Check Group Assignments
+3. 💻 Check Device Assignments
+4. 📱 View All User Assignments
+5. 🖥️ View All Device Assignments
+6. 🔍 Search by Setting Name
+7. 🐛 Report Bug/Request Feature
+8. ❌ Exit
+
+## 🤝 Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
