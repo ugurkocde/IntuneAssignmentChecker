@@ -13,10 +13,6 @@
     </a>
     <img src="https://img.shields.io/github/license/ugurkocde/IntuneAssignmentChecker?style=flat" alt="License"/>
   </p>
-
-  <a href="https://www.buymeacoffee.com/ugurkocde">
-    <img src="https://img.buymeacoffee.com/button-api/?text=Buy me a coffee&emoji=☕&slug=ugurkocde&button_colour=FF5F5F&font_colour=ffffff&font_family=Cookie&outline_colour=000000&coffee_colour=FFDD00" width="150" alt="Buy Me A Coffee"/>
-  </a>
 </div>
 
 ## 🚀 Quick Start
