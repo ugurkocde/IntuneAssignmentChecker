@@ -534,6 +534,7 @@ function Show-Menu {
     
     Write-Host "System:" -ForegroundColor Cyan
     Write-Host "  [0] Exit" -ForegroundColor White
+    Write-Host "  [98] Support the Project 💝" -ForegroundColor Magenta
     Write-Host "  [99] Report a Bug or Request a Feature" -ForegroundColor White
     Write-Host ""
     
@@ -2670,6 +2671,11 @@ do {
             Disconnect-MgGraph | Out-Null
             Write-Host "Exiting..." -ForegroundColor Red
             exit
+        }
+
+        '98' {
+            Write-Host "Opening GitHub Sponsor Page ..." -ForegroundColor Green
+            Start-Process "https://github.com/sponsors/ugurkocde"
         }
 
         '99' {
