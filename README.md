@@ -50,7 +50,19 @@ Before running this script, you need:
 
 - PowerShell 5.1 or higher.
 - Microsoft Graph PowerShell SDK installed. You can install it using `Install-Module Microsoft.Graph -Scope CurrentUser`.
-- An Entra ID application registration with the following permissions granted:
+
+## Authentication Options
+
+The script supports two authentication methods:
+
+### 1. Interactive Sign-in (Recommended for getting started)
+- No additional setup required
+- Uses your current user credentials
+- Perfect for testing or occasional use
+
+### 2. Certificate-based Authentication (Optional, for automated/production use)
+If you plan to use the script in an automated way or need unattended access, you'll need:
+- An Azure Application registration with the following permissions:
   - `User.Read.All`
   - `Group.Read.All`
   - `Device.Read.All`
@@ -58,18 +70,16 @@ Before running this script, you need:
   - `DeviceManagementConfiguration.Read.All`
   - `DeviceManagementManagedDevices.Read.All`
 
-Ensure that you have granted admin consent for these permissions in the Azure portal.
-
 ## Setup
 
 1. Clone this repository or download the `IntuneAssignmentChecker_v2.ps1` script.
-2. Fill in your Entra ID application registration details (App ID, Tenant ID, and Secret) at the beginning of the script.
+2. (Optional) For certificate-based authentication, configure your app registration details:
 
 ```powershell
-# Fill in your App ID, Tenant ID, and Secret
+# Only required for certificate-based authentication
 $appid = '<YourAppIdHere>' # App ID of the App Registration
 $tenantid = '<YourTenantIdHere>' # Tenant ID of your EntraID
-$certThumbprint = '<YourCertificateThumbprintHere>' # Thumbprint of the certificate associated with the App Registration
+$certThumbprint = '<YourCertificateThumbprintHere>' # Thumbprint of the certificate
 ```
 
 3. Run the script in PowerShell.
