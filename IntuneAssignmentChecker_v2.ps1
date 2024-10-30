@@ -21,6 +21,9 @@ $certThumbprint = '<YourCertificateThumbprintHere>' # Thumbprint of the certific
 
 ####################################################################################################
 
+# Version of the local script
+$localVersion = "2.4.0"
+
 # Header
 
 Write-Host "🔍 INTUNE ASSIGNMENT CHECKER" -ForegroundColor Cyan
@@ -32,9 +35,6 @@ Write-Host "Source: https://github.com/ugurkocde/IntuneAssignmentChecker" -Foreg
 
 ####################################################################################################
 # Autoupdate function
-
-# Version of the local script
-$localVersion = "2.4.0"
 
 # URL to the version file on GitHub
 $versionUrl = "https://raw.githubusercontent.com/ugurkocde/IntuneAssignmentChecker/main/version_v2.txt"
@@ -617,9 +617,14 @@ do {
 
                     # Fetch and process Device Configurations
                     $deviceConfigsResponse = Invoke-MgGraphRequest -Uri $deviceConfigsUri -Method Get
-                    $totalDeviceConfigs = $deviceConfigsResponse.value.Count
+                    $allDeviceConfigs = $deviceConfigsResponse.value
+                    while ($deviceConfigsResponse.'@odata.nextLink') {
+                        $deviceConfigsResponse = Invoke-MgGraphRequest -Uri $deviceConfigsResponse.'@odata.nextLink' -Method Get
+                        $allDeviceConfigs += $deviceConfigsResponse.value
+                    }
+                    $totalDeviceConfigs = $allDeviceConfigs.Count
                     $currentDeviceConfig = 0
-                    foreach ($config in $deviceConfigsResponse.value) {
+                    foreach ($config in $allDeviceConfigs) {
                         $currentDeviceConfig++
                         Write-Host "`rFetching Device Configuration $currentDeviceConfig of $totalDeviceConfigs" -NoNewline
                         $configId = $config.id
@@ -649,9 +654,15 @@ do {
 
                     # Fetch and process Settings Catalog policies
                     $settingsCatalogResponse = Invoke-MgGraphRequest -Uri $settingsCatalogUri -Method Get
-                    $totalSettingsCatalog = $settingsCatalogResponse.value.Count
+                    $allSettingsCatalog = $settingsCatalogResponse.value
+                    while ($settingsCatalogResponse.'@odata.nextLink') {
+                        $settingsCatalogResponse = Invoke-MgGraphRequest -Uri $settingsCatalogResponse.'@odata.nextLink' -Method Get
+                        $allSettingsCatalog += $settingsCatalogResponse.value
+                    }
+                    $totalSettingsCatalog = $allSettingsCatalog.Count
                     $currentSettingsCatalog = 0
-                    foreach ($policy in $settingsCatalogResponse.value) {
+                    
+                    foreach ($policy in $allSettingsCatalog) {
                         $currentSettingsCatalog++
                         Write-Host "`rFetching Settings Catalog Policy $currentSettingsCatalog of $totalSettingsCatalog" -NoNewline
                         $policyId = $policy.id
@@ -680,9 +691,15 @@ do {
 
                     # Fetch and process Administrative Templates
                     $adminTemplatesResponse = Invoke-MgGraphRequest -Uri $adminTemplatesUri -Method Get
-                    $totalAdminTemplates = $adminTemplatesResponse.value.Count
+                    $allAdminTemplates = $adminTemplatesResponse.value
+                    while ($adminTemplatesResponse.'@odata.nextLink') {
+                        $adminTemplatesResponse = Invoke-MgGraphRequest -Uri $adminTemplatesResponse.'@odata.nextLink' -Method Get
+                        $allAdminTemplates += $adminTemplatesResponse.value
+                    }
+                    $totalAdminTemplates = $allAdminTemplates.Count
                     $currentAdminTemplate = 0
-                    foreach ($template in $adminTemplatesResponse.value) {
+
+                    foreach ($template in $allAdminTemplates) {
                         $currentAdminTemplate++
                         Write-Host "`rFetching Administrative Template $currentAdminTemplate of $totalAdminTemplates" -NoNewline
                         $templateId = $template.id
@@ -711,9 +728,15 @@ do {
 
                     # Fetch and process Compliance Policies
                     $complianceResponse = Invoke-MgGraphRequest -Uri $complianceUri -Method Get
-                    $totalCompliancePolicies = $complianceResponse.value.Count
+                    $allCompliancePolicies = $complianceResponse.value
+                    while ($complianceResponse.'@odata.nextLink') {
+                        $complianceResponse = Invoke-MgGraphRequest -Uri $complianceResponse.'@odata.nextLink' -Method Get
+                        $allCompliancePolicies += $complianceResponse.value
+                    }
+                    $totalCompliancePolicies = $allCompliancePolicies.Count
                     $currentCompliancePolicy = 0
-                    foreach ($compliancepolicy in $complianceResponse.value) {
+
+                    foreach ($compliancepolicy in $allCompliancePolicies) {
                         $currentCompliancePolicy++
                         Write-Host "`rFetching Compliance Policy $currentCompliancePolicy of $totalCompliancePolicies" -NoNewline
                         $compliancepolicyId = $compliancepolicy.id
@@ -742,9 +765,15 @@ do {
 
                     # Fetch and process App Protection Policies
                     $appProtectionResponse = Invoke-MgGraphRequest -Uri $appProtectionUri -Method Get
-                    $totalAppProtectionPolicies = $appProtectionResponse.value.Count
+                    $allAppProtectionPolicies = $appProtectionResponse.value
+                    while ($appProtectionResponse.'@odata.nextLink') {
+                        $appProtectionResponse = Invoke-MgGraphRequest -Uri $appProtectionResponse.'@odata.nextLink' -Method Get
+                        $allAppProtectionPolicies += $appProtectionResponse.value
+                    }
+                    $totalAppProtectionPolicies = $allAppProtectionPolicies.Count
                     $currentAppProtectionPolicy = 0
-                    foreach ($policy in $appProtectionResponse.value) {
+
+                    foreach ($policy in $allAppProtectionPolicies) {
                         $currentAppProtectionPolicy++
                         Write-Host "`rFetching App Protection Policy $currentAppProtectionPolicy of $totalAppProtectionPolicies" -NoNewline
                         $policyId = $policy.id
@@ -784,9 +813,15 @@ do {
 
                     # Fetch and process App Configuration Policies
                     $appConfigurationResponse = Invoke-MgGraphRequest -Uri $appConfigurationUri -Method Get
-                    $totalAppConfigurationPolicies = $appConfigurationResponse.value.Count
+                    $allAppConfigPolicies = $appConfigurationResponse.value
+                    while ($appConfigurationResponse.'@odata.nextLink') {
+                        $appConfigurationResponse = Invoke-MgGraphRequest -Uri $appConfigurationResponse.'@odata.nextLink' -Method Get
+                        $allAppConfigPolicies += $appConfigurationResponse.value
+                    }
+                    $totalAppConfigurationPolicies = $allAppConfigPolicies.Count
                     $currentAppConfigurationPolicy = 0
-                    foreach ($policy in $appConfigurationResponse.value) {
+
+                    foreach ($policy in $allAppConfigPolicies) {
                         $currentAppConfigurationPolicy++
                         Write-Host "`rFetching App Configuration Policy $currentAppConfigurationPolicy of $totalAppConfigurationPolicies" -NoNewline
                         $policyId = $policy.id
@@ -815,9 +850,15 @@ do {
 
                     # Fetch and process Applications
                     $appResponse = Invoke-MgGraphRequest -Uri $appUri -Method Get
-                    $totalApps = $appResponse.value.Count
+                    $allApps = $appResponse.value
+                    while ($appResponse.'@odata.nextLink') {
+                        $appResponse = Invoke-MgGraphRequest -Uri $appResponse.'@odata.nextLink' -Method Get
+                        $allApps += $appResponse.value
+                    }
+                    $totalApps = $allApps.Count
                     $currentApp = 0
-                    foreach ($app in $appResponse.value) {
+
+                    foreach ($app in $allApps) {
                         # Filter out irrelevant apps
                         if ($app.isFeatured -or $app.isBuiltIn -or $app.publisher -eq "Microsoft Corporation") {
                             continue
@@ -1087,9 +1128,14 @@ do {
 
                 # Fetch and process Device Configurations
                 $deviceConfigsResponse = Invoke-MgGraphRequest -Uri $deviceConfigsUri -Method Get
-                $totalDeviceConfigs = $deviceConfigsResponse.value.Count
+                $allDeviceConfigs = $deviceConfigsResponse.value
+                while ($deviceConfigsResponse.'@odata.nextLink') {
+                    $deviceConfigsResponse = Invoke-MgGraphRequest -Uri $deviceConfigsResponse.'@odata.nextLink' -Method Get
+                    $allDeviceConfigs += $deviceConfigsResponse.value
+                }
+                $totalDeviceConfigs = $allDeviceConfigs.Count
                 $currentDeviceConfig = 0
-                foreach ($config in $deviceConfigsResponse.value) {
+                foreach ($config in $allDeviceConfigs) {
                     $currentDeviceConfig++
                     Write-Host "`rFetching Device Configuration $currentDeviceConfig of $totalDeviceConfigs" -NoNewline
                     $configId = $config.id
@@ -1109,9 +1155,15 @@ do {
 
                 # Fetch and process Settings Catalog policies
                 $settingsCatalogResponse = Invoke-MgGraphRequest -Uri $settingsCatalogUri -Method Get
-                $totalSettingsCatalog = $settingsCatalogResponse.value.Count
+                $allSettingsCatalog = $settingsCatalogResponse.value
+                while ($settingsCatalogResponse.'@odata.nextLink') {
+                    $settingsCatalogResponse = Invoke-MgGraphRequest -Uri $settingsCatalogResponse.'@odata.nextLink' -Method Get
+                    $allSettingsCatalog += $settingsCatalogResponse.value
+                }
+                $totalSettingsCatalog = $allSettingsCatalog.Count
                 $currentSettingsCatalog = 0
-                foreach ($policy in $settingsCatalogResponse.value) {
+
+                foreach ($policy in $allSettingsCatalog) {
                     $currentSettingsCatalog++
                     Write-Host "`rFetching Settings Catalog Policy $currentSettingsCatalog of $totalSettingsCatalog" -NoNewline
                     $policyId = $policy.id
@@ -1131,9 +1183,15 @@ do {
 
                 # Fetch and process Administrative Templates
                 $adminTemplatesResponse = Invoke-MgGraphRequest -Uri $adminTemplatesUri -Method Get
-                $totalAdminTemplates = $adminTemplatesResponse.value.Count
+                $allAdminTemplates = $adminTemplatesResponse.value
+                while ($adminTemplatesResponse.'@odata.nextLink') {
+                    $adminTemplatesResponse = Invoke-MgGraphRequest -Uri $adminTemplatesResponse.'@odata.nextLink' -Method Get
+                    $allAdminTemplates += $adminTemplatesResponse.value
+                }
+                $totalAdminTemplates = $allAdminTemplates.Count
                 $currentAdminTemplate = 0
-                foreach ($template in $adminTemplatesResponse.value) {
+
+                foreach ($template in $allAdminTemplates) {
                     $currentAdminTemplate++
                     Write-Host "`rFetching Administrative Template $currentAdminTemplate of $totalAdminTemplates" -NoNewline
                     $templateId = $template.id
@@ -1153,9 +1211,15 @@ do {
 
                 # Fetch and process Compliance Policies
                 $complianceResponse = Invoke-MgGraphRequest -Uri $complianceUri -Method Get
-                $totalCompliancePolicies = $complianceResponse.value.Count
+                $allCompliancePolicies = $complianceResponse.value
+                while ($complianceResponse.'@odata.nextLink') {
+                    $complianceResponse = Invoke-MgGraphRequest -Uri $complianceResponse.'@odata.nextLink' -Method Get
+                    $allCompliancePolicies += $complianceResponse.value
+                }
+                $totalCompliancePolicies = $allCompliancePolicies.Count
                 $currentCompliancePolicy = 0
-                foreach ($compliancepolicy in $complianceResponse.value) {
+
+                foreach ($compliancepolicy in $allCompliancePolicies) {
                     $currentCompliancePolicy++
                     Write-Host "`rFetching Compliance Policy $currentCompliancePolicy of $totalCompliancePolicies" -NoNewline
                     $compliancepolicyId = $compliancepolicy.id
@@ -1175,9 +1239,15 @@ do {
 
                 # Fetch and process App Protection Policies
                 $appProtectionResponse = Invoke-MgGraphRequest -Uri $appProtectionUri -Method Get
-                $totalAppProtectionPolicies = $appProtectionResponse.value.Count
+                $allAppProtectionPolicies = $appProtectionResponse.value
+                while ($appProtectionResponse.'@odata.nextLink') {
+                    $appProtectionResponse = Invoke-MgGraphRequest -Uri $appProtectionResponse.'@odata.nextLink' -Method Get
+                    $allAppProtectionPolicies += $appProtectionResponse.value
+                }
+                $totalAppProtectionPolicies = $allAppProtectionPolicies.Count
                 $currentAppProtectionPolicy = 0
-                foreach ($policy in $appProtectionResponse.value) {
+
+                foreach ($policy in $allAppProtectionPolicies) {
                     $currentAppProtectionPolicy++
                     Write-Host "`rFetching App Protection Policy $currentAppProtectionPolicy of $totalAppProtectionPolicies" -NoNewline
                     $policyId = $policy.id
@@ -1208,9 +1278,15 @@ do {
 
                 # Fetch and process App Configuration Policies
                 $appConfigurationResponse = Invoke-MgGraphRequest -Uri $appConfigurationUri -Method Get
-                $totalAppConfigurationPolicies = $appConfigurationResponse.value.Count
+                $allAppConfigPolicies = $appConfigurationResponse.value
+                while ($appConfigurationResponse.'@odata.nextLink') {
+                    $appConfigurationResponse = Invoke-MgGraphRequest -Uri $appConfigurationResponse.'@odata.nextLink' -Method Get
+                    $allAppConfigPolicies += $appConfigurationResponse.value
+                }
+                $totalAppConfigurationPolicies = $allAppConfigPolicies.Count
                 $currentAppConfigurationPolicy = 0
-                foreach ($policy in $appConfigurationResponse.value) {
+
+                foreach ($policy in $allAppConfigPolicies) {
                     $currentAppConfigurationPolicy++
                     Write-Host "`rFetching App Configuration Policy $currentAppConfigurationPolicy of $totalAppConfigurationPolicies" -NoNewline
                     $policyId = $policy.id
@@ -1230,9 +1306,15 @@ do {
 
                 # Fetch and process Applications
                 $appResponse = Invoke-MgGraphRequest -Uri $appUri -Method Get
-                $totalApps = $appResponse.value.Count
+                $allApps = $appResponse.value
+                while ($appResponse.'@odata.nextLink') {
+                    $appResponse = Invoke-MgGraphRequest -Uri $appResponse.'@odata.nextLink' -Method Get
+                    $allApps += $appResponse.value
+                }
+                $totalApps = $allApps.Count
                 $currentApp = 0
-                foreach ($app in $appResponse.value) {
+
+                foreach ($app in $allApps) {
                     # Filter out irrelevant apps
                     if ($app.isFeatured -or $app.isBuiltIn -or $app.publisher -eq "Microsoft Corporation") {
                         continue
@@ -1445,9 +1527,14 @@ do {
 
                 # Fetch and process Device Configurations
                 $deviceConfigsResponse = Invoke-MgGraphRequest -Uri $deviceConfigsUri -Method Get
-                $totalDeviceConfigs = $deviceConfigsResponse.value.Count
+                $allDeviceConfigs = $deviceConfigsResponse.value
+                while ($deviceConfigsResponse.'@odata.nextLink') {
+                    $deviceConfigsResponse = Invoke-MgGraphRequest -Uri $deviceConfigsResponse.'@odata.nextLink' -Method Get
+                    $allDeviceConfigs += $deviceConfigsResponse.value
+                }
+                $totalDeviceConfigs = $allDeviceConfigs.Count
                 $currentDeviceConfig = 0
-                foreach ($config in $deviceConfigsResponse.value) {
+                foreach ($config in $allDeviceConfigs) {
                     $currentDeviceConfig++
                     Write-Host "`rFetching Device Configuration $currentDeviceConfig of $totalDeviceConfigs" -NoNewline
                     $configId = $config.id
@@ -1479,9 +1566,15 @@ do {
 
                 # Fetch and process Settings Catalog policies
                 $settingsCatalogResponse = Invoke-MgGraphRequest -Uri $settingsCatalogUri -Method Get
-                $totalSettingsCatalog = $settingsCatalogResponse.value.Count
+                $allSettingsCatalog = $settingsCatalogResponse.value
+                while ($settingsCatalogResponse.'@odata.nextLink') {
+                    $settingsCatalogResponse = Invoke-MgGraphRequest -Uri $settingsCatalogResponse.'@odata.nextLink' -Method Get
+                    $allSettingsCatalog += $settingsCatalogResponse.value
+                }
+                $totalSettingsCatalog = $allSettingsCatalog.Count
                 $currentSettingsCatalog = 0
-                foreach ($policy in $settingsCatalogResponse.value) {
+
+                foreach ($policy in $allSettingsCatalog) {
                     $currentSettingsCatalog++
                     Write-Host "`rFetching Settings Catalog Policy $currentSettingsCatalog of $totalSettingsCatalog" -NoNewline
                     $policyId = $policy.id
@@ -1513,9 +1606,15 @@ do {
 
                 # Fetch and process Administrative Templates
                 $adminTemplatesResponse = Invoke-MgGraphRequest -Uri $adminTemplatesUri -Method Get
-                $totalAdminTemplates = $adminTemplatesResponse.value.Count
+                $allAdminTemplates = $adminTemplatesResponse.value
+                while ($adminTemplatesResponse.'@odata.nextLink') {
+                    $adminTemplatesResponse = Invoke-MgGraphRequest -Uri $adminTemplatesResponse.'@odata.nextLink' -Method Get
+                    $allAdminTemplates += $adminTemplatesResponse.value
+                }
+                $totalAdminTemplates = $allAdminTemplates.Count
                 $currentAdminTemplate = 0
-                foreach ($template in $adminTemplatesResponse.value) {
+
+                foreach ($template in $allAdminTemplates) {
                     $currentAdminTemplate++
                     Write-Host "`rFetching Administrative Template $currentAdminTemplate of $totalAdminTemplates" -NoNewline
                     $templateId = $template.id
@@ -1547,9 +1646,15 @@ do {
 
                 # Fetch and process Compliance Policies
                 $complianceResponse = Invoke-MgGraphRequest -Uri $complianceUri -Method Get
-                $totalCompliancePolicies = $complianceResponse.value.Count
+                $allCompliancePolicies = $complianceResponse.value
+                while ($complianceResponse.'@odata.nextLink') {
+                    $complianceResponse = Invoke-MgGraphRequest -Uri $complianceResponse.'@odata.nextLink' -Method Get
+                    $allCompliancePolicies += $complianceResponse.value
+                }
+                $totalCompliancePolicies = $allCompliancePolicies.Count
                 $currentCompliancePolicy = 0
-                foreach ($compliancepolicy in $complianceResponse.value) {
+
+                foreach ($compliancepolicy in $allCompliancePolicies) {
                     $currentCompliancePolicy++
                     Write-Host "`rFetching Compliance Policy $currentCompliancePolicy of $totalCompliancePolicies" -NoNewline
                     $compliancepolicyId = $compliancepolicy.id
@@ -1581,9 +1686,15 @@ do {
 
                 # Fetch and process App Protection Policies
                 $appProtectionResponse = Invoke-MgGraphRequest -Uri $appProtectionUri -Method Get
-                $totalAppProtectionPolicies = $appProtectionResponse.value.Count
+                $allAppProtectionPolicies = $appProtectionResponse.value
+                while ($appProtectionResponse.'@odata.nextLink') {
+                    $appProtectionResponse = Invoke-MgGraphRequest -Uri $appProtectionResponse.'@odata.nextLink' -Method Get
+                    $allAppProtectionPolicies += $appProtectionResponse.value
+                }
+                $totalAppProtectionPolicies = $allAppProtectionPolicies.Count
                 $currentAppProtectionPolicy = 0
-                foreach ($policy in $appProtectionResponse.value) {
+
+                foreach ($policy in $allAppProtectionPolicies) {
                     $currentAppProtectionPolicy++
                     Write-Host "`rFetching App Protection Policy $currentAppProtectionPolicy of $totalAppProtectionPolicies" -NoNewline
                     $policyId = $policy.id
@@ -1615,9 +1726,15 @@ do {
 
                 # Fetch and process App Configuration Policies
                 $appConfigurationResponse = Invoke-MgGraphRequest -Uri $appConfigurationUri -Method Get
-                $totalAppConfigurationPolicies = $appConfigurationResponse.value.Count
+                $allAppConfigPolicies = $appConfigurationResponse.value
+                while ($appConfigurationResponse.'@odata.nextLink') {
+                    $appConfigurationResponse = Invoke-MgGraphRequest -Uri $appConfigurationResponse.'@odata.nextLink' -Method Get
+                    $allAppConfigPolicies += $appConfigurationResponse.value
+                }
+                $totalAppConfigurationPolicies = $allAppConfigPolicies.Count
                 $currentAppConfigurationPolicy = 0
-                foreach ($policy in $appConfigurationResponse.value) {
+
+                foreach ($policy in $allAppConfigPolicies) {
                     $currentAppConfigurationPolicy++
                     Write-Host "`rFetching App Configuration Policy $currentAppConfigurationPolicy of $totalAppConfigurationPolicies" -NoNewline
                     $policyId = $policy.id
@@ -1638,9 +1755,15 @@ do {
 
                 # Fetch and process Applications
                 $appResponse = Invoke-MgGraphRequest -Uri $appUri -Method Get
-                $totalApps = $appResponse.value.Count
+                $allApps = $appResponse.value
+                while ($appResponse.'@odata.nextLink') {
+                    $appResponse = Invoke-MgGraphRequest -Uri $appResponse.'@odata.nextLink' -Method Get
+                    $allApps += $appResponse.value
+                }
+                $totalApps = $allApps.Count
                 $currentApp = 0
-                foreach ($app in $appResponse.value) {
+
+                foreach ($app in $allApps) {
                     # Filter out irrelevant apps
                     if ($app.isFeatured -or $app.isBuiltIn -or $app.publisher -eq "Microsoft Corporation") {
                         continue
@@ -1845,9 +1968,14 @@ do {
 
             # Fetch and process Device Configurations
             $deviceConfigsResponse = Invoke-MgGraphRequest -Uri $deviceConfigsUri -Method Get
-            $totalDeviceConfigs = $deviceConfigsResponse.value.Count
+            $allDeviceConfigs = $deviceConfigsResponse.value
+            while ($deviceConfigsResponse.'@odata.nextLink') {
+                $deviceConfigsResponse = Invoke-MgGraphRequest -Uri $deviceConfigsResponse.'@odata.nextLink' -Method Get
+                $allDeviceConfigs += $deviceConfigsResponse.value
+            }
+            $totalDeviceConfigs = $allDeviceConfigs.Count
             $currentDeviceConfig = 0
-            foreach ($config in $deviceConfigsResponse.value) {
+            foreach ($config in $allDeviceConfigs) {
                 $currentDeviceConfig++
                 Write-Host "`rFetching Device Configuration $currentDeviceConfig of $totalDeviceConfigs" -NoNewline
                 $configId = $config.id
@@ -1867,9 +1995,15 @@ do {
 
             # Fetch and process Settings Catalog policies
             $settingsCatalogResponse = Invoke-MgGraphRequest -Uri $settingsCatalogUri -Method Get
-            $totalSettingsCatalog = $settingsCatalogResponse.value.Count
+            $allSettingsCatalog = $settingsCatalogResponse.value
+            while ($settingsCatalogResponse.'@odata.nextLink') {
+                $settingsCatalogResponse = Invoke-MgGraphRequest -Uri $settingsCatalogResponse.'@odata.nextLink' -Method Get
+                $allSettingsCatalog += $settingsCatalogResponse.value
+            }
+            $totalSettingsCatalog = $allSettingsCatalog.Count
             $currentSettingsCatalog = 0
-            foreach ($policy in $settingsCatalogResponse.value) {
+
+            foreach ($policy in $allSettingsCatalog) {
                 $currentSettingsCatalog++
                 Write-Host "`rFetching Settings Catalog Policy $currentSettingsCatalog of $totalSettingsCatalog" -NoNewline
                 $policyId = $policy.id
@@ -1889,9 +2023,15 @@ do {
 
             # Fetch and process Administrative Templates
             $adminTemplatesResponse = Invoke-MgGraphRequest -Uri $adminTemplatesUri -Method Get
-            $totalAdminTemplates = $adminTemplatesResponse.value.Count
+            $allAdminTemplates = $adminTemplatesResponse.value
+            while ($adminTemplatesResponse.'@odata.nextLink') {
+                $adminTemplatesResponse = Invoke-MgGraphRequest -Uri $adminTemplatesResponse.'@odata.nextLink' -Method Get
+                $allAdminTemplates += $adminTemplatesResponse.value
+            }
+            $totalAdminTemplates = $allAdminTemplates.Count
             $currentAdminTemplate = 0
-            foreach ($template in $adminTemplatesResponse.value) {
+
+            foreach ($template in $allAdminTemplates) {
                 $currentAdminTemplate++
                 Write-Host "`rFetching Administrative Template $currentAdminTemplate of $totalAdminTemplates" -NoNewline
                 $templateId = $template.id
@@ -1911,9 +2051,15 @@ do {
 
             # Fetch and process Compliance Policies
             $complianceResponse = Invoke-MgGraphRequest -Uri $complianceUri -Method Get
-            $totalCompliancePolicies = $complianceResponse.value.Count
+            $allCompliancePolicies = $complianceResponse.value
+            while ($complianceResponse.'@odata.nextLink') {
+                $complianceResponse = Invoke-MgGraphRequest -Uri $complianceResponse.'@odata.nextLink' -Method Get
+                $allCompliancePolicies += $complianceResponse.value
+            }
+            $totalCompliancePolicies = $allCompliancePolicies.Count
             $currentCompliancePolicy = 0
-            foreach ($compliancepolicy in $complianceResponse.value) {
+
+            foreach ($compliancepolicy in $allCompliancePolicies) {
                 $currentCompliancePolicy++
                 Write-Host "`rFetching Compliance Policy $currentCompliancePolicy of $totalCompliancePolicies" -NoNewline
                 $compliancepolicyId = $compliancepolicy.id
@@ -1933,9 +2079,15 @@ do {
 
             # Fetch and process App Protection Policies
             $appProtectionResponse = Invoke-MgGraphRequest -Uri $appProtectionUri -Method Get
-            $totalAppProtectionPolicies = $appProtectionResponse.value.Count
+            $allAppProtectionPolicies = $appProtectionResponse.value
+            while ($appProtectionResponse.'@odata.nextLink') {
+                $appProtectionResponse = Invoke-MgGraphRequest -Uri $appProtectionResponse.'@odata.nextLink' -Method Get
+                $allAppProtectionPolicies += $appProtectionResponse.value
+            }
+            $totalAppProtectionPolicies = $allAppProtectionPolicies.Count
             $currentAppProtectionPolicy = 0
-            foreach ($policy in $appProtectionResponse.value) {
+
+            foreach ($policy in $allAppProtectionPolicies) {
                 $currentAppProtectionPolicy++
                 Write-Host "`rFetching App Protection Policy $currentAppProtectionPolicy of $totalAppProtectionPolicies" -NoNewline
                 $policyId = $policy.id
@@ -1966,9 +2118,15 @@ do {
 
             # Fetch and process App Configuration Policies
             $appConfigurationResponse = Invoke-MgGraphRequest -Uri $appConfigurationUri -Method Get
-            $totalAppConfigurationPolicies = $appConfigurationResponse.value.Count
+            $allAppConfigPolicies = $appConfigurationResponse.value
+            while ($appConfigurationResponse.'@odata.nextLink') {
+                $appConfigurationResponse = Invoke-MgGraphRequest -Uri $appConfigurationResponse.'@odata.nextLink' -Method Get
+                $allAppConfigPolicies += $appConfigurationResponse.value
+            }
+            $totalAppConfigurationPolicies = $allAppConfigPolicies.Count
             $currentAppConfigurationPolicy = 0
-            foreach ($policy in $appConfigurationResponse.value) {
+
+            foreach ($policy in $allAppConfigPolicies) {
                 $currentAppConfigurationPolicy++
                 Write-Host "`rFetching App Configuration Policy $currentAppConfigurationPolicy of $totalAppConfigurationPolicies" -NoNewline
                 $policyId = $policy.id
@@ -1988,9 +2146,15 @@ do {
 
             # Fetch and process Applications
             $appResponse = Invoke-MgGraphRequest -Uri $appUri -Method Get
-            $totalApps = $appResponse.value.Count
+            $allApps = $appResponse.value
+            while ($appResponse.'@odata.nextLink') {
+                $appResponse = Invoke-MgGraphRequest -Uri $appResponse.'@odata.nextLink' -Method Get
+                $allApps += $appResponse.value
+            }
+            $totalApps = $allApps.Count
             $currentApp = 0
-            foreach ($app in $appResponse.value) {
+
+            foreach ($app in $allApps) {
                 # Filter out irrelevant apps
                 if ($app.isFeatured -or $app.isBuiltIn -or $app.publisher -eq "Microsoft Corporation") {
                     continue
@@ -2179,9 +2343,14 @@ do {
 
             # Fetch and process Device Configurations
             $deviceConfigsResponse = Invoke-MgGraphRequest -Uri $deviceConfigsUri -Method Get
-            $totalDeviceConfigs = $deviceConfigsResponse.value.Count
+            $allDeviceConfigs = $deviceConfigsResponse.value
+            while ($deviceConfigsResponse.'@odata.nextLink') {
+                $deviceConfigsResponse = Invoke-MgGraphRequest -Uri $deviceConfigsResponse.'@odata.nextLink' -Method Get
+                $allDeviceConfigs += $deviceConfigsResponse.value
+            }
+            $totalDeviceConfigs = $allDeviceConfigs.Count
             $currentDeviceConfig = 0
-            foreach ($config in $deviceConfigsResponse.value) {
+            foreach ($config in $allDeviceConfigs) {
                 $currentDeviceConfig++
                 Write-Host "`rFetching Device Configuration $currentDeviceConfig of $totalDeviceConfigs" -NoNewline
                 $configId = $config.id
@@ -2201,9 +2370,15 @@ do {
 
             # Fetch and process Settings Catalog policies
             $settingsCatalogResponse = Invoke-MgGraphRequest -Uri $settingsCatalogUri -Method Get
-            $totalSettingsCatalog = $settingsCatalogResponse.value.Count
+            $allSettingsCatalog = $settingsCatalogResponse.value
+            while ($settingsCatalogResponse.'@odata.nextLink') {
+                $settingsCatalogResponse = Invoke-MgGraphRequest -Uri $settingsCatalogResponse.'@odata.nextLink' -Method Get
+                $allSettingsCatalog += $settingsCatalogResponse.value
+            }
+            $totalSettingsCatalog = $allSettingsCatalog.Count
             $currentSettingsCatalog = 0
-            foreach ($policy in $settingsCatalogResponse.value) {
+
+            foreach ($policy in $allSettingsCatalog) {
                 $currentSettingsCatalog++
                 Write-Host "`rFetching Settings Catalog Policy $currentSettingsCatalog of $totalSettingsCatalog" -NoNewline
                 $policyId = $policy.id
@@ -2223,9 +2398,15 @@ do {
 
             # Fetch and process Administrative Templates
             $adminTemplatesResponse = Invoke-MgGraphRequest -Uri $adminTemplatesUri -Method Get
-            $totalAdminTemplates = $adminTemplatesResponse.value.Count
+            $allAdminTemplates = $adminTemplatesResponse.value
+            while ($adminTemplatesResponse.'@odata.nextLink') {
+                $adminTemplatesResponse = Invoke-MgGraphRequest -Uri $adminTemplatesResponse.'@odata.nextLink' -Method Get
+                $allAdminTemplates += $adminTemplatesResponse.value
+            }
+            $totalAdminTemplates = $allAdminTemplates.Count
             $currentAdminTemplate = 0
-            foreach ($template in $adminTemplatesResponse.value) {
+
+            foreach ($template in $allAdminTemplates) {
                 $currentAdminTemplate++
                 Write-Host "`rFetching Administrative Template $currentAdminTemplate of $totalAdminTemplates" -NoNewline
                 $templateId = $template.id
@@ -2245,9 +2426,15 @@ do {
 
             # Fetch and process Compliance Policies
             $complianceResponse = Invoke-MgGraphRequest -Uri $complianceUri -Method Get
-            $totalCompliancePolicies = $complianceResponse.value.Count
+            $allCompliancePolicies = $complianceResponse.value
+            while ($complianceResponse.'@odata.nextLink') {
+                $complianceResponse = Invoke-MgGraphRequest -Uri $complianceResponse.'@odata.nextLink' -Method Get
+                $allCompliancePolicies += $complianceResponse.value
+            }
+            $totalCompliancePolicies = $allCompliancePolicies.Count
             $currentCompliancePolicy = 0
-            foreach ($compliancepolicy in $complianceResponse.value) {
+
+            foreach ($compliancepolicy in $allCompliancePolicies) {
                 $currentCompliancePolicy++
                 Write-Host "`rFetching Compliance Policy $currentCompliancePolicy of $totalCompliancePolicies" -NoNewline
                 $compliancepolicyId = $compliancepolicy.id
@@ -2267,9 +2454,15 @@ do {
 
             # Fetch and process App Protection Policies
             $appProtectionResponse = Invoke-MgGraphRequest -Uri $appProtectionUri -Method Get
-            $totalAppProtectionPolicies = $appProtectionResponse.value.Count
+            $allAppProtectionPolicies = $appProtectionResponse.value
+            while ($appProtectionResponse.'@odata.nextLink') {
+                $appProtectionResponse = Invoke-MgGraphRequest -Uri $appProtectionResponse.'@odata.nextLink' -Method Get
+                $allAppProtectionPolicies += $appProtectionResponse.value
+            }
+            $totalAppProtectionPolicies = $allAppProtectionPolicies.Count
             $currentAppProtectionPolicy = 0
-            foreach ($policy in $appProtectionResponse.value) {
+
+            foreach ($policy in $allAppProtectionPolicies) {
                 $currentAppProtectionPolicy++
                 Write-Host "`rFetching App Protection Policy $currentAppProtectionPolicy of $totalAppProtectionPolicies" -NoNewline
                 $policyId = $policy.id
@@ -2300,9 +2493,15 @@ do {
 
             # Fetch and process App Configuration Policies
             $appConfigurationResponse = Invoke-MgGraphRequest -Uri $appConfigurationUri -Method Get
-            $totalAppConfigurationPolicies = $appConfigurationResponse.value.Count
+            $allAppConfigPolicies = $appConfigurationResponse.value
+            while ($appConfigurationResponse.'@odata.nextLink') {
+                $appConfigurationResponse = Invoke-MgGraphRequest -Uri $appConfigurationResponse.'@odata.nextLink' -Method Get
+                $allAppConfigPolicies += $appConfigurationResponse.value
+            }
+            $totalAppConfigurationPolicies = $allAppConfigPolicies.Count
             $currentAppConfigurationPolicy = 0
-            foreach ($policy in $appConfigurationResponse.value) {
+
+            foreach ($policy in $allAppConfigPolicies) {
                 $currentAppConfigurationPolicy++
                 Write-Host "`rFetching App Configuration Policy $currentAppConfigurationPolicy of $totalAppConfigurationPolicies" -NoNewline
                 $policyId = $policy.id
@@ -2322,9 +2521,15 @@ do {
 
             # Fetch and process Applications
             $appResponse = Invoke-MgGraphRequest -Uri $appUri -Method Get
-            $totalApps = $appResponse.value.Count
+            $allApps = $appResponse.value
+            while ($appResponse.'@odata.nextLink') {
+                $appResponse = Invoke-MgGraphRequest -Uri $appResponse.'@odata.nextLink' -Method Get
+                $allApps += $appResponse.value
+            }
+            $totalApps = $allApps.Count
             $currentApp = 0
-            foreach ($app in $appResponse.value) {
+
+            foreach ($app in $allApps) {
                 # Filter out irrelevant apps
                 if ($app.isFeatured -or $app.isBuiltIn -or $app.publisher -eq "Microsoft Corporation") {
                     continue
