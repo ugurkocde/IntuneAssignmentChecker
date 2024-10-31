@@ -25,10 +25,6 @@
     - DeviceManagementApps.Read.All    (Read app management data)
     - DeviceManagementConfiguration.Read.All    (Read device configurations)
     - DeviceManagementManagedDevices.Read.All   (Read device management data)
-
-.VERSION
-    Version: $localVersion
-    Last Updated: 2024-10-26
 #>
 
 ################################ Prerequisites #####################################################
