@@ -20,7 +20,64 @@
 ```powershell
 # Install Microsoft Graph PowerShell SDK
 Install-Module Microsoft.Graph.Authentication -Scope CurrentUser
+=======
+---
 
+# Overview
+
+The `Intune Assignment Checker` script is here to simplify your life. It will provide a detailed overview of assigned Intune Configuration Profiles, Compliance Policies, and Applications for user, groups and devices.
+
+Website: https://intuneassignmentchecker.ugurkoc.de/
+
+## Demo
+
+https://github.com/ugurkocde/IntuneAssignmentChecker/assets/43906965/3d0311f2-d537-4c31-9ef9-41c6500490a4
+
+## Features
+
+- Checks assignments for users, groups, and devices in Intune.
+- Provides descriptions for each required permission.
+- Shows all 'All User' and 'All Device' assignments.
+- Supports certificate-based authentication.
+- Includes an auto-update feature.
+
+## Prerequisites
+
+Before running this script, you need:
+
+- PowerShell 5.1 or higher.
+- Microsoft Graph PowerShell SDK installed. You can install it using `Install-Module Microsoft.Graph -Scope CurrentUser`.
+
+## Authentication Options
+
+The script supports two authentication methods:
+
+### 1. Interactive Sign-in (Recommended for getting started)
+- No additional setup required
+- Uses your current user credentials
+- Perfect for testing or occasional use
+
+### 2. Certificate-based Authentication (Optional, for automated/production use)
+If you plan to use the script in an automated way or need unattended access, you'll need:
+- An Azure Application registration with the following permissions:
+  - `User.Read.All`
+  - `Group.Read.All`
+  - `Device.Read.All`
+  - `DeviceManagementApps.Read.All`
+  - `DeviceManagementConfiguration.Read.All`
+  - `DeviceManagementManagedDevices.Read.All`
+
+## Setup
+
+1. Clone this repository or download the `IntuneAssignmentChecker_v2.ps1` script.
+2. (Optional) For certificate-based authentication, configure your app registration details:
+
+```powershell
+# Only required for certificate-based authentication
+$appid = '<YourAppIdHere>' # App ID of the App Registration
+$tenantid = '<YourTenantIdHere>' # Tenant ID of your EntraID
+$certThumbprint = '<YourCertificateThumbprintHere>' # Thumbprint of the certificate
+```
 # Download and run the script
 .\IntuneAssignmentChecker_v2.ps1
 ```
