@@ -50,12 +50,12 @@ Install-Module Microsoft.Graph -Scope CurrentUser
 Your Entra ID application registration needs these permissions:
 | Permission | Type | Description |
 |------------|------|-------------|
-| User.Read.All | Delegated | Read all users' full profiles |
-| Group.Read.All | Delegated | Read all groups |
-| Device.Read.All | Delegated | Read all devices |
-| DeviceManagementApps.Read.All | Delegated | Read Microsoft Intune apps |
-| DeviceManagementConfiguration.Read.All | Delegated | Read Microsoft Intune device configuration and policies |
-| DeviceManagementManagedDevices.Read.All | Delegated | Read Microsoft Intune devices |
+| User.Read.All | Application | Read all users' full profiles |
+| Group.Read.All | Application | Read all groups |
+| Device.Read.All | Application | Read all devices |
+| DeviceManagementApps.Read.All | Application | Read Microsoft Intune apps |
+| DeviceManagementConfiguration.Read.All | Application | Read Microsoft Intune device configuration and policies |
+| DeviceManagementManagedDevices.Read.All | Application | Read Microsoft Intune devices |
 
 ## 🔐 Authentication Options
 
