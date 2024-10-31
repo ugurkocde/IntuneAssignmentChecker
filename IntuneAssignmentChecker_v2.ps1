@@ -1,15 +1,35 @@
 #Requires -Version 7.0
 #Requires -Modules Microsoft.Graph.Authentication
 
-# Intune Assignment Checker
-# Author: Ugur Koc (Socials: @ugurkocde)
-# Description: This script checks the assignments of Intune Configuration Policies and Device Configurations based on the groups that the user or device is a member of in Microsoft Entra (formerly Entra ID).
+<#
+.SYNOPSIS
+    Checks Intune policy and app assignments for users, groups, and devices.
 
-# Disclaimer: This script is provided AS IS without warranty of any kind. I am not responsible for any damage caused by this script. Use it at your own risk.
+.DESCRIPTION
+    This script helps IT administrators analyze and audit Intune assignments by:
+    - Checking assignments for specific users, groups, or devices
+    - Showing all policies and their assignments
+    - Finding policies without assignments
+    - Identifying empty groups in assignments
+    - Searching for specific settings across policies
 
-# You have to create an App Registration in Entra ID and grant the necessary permissions to the script.
-# Note: Only Read Permissions are necessary. This script does not make any changes to the assignments or in Intune in general.
-# Permissions required for the script: User.Read.All, Group.Read.All, DeviceManagementConfiguration.Read.All, DeviceManagementManagedDevices.Read.All, Device.Read.All
+.AUTHOR
+    Ugur Koc (@ugurkocde)
+    GitHub: https://github.com/ugurkocde/IntuneAssignmentChecker
+    Sponsor: https://github.com/sponsors/ugurkocde
+
+.REQUIRED PERMISSIONS
+    - User.Read.All                    (Read user profiles)
+    - Group.Read.All                   (Read group information)
+    - Device.Read.All                  (Read device information)
+    - DeviceManagementApps.Read.All    (Read app management data)
+    - DeviceManagementConfiguration.Read.All    (Read device configurations)
+    - DeviceManagementManagedDevices.Read.All   (Read device management data)
+
+.VERSION
+    Version: $localVersion
+    Last Updated: 2024-10-26
+#>
 
 ################################ Prerequisites #####################################################
 
@@ -24,14 +44,18 @@ $certThumbprint = '<YourCertificateThumbprintHere>' # Thumbprint of the certific
 # Version of the local script
 $localVersion = "2.4.0"
 
-# Header
-
 Write-Host "🔍 INTUNE ASSIGNMENT CHECKER" -ForegroundColor Cyan
 Write-Host "Made by Ugur Koc with" -NoNewline; Write-Host " ❤️  and ☕" -NoNewline
 Write-Host " | Version" -NoNewline; Write-Host " $localVersion" -ForegroundColor Yellow -NoNewline
-Write-Host " | Last updated: " -NoNewline; Write-Host "2024-10-26" -ForegroundColor Magenta
+Write-Host " | Last updated: " -NoNewline; Write-Host "2024-10-31" -ForegroundColor Magenta
 Write-Host ""
-Write-Host "Source: https://github.com/ugurkocde/IntuneAssignmentChecker" -ForegroundColor Cyan
+Write-Host "📢 Feedback & Issues: " -NoNewline -ForegroundColor Cyan
+Write-Host "https://github.com/ugurkocde/IntuneAssignmentChecker" -ForegroundColor White
+Write-Host "💝 Support Project: " -NoNewline -ForegroundColor Cyan
+Write-Host "https://github.com/sponsors/ugurkocde" -ForegroundColor White
+Write-Host ""
+Write-Host "⚠️  DISCLAIMER: This script is provided AS IS without warranty of any kind." -ForegroundColor Yellow
+Write-Host ""
 
 ####################################################################################################
 # Autoupdate function
@@ -52,7 +76,7 @@ else {
 }
 
 # Flag to control auto-update behavior
-$autoUpdate = $false  # Set to $false to disable auto-update
+$autoUpdate = $true  # Set to $false to disable auto-update
 
 try {
     # Fetch the latest version number from GitHub
@@ -175,6 +199,7 @@ try {
 
     if ($missingPermissions.Count -eq 0) {
         Write-Host "All required permissions are present." -ForegroundColor Green
+        Write-Host ""
     }
     else {
         Write-Host "WARNING: The following permissions are missing:" -ForegroundColor Red
@@ -2874,7 +2899,11 @@ do {
         '0' {
             Write-Host "Disconnecting from Microsoft Graph..." -ForegroundColor Yellow
             Disconnect-MgGraph | Out-Null
-            Write-Host "Exiting..." -ForegroundColor Red
+            Write-Host "Thank you for using IntuneAssignmentChecker! 👋" -ForegroundColor Green
+            Write-Host "If you found this tool helpful, please consider:" -ForegroundColor Cyan
+            Write-Host "- Starring the repository: https://github.com/ugurkocde/IntuneAssignmentChecker" -ForegroundColor White
+            Write-Host "- Supporting the project: https://github.com/sponsors/ugurkocde" -ForegroundColor White
+            Write-Host ""
             exit
         }
 
