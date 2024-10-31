@@ -59,15 +59,137 @@ Your Entra ID application registration needs these permissions:
 
 ## 🛠️ Setup
 
-1. Create an Entra ID App Registration
-2. Grant and consent to required permissions
-3. Configure the script:
-```powershell
-# Update these values in IntuneAssignmentChecker_v2.ps1
-$appid = '<YourAppIdHere>'
-$tenantid = '<YourTenantIdHere>'
-$certThumbprint = '<YourCertificateThumbprintHere>'
-```
+1. Create an Entra ID App Registration:
+   - Navigate to Azure Portal > Entra ID > App Registrations
+   - Click "New Registration"
+   - Name your application (e.g., "IntuneAssignmentChecker")
+   - Select "Accounts in this organizational directory only"
+   - Click "Register"
+
+2. Grant required Application permissions:
+   - In your app registration, go to "API Permissions"
+   - Click "Add a permission" > "Microsoft Graph"
+   - Select "Application permissions"
+   - Add all required permissions listed in Prerequisites
+   - Click "Grant admin consent"
+
+3. Create and configure certificate authentication:
+   ```powershell
+   # Create self-signed certificate
+   New-SelfSignedCertificate `
+       -Subject "CN=IntuneAssignmentChecker" `
+       -CertStoreLocation "cert:\CurrentUser\My" `
+       -NotAfter (Get-Date).AddYears(2) `
+       -KeySpec Signature `
+       -KeyExportPolicy Exportable
+
+   # Export the certificate
+   $cert = Get-ChildItem Cert:\CurrentUser\My | Where-Object {$_.Subject -like "*IntuneAssignmentChecker*"}
+   Export-Certificate -Cert $cert -FilePath "C:\temp\IntuneAssignmentChecker.cer"
+   ```
+
+4. Upload certificate to your app registration:
+   - In Azure Portal, go to your app registration
+   - Click "Certificates & secrets"
+   - Select "Certificates"
+   - Click "Upload certificate"
+   - Upload the .cer file you exported (C:\temp\IntuneAssignmentChecker.cer)
+
+5. Collect required information:
+   - **Application (Client) ID**: 
+     - Found in app registration "Overview" page
+     - Looks like: 11111111-1111-1111-1111-111111111111
+   - **Directory (Tenant) ID**: 
+     - Also found in "Overview" page
+     - Looks like: 22222222-2222-2222-2222-222222222222
+   - **Certificate Thumbprint**:
+     ```powershell
+     # Get the thumbprint
+     $cert = Get-ChildItem Cert:\CurrentUser\My | Where-Object {$_.Subject -like "*IntuneAssignmentChecker*"}
+     $cert.Thumbprint
+     ```
+
+6. Configure the script:
+   ```powershell
+   # Update these values in IntuneAssignmentChecker_v2.ps1
+   $appid = '<YourAppIdHere>'           # Application (Client) ID
+   $tenantid = '<YourTenantIdHere>'     # Directory (Tenant) ID
+   $certThumbprint = '<YourThumbprint>' # Certificate Thumbprint
+   ```
+
+> **Note**: Keep your certificate secure! Anyone with access to the certificate and app credentials can access your Intune environment with the configured permissions.
+
+## 🔐 Authentication Options
+
+### Option 1: Certificate-Based Authentication (Recommended for automation)
+Follow these steps if you want to use certificate authentication with an app registration:
+
+1. Create an Entra ID App Registration:
+   - Navigate to Azure Portal > Entra ID > App Registrations
+   - Click "New Registration"
+   - Name your application (e.g., "IntuneAssignmentChecker")
+   - Select "Accounts in this organizational directory only"
+   - Click "Register"
+
+2. Grant required Application permissions:
+   - In your app registration, go to "API Permissions"
+   - Click "Add a permission" > "Microsoft Graph"
+   - Select "Application permissions"
+   - Add all required permissions listed in Prerequisites
+   - Click "Grant admin consent"
+
+3. Create and configure certificate authentication:
+   ```powershell
+   # Create self-signed certificate
+   New-SelfSignedCertificate `
+       -Subject "CN=IntuneAssignmentChecker" `
+       -CertStoreLocation "cert:\CurrentUser\My" `
+       -NotAfter (Get-Date).AddYears(2) `
+       -KeySpec Signature `
+       -KeyExportPolicy Exportable
+
+   # Export the certificate
+   $cert = Get-ChildItem Cert:\CurrentUser\My | Where-Object {$_.Subject -like "*IntuneAssignmentChecker*"}
+   Export-Certificate -Cert $cert -FilePath "C:\temp\IntuneAssignmentChecker.cer"
+   ```
+
+4. Upload certificate to your app registration:
+   - In Azure Portal, go to your app registration
+   - Click "Certificates & secrets"
+   - Select "Certificates"
+   - Click "Upload certificate"
+   - Upload the .cer file you exported (C:\temp\IntuneAssignmentChecker.cer)
+
+5. Configure the script with your app details:
+   ```powershell
+   # Update these values in the script
+   $appid = '<YourAppIdHere>'           # Application (Client) ID
+   $tenantid = '<YourTenantIdHere>'     # Directory (Tenant) ID
+   $certThumbprint = '<YourThumbprint>' # Certificate Thumbprint
+   ```
+
+### Option 2: Interactive Authentication (Simpler setup)
+If you prefer not to set up an app registration, you can use interactive authentication:
+
+You can just run the script without any changes. It will ask if you want to use interactive authentication where you will type "y" and press enter.
+
+This will prompt you to sign in with your credentials when running the script. The permissions will be based on your user account's roles and permissions in Entra ID.
+
+### Which Option Should I Choose?
+
+- **Choose Certificate Authentication if you**:
+  - Need to run the script unattended
+  - Want to automate the process
+  - Need consistent permissions regardless of user
+  - Are comfortable with more complex setup
+
+- **Choose Interactive Authentication if you**:
+  - Want a simpler setup
+  - Don't need automation
+  - Are comfortable using your user credentials
+  - Only need to run the script occasionally
+
+> **Note**: Keep your certificate and app credentials secure! Anyone with access to these can access your Intune environment with the configured permissions.
 
 ## 📖 Usage
 
