@@ -32,7 +32,7 @@
 
 ```powershell
 # Install Microsoft Graph PowerShell SDK
-Install-Module Microsoft.Graph -Scope CurrentUser
+Install-Module Microsoft.Graph.Authentication -Scope CurrentUser
 
 # Download and run the script
 .\IntuneAssignmentChecker_v2.ps1
