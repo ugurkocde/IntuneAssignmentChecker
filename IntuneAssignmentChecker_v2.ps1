@@ -317,11 +317,19 @@ function Show-AllPoliciesAndAssignments {
 function Get-SettingsCatalogPolicies {
     $policies = @()
     
-    # Fetch settings catalog policies
+    # Fetch settings catalog policies with pagination
     $settingsCatalogUri = "https://graph.microsoft.com/beta/deviceManagement/configurationPolicies"
     $response = Invoke-MgGraphRequest -Uri $settingsCatalogUri -Method Get
+    $policies += $response.value
     
-    foreach ($policy in $response.value) {
+    # Handle pagination
+    while ($response.'@odata.nextLink') {
+        $response = Invoke-MgGraphRequest -Uri $response.'@odata.nextLink' -Method Get
+        $policies += $response.value
+    }
+    
+    $processedPolicies = @()
+    foreach ($policy in $policies) {
         $assignments = Get-PolicyAssignments -PolicyId $policy.id -PolicyType "configurationPolicies"
         
         # Improved platform detection for Settings Catalog
@@ -342,7 +350,7 @@ function Get-SettingsCatalogPolicies {
             }
         }
         
-        $policies += [PSCustomObject]@{
+        $processedPolicies += [PSCustomObject]@{
             PolicyType        = "Settings Catalog"
             Platform          = $platform
             DisplayName       = $policy.name
@@ -352,7 +360,7 @@ function Get-SettingsCatalogPolicies {
         }
     }
     
-    return $policies
+    return $processedPolicies
 }
 
 function Get-ConfigurationProfiles {
