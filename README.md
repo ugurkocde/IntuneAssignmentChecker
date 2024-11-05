@@ -16,7 +16,7 @@
 </div>
 
 
-![IntuneAssignmentChecker_Header](https://github.com/user-attachments/assets/ee7c8ed6-8059-455e-b829-e875451f0ef2)
+![IntuneAssignmentChecker_Header](https://github.com/user-attachments/assets/47d2231d-569f-4d22-bef5-944a4a74f7da)
 
 
 ## 📑 Table of Contents
