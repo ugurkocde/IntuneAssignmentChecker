@@ -17,6 +17,7 @@
     Ugur Koc (@ugurkocde)
     GitHub: https://github.com/ugurkocde/IntuneAssignmentChecker
     Sponsor: https://github.com/sponsors/ugurkocde
+    Changelog: https://github.com/ugurkocde/IntuneAssignmentChecker/releases
 
 .REQUIRED PERMISSIONS
     - User.Read.All                    (Read user profiles)
@@ -38,16 +39,19 @@ $certThumbprint = '<YourCertificateThumbprintHere>' # Thumbprint of the certific
 ####################################################################################################
 
 # Version of the local script
-$localVersion = "2.4.0"
+$localVersion = "2.4.1"
 
 Write-Host "🔍 INTUNE ASSIGNMENT CHECKER" -ForegroundColor Cyan
 Write-Host "Made by Ugur Koc with" -NoNewline; Write-Host " ❤️  and ☕" -NoNewline
 Write-Host " | Version" -NoNewline; Write-Host " $localVersion" -ForegroundColor Yellow -NoNewline
-Write-Host " | Last updated: " -NoNewline; Write-Host "2024-10-31" -ForegroundColor Magenta
+Write-Host " | Last updated: " -NoNewline; Write-Host "2024-11-05" -ForegroundColor Magenta
 Write-Host ""
 Write-Host "📢 Feedback & Issues: " -NoNewline -ForegroundColor Cyan
 Write-Host "https://github.com/ugurkocde/IntuneAssignmentChecker" -ForegroundColor White
-Write-Host "💝 Support Project: " -NoNewline -ForegroundColor Cyan
+Write-Host "📄 Changelog: " -NoNewline -ForegroundColor Cyan
+Write-Host "https://github.com/ugurkocde/IntuneAssignmentChecker/releases" -ForegroundColor White
+Write-Host ""
+Write-Host "💝 Support this Project: " -NoNewline -ForegroundColor Cyan
 Write-Host "https://github.com/sponsors/ugurkocde" -ForegroundColor White
 Write-Host ""
 Write-Host "⚠️  DISCLAIMER: This script is provided AS IS without warranty of any kind." -ForegroundColor Yellow
@@ -317,11 +321,19 @@ function Show-AllPoliciesAndAssignments {
 function Get-SettingsCatalogPolicies {
     $policies = @()
     
-    # Fetch settings catalog policies
+    # Fetch settings catalog policies with pagination
     $settingsCatalogUri = "https://graph.microsoft.com/beta/deviceManagement/configurationPolicies"
     $response = Invoke-MgGraphRequest -Uri $settingsCatalogUri -Method Get
+    $policies += $response.value
     
-    foreach ($policy in $response.value) {
+    # Handle pagination
+    while ($response.'@odata.nextLink') {
+        $response = Invoke-MgGraphRequest -Uri $response.'@odata.nextLink' -Method Get
+        $policies += $response.value
+    }
+    
+    $processedPolicies = @()
+    foreach ($policy in $policies) {
         $assignments = Get-PolicyAssignments -PolicyId $policy.id -PolicyType "configurationPolicies"
         
         # Improved platform detection for Settings Catalog
@@ -342,7 +354,7 @@ function Get-SettingsCatalogPolicies {
             }
         }
         
-        $policies += [PSCustomObject]@{
+        $processedPolicies += [PSCustomObject]@{
             PolicyType        = "Settings Catalog"
             Platform          = $platform
             DisplayName       = $policy.name
@@ -352,7 +364,7 @@ function Get-SettingsCatalogPolicies {
         }
     }
     
-    return $policies
+    return $processedPolicies
 }
 
 function Get-ConfigurationProfiles {
