@@ -20,13 +20,13 @@
 
 
 ## 📑 Table of Contents
-- [Quick Start](#-quick-start)
-- [Features](#-features)
-- [Prerequisites](#-prerequisites)
-- [Authentication Options](#-authentication-options)
-- [Usage](#-usage)
-- [Contributing](#-contributing)
-- [License](#-license)
+- [🚀 Quick Start](#-quick-start)
+- [✨ Features](#-features)
+- [📋 Prerequisites](#-prerequisites)
+- [🔐 Authentication Options](#-authentication-options)
+- [📖 Usage](#-usage)
+- [🤝 Contributing](#-contributing)
+- [📄 License](#-license)
 
 ## 🚀 Quick Start
 
