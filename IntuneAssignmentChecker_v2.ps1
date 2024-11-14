@@ -39,12 +39,12 @@ $certThumbprint = '<YourCertificateThumbprintHere>' # Thumbprint of the certific
 ####################################################################################################
 
 # Version of the local script
-$localVersion = "2.4.1"
+$localVersion = "2.4.2"
 
 Write-Host "🔍 INTUNE ASSIGNMENT CHECKER" -ForegroundColor Cyan
 Write-Host "Made by Ugur Koc with" -NoNewline; Write-Host " ❤️  and ☕" -NoNewline
 Write-Host " | Version" -NoNewline; Write-Host " $localVersion" -ForegroundColor Yellow -NoNewline
-Write-Host " | Last updated: " -NoNewline; Write-Host "2024-11-05" -ForegroundColor Magenta
+Write-Host " | Last updated: " -NoNewline; Write-Host "2024-11-14" -ForegroundColor Magenta
 Write-Host ""
 Write-Host "📢 Feedback & Issues: " -NoNewline -ForegroundColor Cyan
 Write-Host "https://github.com/ugurkocde/IntuneAssignmentChecker" -ForegroundColor White
@@ -288,9 +288,11 @@ function Show-AllPoliciesAndAssignments {
     $settingsCatalog = Get-SettingsCatalogPolicies
     Write-Host "Fetching Compliance Policies..." -ForegroundColor Yellow
     $compliancePolicies = Get-CompliancePolicies
+    Write-Host "Fetching Administrative Templates..." -ForegroundColor Yellow
+    $adminTemplates = Get-AdministrativeTemplates
     
     # Combine and sort all policies
-    $allPolicies = @($configProfiles + $settingsCatalog + $compliancePolicies)
+    $allPolicies = @($configProfiles + $settingsCatalog + $compliancePolicies + $adminTemplates)
     
     # Group by platform and sort
     $platformGroups = $allPolicies | Group-Object -Property Platform | Sort-Object Name
@@ -317,6 +319,38 @@ function Show-AllPoliciesAndAssignments {
         }
     }
 }
+
+function Get-AdministrativeTemplates {
+    $policies = @()
+    
+    # Fetch administrative templates with pagination
+    $adminTemplatesUri = "https://graph.microsoft.com/beta/deviceManagement/groupPolicyConfigurations"
+    $response = Invoke-MgGraphRequest -Uri $adminTemplatesUri -Method Get
+    $policies += $response.value
+    
+    # Handle pagination
+    while ($response.'@odata.nextLink') {
+        $response = Invoke-MgGraphRequest -Uri $response.'@odata.nextLink' -Method Get
+        $policies += $response.value
+    }
+    
+    $processedPolicies = @()
+    foreach ($policy in $policies) {
+        $assignments = Get-PolicyAssignments -PolicyId $policy.id -PolicyType "groupPolicyConfigurations"
+        
+        $processedPolicies += [PSCustomObject]@{
+            PolicyType        = "Administrative Template"
+            Platform          = "Windows"  # Administrative templates are Windows-only
+            DisplayName       = $policy.displayName
+            Id                = $policy.id
+            AssignmentSummary = ($assignments -join "; ")
+            RawAssignments    = $assignments
+        }
+    }
+    
+    return $processedPolicies
+}
+
 
 function Get-SettingsCatalogPolicies {
     $policies = @()
@@ -499,11 +533,13 @@ function Show-PoliciesWithoutAssignments {
     $configProfiles = Get-ConfigurationProfiles
     Write-Host "Fetching Settings Catalog Policies..." -ForegroundColor Yellow
     $settingsCatalog = Get-SettingsCatalogPolicies
+    Write-Host "Fetching Administrative Templates..." -ForegroundColor Yellow
+    $adminTemplates = Get-AdministrativeTemplates
     Write-Host "Fetching Compliance Policies..." -ForegroundColor Yellow
     $compliancePolicies = Get-CompliancePolicies
     
     # Combine all policies
-    $allPolicies = @($configProfiles + $settingsCatalog + $compliancePolicies)
+    $allPolicies = @($configProfiles + $settingsCatalog + $adminTemplates + $compliancePolicies)
     
     # Filter for unassigned policies
     $unassignedPolicies = $allPolicies | Where-Object { 
@@ -2670,7 +2706,7 @@ do {
                 $appId = $app.id
                 Write-Host "App Name: $appName, App ID: $appId" -ForegroundColor White
             }
-                
+
             # Prompt the user to export results to CSV
             $export = Read-Host "Would you like to export the results to a CSV file? (y/n)"
             if ($export -eq 'y') {
