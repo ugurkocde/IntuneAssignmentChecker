@@ -39,7 +39,7 @@ $certThumbprint = '<YourCertificateThumbprintHere>' # Thumbprint of the certific
 ####################################################################################################
 
 # Version of the local script
-$localVersion = "2.4.2"
+$localVersion = "2.5"
 
 Write-Host "🔍 INTUNE ASSIGNMENT CHECKER" -ForegroundColor Cyan
 Write-Host "Made by Ugur Koc with" -NoNewline; Write-Host " ❤️  and ☕" -NoNewline
@@ -581,6 +581,42 @@ function Show-PoliciesWithoutAssignments {
     }
 }
 
+function Show-AdministrativeTemplatesForMigration {
+    Write-Host "Fetching Administrative Templates..." -ForegroundColor Yellow
+    
+    $adminTemplates = Get-AdministrativeTemplates
+    
+    if ($adminTemplates.Count -eq 0) {
+        Write-Host "`nNo Administrative Templates found!" -ForegroundColor Green
+        return
+    }
+    
+    # Group templates by platform (though they should all be Windows)
+    $platformGroups = $adminTemplates | Group-Object -Property Platform | Sort-Object Name
+    
+    foreach ($platformGroup in $platformGroups) {
+        Write-Host "=== $($platformGroup.Name) Administrative Templates ===" -ForegroundColor Cyan
+        
+        $templates = $platformGroup.Group | Sort-Object DisplayName
+        
+        $templates | Format-Table -AutoSize -Property @(
+            @{Label = "Name"; Expression = { $_.DisplayName } },
+            @{Label = "ID"; Expression = { $_.Id } },
+            @{Label = "Assignments"; Expression = { $_.AssignmentSummary } }
+        )
+    }
+    
+    # Offer to export to CSV
+    $export = Read-Host "`nWould you like to export this information to CSV? (y/n)"
+    if ($export -eq 'y') {
+        $exportPath = Show-SaveFileDialog -DefaultFileName "IntuneAdministrativeTemplates.csv"
+        if ($exportPath) {
+            $adminTemplates | Select-Object DisplayName, Id, AssignmentSummary | 
+            Export-Csv -Path $exportPath -NoTypeInformation
+            Write-Host "Exported to $exportPath" -ForegroundColor Green
+        }
+    }
+}
 
 function Show-Menu {    
     Write-Host "Assignment Checks:" -ForegroundColor Cyan
@@ -599,6 +635,7 @@ function Show-Menu {
     Write-Host "  [7] Search for Assignments by Setting Name" -ForegroundColor White
     Write-Host "  [8] Show Policies Without Assignments" -ForegroundColor White
     Write-Host "  [9] Check for Empty Groups in Assignments" -ForegroundColor White
+    Write-Host "  [10] Show all Administrative Templates (deprecates in December 2024)" -ForegroundColor Yellow
     Write-Host ""
     
     Write-Host "System:" -ForegroundColor Cyan
@@ -2938,6 +2975,10 @@ do {
                     }
                 }
             }
+        }
+
+        '10' {
+            Show-AdministrativeTemplatesForMigration
         }
 
         '0' {
