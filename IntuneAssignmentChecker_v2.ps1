@@ -39,7 +39,7 @@ $certThumbprint = '<YourCertificateThumbprintHere>' # Thumbprint of the certific
 ####################################################################################################
 
 # Version of the local script
-$localVersion = "2.5"
+$localVersion = "2.5.0"
 
 Write-Host "🔍 INTUNE ASSIGNMENT CHECKER" -ForegroundColor Cyan
 Write-Host "Made by Ugur Koc with" -NoNewline; Write-Host " ❤️  and ☕" -NoNewline
