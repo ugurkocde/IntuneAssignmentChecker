@@ -1166,36 +1166,66 @@ do {
         '2' {
             Write-Host "Group selection chosen" -ForegroundColor Green
 
-            # Prompt for one or more Group names
-            Write-Host "Please enter Group name(s), separated by commas (,): " -ForegroundColor Cyan
+            # Prompt for Group names or IDs
+            Write-Host "Please enter Group name(s) or Object ID(s), separated by commas (,): " -ForegroundColor Cyan
+            Write-Host "Example: 'Marketing Team, 12345678-1234-1234-1234-123456789012'" -ForegroundColor Gray
             $groupInput = Read-Host
-            $groupNames = $groupInput -split ',' | ForEach-Object { $_.Trim() }
+            $groupInputs = $groupInput -split ',' | ForEach-Object { $_.Trim() }
 
             $exportData = [System.Collections.ArrayList]::new()
 
-            foreach ($groupName in $groupNames) {
-                Write-Host "Checking following Group: $groupName" -ForegroundColor Yellow
+            # Regex pattern for GUID/Object ID
+            $guidPattern = '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
 
-                # Get Group ID from Entra ID
-                $groupUri = "https://graph.microsoft.com/v1.0/groups?`$filter=displayName eq '$groupName'"
-                $groupResponse = Invoke-MgGraphRequest -Uri $groupUri -Method Get
-        
-                if ($groupResponse.value.Count -eq 0) {
-                    Write-Host "No group found with name: $groupName" -ForegroundColor Red
-                    continue
+            foreach ($input in $groupInputs) {
+                Write-Host "Processing input: $input" -ForegroundColor Yellow
+
+                # Initialize variables
+                $groupId = $null
+                $groupName = $null
+
+                # Check if input is a GUID
+                if ($input -match $guidPattern) {
+                    try {
+                        # Try to get group info using the ID
+                        $groupUri = "https://graph.microsoft.com/v1.0/groups/$input"
+                        $groupResponse = Invoke-MgGraphRequest -Uri $groupUri -Method Get
+                        $groupId = $groupResponse.id
+                        $groupName = $groupResponse.displayName
+                        Write-Host "Found group by ID: $groupName" -ForegroundColor Green
+                    }
+                    catch {
+                        Write-Host "No group found with ID: $input" -ForegroundColor Red
+                        continue
+                    }
                 }
-                elseif ($groupResponse.value.Count -gt 1) {
-                    Write-Host "Multiple groups found with name: $groupName. Please use a more specific name." -ForegroundColor Red
-                    continue
+                else {
+                    # Try to find group by display name
+                    $groupUri = "https://graph.microsoft.com/v1.0/groups?`$filter=displayName eq '$input'"
+                    $groupResponse = Invoke-MgGraphRequest -Uri $groupUri -Method Get
+            
+                    if ($groupResponse.value.Count -eq 0) {
+                        Write-Host "No group found with name: $input" -ForegroundColor Red
+                        continue
+                    }
+                    elseif ($groupResponse.value.Count -gt 1) {
+                        Write-Host "Multiple groups found with name: $input. Please use the Object ID instead:" -ForegroundColor Red
+                        foreach ($group in $groupResponse.value) {
+                            Write-Host "  - $($group.displayName) (ID: $($group.id))" -ForegroundColor Yellow
+                        }
+                        continue
+                    }
+
+                    $groupId = $groupResponse.value[0].id
+                    $groupName = $groupResponse.value[0].displayName
+                    Write-Host "Found group by name: $groupName (ID: $groupId)" -ForegroundColor Green
                 }
 
-                $groupId = $groupResponse.value[0].id
-                Write-Host "Group Name: $groupName, Group ID: $groupId" -ForegroundColor Green
+                # Rest of the existing code using $groupId and $groupName...
+                # Get Device Group Memberships
+                $groupsUri = "https://graph.microsoft.com/v1.0/groups/$groupId/members?`$select=displayName"
+                $membersResponse = Invoke-MgGraphRequest -Uri $groupsUri -Method Get
 
-                # Fetch and display group members
-                $membersUri = "https://graph.microsoft.com/v1.0/groups/$groupId/members?`$select=displayName"
-                $membersResponse = Invoke-MgGraphRequest -Uri $membersUri -Method Get
-        
                 Write-Host "Group Members:" -ForegroundColor Cyan
                 foreach ($member in $membersResponse.value) {
                     Write-Host "  - $($member.displayName)" -ForegroundColor White
@@ -1977,7 +2007,7 @@ do {
                 # Display the fetched Applications (Available)
                 Write-Host "------- Applications (Available) -------" -ForegroundColor Cyan
                 foreach ($app in $deviceRelevantAppsAvailable) {
-                    $appName = if ([string]::IsNullOrWhiteSpace($app.name)) { $app.displayName } else { $app.displayName }
+                    $appName = if ([string]::IsNullOrWhiteSpace($app.name)) { $app.displayName } else { $app.name }
                     $appId = $app.id
                     Write-Host "App Name: $appName, App ID: $appId" -ForegroundColor White
                 }
