@@ -712,6 +712,7 @@ do {
                     $userRelevantAppsRequired = @()
                     $userRelevantAppsAvailable = @()
                     $userRelevantAppsUninstall = @()
+                    $userRelevantPlatformScripts = @()
 
                     # Define URIs for Intune Policies and Applications
                     $deviceConfigsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceConfigurations"
@@ -993,6 +994,83 @@ do {
                     Start-Sleep -Milliseconds 100
                     Write-Host ""  # Move to the next line after the loop
 
+
+                    # Fetch and process Platform Scripts (PowerShell)
+                    $scriptsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceManagementScripts"
+                    $scriptsResponse = Invoke-MgGraphRequest -Uri $scriptsUri -Method Get
+                    $allPlatformScripts = $scriptsResponse.value
+                    while ($scriptsResponse.'@odata.nextLink') {
+                        $scriptsResponse = Invoke-MgGraphRequest -Uri $scriptsResponse.'@odata.nextLink' -Method Get
+                        $allPlatformScripts += $scriptsResponse.value
+                    }
+
+                    # Add Shell Scripts
+                    $shellScriptsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceShellScripts"
+                    $shellScriptsResponse = Invoke-MgGraphRequest -Uri $shellScriptsUri -Method Get
+                    $allPlatformScripts += $shellScriptsResponse.value
+                    while ($shellScriptsResponse.'@odata.nextLink') {
+                        $shellScriptsResponse = Invoke-MgGraphRequest -Uri $shellScriptsResponse.'@odata.nextLink' -Method Get
+                        $allPlatformScripts += $shellScriptsResponse.value
+                    }
+
+                    $totalPlatformScripts = $allPlatformScripts.Count
+                    $currentPlatformScript = 0
+
+                    foreach ($script in $allPlatformScripts) {
+                        $currentPlatformScript++
+                        Write-Host "`rFetching Platform Script $currentPlatformScript of $totalPlatformScripts" -NoNewline
+                        
+                        $scriptId = $script.id
+                        $scriptType = $script.'@odata.type'
+                        $assignmentsUri = if ($scriptType -eq '#microsoft.graph.deviceShellScript') {
+                            "https://graph.microsoft.com/beta/deviceManagement/deviceShellScripts('$scriptId')/groupAssignments"
+                        }
+                        else {
+                            "https://graph.microsoft.com/beta/deviceManagement/deviceManagementScripts('$scriptId')/assignments"
+                        }
+                        
+                        $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
+                        
+                        foreach ($assignment in $assignmentResponse.value) {
+                            $assignmentReason = $null
+                            if ($assignment.target.'@odata.type' -eq '#microsoft.graph.allLicensedUsersAssignmentTarget') {
+                                $assignmentReason = "All Users"
+                            }
+                            elseif (($scriptType -eq '#microsoft.graph.deviceShellScript' -and $groupIds -contains $assignment.targetGroupId) -or
+                                    ($scriptType -ne '#microsoft.graph.deviceShellScript' -and $assignment.target.'@odata.type' -eq '#microsoft.graph.groupAssignmentTarget' -and $groupIds -contains $assignment.target.groupId)) {
+                                $assignmentReason = "Group Assignment"
+                            }
+
+                            if ($assignmentReason) {
+                                Add-Member -InputObject $script -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentReason -Force
+                                $userRelevantPlatformScripts += $script
+                                break
+                            }
+                        }
+                    }
+                    Write-Host "`rFetching Platform Script $totalPlatformScripts of $totalPlatformScripts" -NoNewline
+                    Start-Sleep -Milliseconds 100
+                    Write-Host ""
+
+                    # Check Shell Scripts (macOS)
+                    $shellScriptsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceShellScripts"
+                    $shellScriptsResponse = Invoke-MgGraphRequest -Uri $shellScriptsUri -Method Get
+                    foreach ($script in $shellScriptsResponse.value) {
+                        $scriptId = $script.id
+                        $assignmentsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceShellScripts('$scriptId')/groupAssignments"
+                        $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
+
+                        foreach ($assignment in $assignmentResponse.value) {
+                            if ($assignment.targetGroupId -and $groupIds -contains $assignment.targetGroupId) {
+                                Add-Member -InputObject $script -NotePropertyName 'AssignmentReason' -NotePropertyValue "Group Assignment" -Force
+                                $userRelevantPlatformScripts += $script
+                                break
+                            }
+                        }
+                    }
+
+
+
                     Write-Host "Intune Profiles and Apps have been successfully fetched for the user." -ForegroundColor Green
 
                     # Generating Results for the User
@@ -1087,6 +1165,14 @@ do {
                         Write-Host "App Name: $appName, App ID: $appId" -ForegroundColor White
                     }
 
+                    # Display the fetched Platform Scripts
+                    Write-Host "------- Platform Scripts -------" -ForegroundColor Cyan
+                    foreach ($script in $userRelevantPlatformScripts) {
+                        $scriptName = if ([string]::IsNullOrWhiteSpace($script.name)) { $script.displayName } else { $script.name }
+                        $assignmentInfo = if ($script.AssignmentReason) { ", Assignment Reason: $($script.AssignmentReason)" } else { "" }
+                        Write-Host "Script Name: $scriptName, Script ID: $($script.id)$assignmentInfo" -ForegroundColor White
+                    }
+
                     # Modify the Add-ExportData function to include the Assignment Reason
                     function Add-ExportData($Category, $Items) {
                         foreach ($item in $Items) {
@@ -1113,6 +1199,8 @@ do {
                     Add-AppExportData "Required App" $deviceRelevantAppsRequired
                     Add-AppExportData "Available App" $deviceRelevantAppsAvailable
                     Add-AppExportData "Uninstall App" $deviceRelevantAppsUninstall
+
+                    Add-ExportData "Platform Scripts" $userRelevantPlatformScripts
 
                     # Prompt the user to export results to CSV
                     $export = Read-Host "Would you like to export the results to a CSV file? (y/n)"
