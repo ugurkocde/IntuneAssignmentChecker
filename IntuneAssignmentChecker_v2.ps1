@@ -290,9 +290,49 @@ function Show-AllPoliciesAndAssignments {
     $compliancePolicies = Get-CompliancePolicies
     Write-Host "Fetching Administrative Templates..." -ForegroundColor Yellow
     $adminTemplates = Get-AdministrativeTemplates
+    Write-Host "Fetching Platform Scripts..." -ForegroundColor Yellow
+    
+    # Fetch PowerShell and Shell scripts
+    $scriptsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceManagementScripts"
+    $scriptsResponse = Invoke-MgGraphRequest -Uri $scriptsUri -Method Get
+    $allScripts = $scriptsResponse.value
+    while ($scriptsResponse.'@odata.nextLink') {
+        $scriptsResponse = Invoke-MgGraphRequest -Uri $scriptsResponse.'@odata.nextLink' -Method Get
+        $allScripts += $scriptsResponse.value
+    }
+
+    $shellScriptsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceShellScripts"
+    $shellScriptsResponse = Invoke-MgGraphRequest -Uri $shellScriptsUri -Method Get
+    $allShellScripts = $shellScriptsResponse.value
+    while ($shellScriptsResponse.'@odata.nextLink') {
+        $shellScriptsResponse = Invoke-MgGraphRequest -Uri $shellScriptsResponse.'@odata.nextLink' -Method Get
+        $allShellScripts += $shellScriptsResponse.value
+    }
+
+    # Process all scripts
+    foreach ($script in ($allScripts + $allShellScripts)) {
+        $scriptType = if ($script.'@odata.type' -eq '#microsoft.graph.deviceShellScript') { 
+            "deviceShellScripts"
+        }
+        else {
+            "deviceManagementScripts"
+        }
+        
+        $assignments = Get-PolicyAssignments -PolicyId $script.id -PolicyType $scriptType
+        $platform = if ($scriptType -eq "deviceShellScripts") { "macOS" } else { "Cross-Platform" }
+        
+        $allPolicies += [PSCustomObject]@{
+            PolicyType        = "Platform Script"
+            Platform          = $platform
+            DisplayName       = $script.displayName
+            Id                = $script.id
+            AssignmentSummary = ($assignments -join "; ")
+            RawAssignments    = $assignments
+        }
+    }
     
     # Combine and sort all policies
-    $allPolicies = @($configProfiles + $settingsCatalog + $compliancePolicies + $adminTemplates)
+    $allPolicies = @($configProfiles + $settingsCatalog + $compliancePolicies + $adminTemplates + $allPolicies)
     
     # Group by platform and sort
     $platformGroups = $allPolicies | Group-Object -Property Platform | Sort-Object Name
@@ -1131,6 +1171,8 @@ do {
                             Write-Host "    - $appId" -ForegroundColor White
                         }
                     }
+                
+                
                     
 
                     # Display the fetched App Configuration Policies
@@ -1373,6 +1415,57 @@ do {
                 $appProtectionUri = "https://graph.microsoft.com/beta/deviceAppManagement/managedAppPolicies"
                 $appConfigurationUri = "https://graph.microsoft.com/beta/deviceAppManagement/mobileAppConfigurations"
                 $appUri = "https://graph.microsoft.com/beta/deviceAppManagement/mobileApps?`$filter=isAssigned eq true"
+                $scriptsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceManagementScripts"
+                $shellScriptsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceShellScripts"
+
+                # Fetch and process Platform Scripts (PowerShell and Shell)
+                $scriptsResponse = Invoke-MgGraphRequest -Uri $scriptsUri -Method Get
+                $allScripts = $scriptsResponse.value
+                while ($scriptsResponse.'@odata.nextLink') {
+                    $scriptsResponse = Invoke-MgGraphRequest -Uri $scriptsResponse.'@odata.nextLink' -Method Get
+                    $allScripts += $scriptsResponse.value
+                }
+                $shellScriptsResponse = Invoke-MgGraphRequest -Uri $shellScriptsUri -Method Get
+                $allShellScripts = $shellScriptsResponse.value
+                while ($shellScriptsResponse.'@odata.nextLink') {
+                    $shellScriptsResponse = Invoke-MgGraphRequest -Uri $shellScriptsResponse.'@odata.nextLink' -Method Get
+                    $allShellScripts += $shellScriptsResponse.value
+                }
+                $totalScripts = $allScripts.Count + $allShellScripts.Count
+                $currentScript = 0
+
+                foreach ($script in $allScripts) {
+                    $currentScript++
+                    Write-Host "`rFetching Platform Script $currentScript of $totalScripts" -NoNewline
+                    $scriptId = $script.id
+                    $assignmentsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceManagementScripts('$scriptId')/assignments"
+                    $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
+
+                    foreach ($assignment in $assignmentResponse.value) {
+                        if ($assignment.target.groupId -eq $groupId) {
+                            $groupRelevantPlatformScripts += $script
+                            break
+                        }
+                    }
+                }
+
+                foreach ($script in $allShellScripts) {
+                    $currentScript++
+                    Write-Host "`rFetching Platform Script $currentScript of $totalScripts" -NoNewline
+                    $scriptId = $script.id
+                    $assignmentsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceShellScripts('$scriptId')/groupAssignments"
+                    $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
+
+                    foreach ($assignment in $assignmentResponse.value) {
+                        if ($assignment.targetGroupId -eq $groupId) {
+                            $groupRelevantPlatformScripts += $script
+                            break
+                        }
+                    }
+                }
+                Write-Host "`rFetching Platform Script $totalScripts of $totalScripts" -NoNewline
+                Start-Sleep -Milliseconds 100
+                Write-Host ""  # Move to the next line after the loop
 
                 # Fetch and process Device Configurations
                 $deviceConfigsResponse = Invoke-MgGraphRequest -Uri $deviceConfigsUri -Method Get
@@ -1694,7 +1787,6 @@ do {
                 }
 
                 # Process Platform Scripts (PowerShell)
-                Write-Host "Fetching PowerShell Scripts..." -ForegroundColor Yellow
                 $scriptsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceManagementScripts"
                 $scriptsResponse = Invoke-MgGraphRequest -Uri $scriptsUri -Method Get
                 foreach ($script in $scriptsResponse.value) {
@@ -1712,7 +1804,6 @@ do {
                 }
 
                 # Process Shell Scripts (macOS)
-                Write-Host "Fetching Shell Scripts..." -ForegroundColor Yellow
                 $shellScriptsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceShellScripts"
                 $shellScriptsResponse = Invoke-MgGraphRequest -Uri $shellScriptsUri -Method Get
                 foreach ($script in $shellScriptsResponse.value) {
@@ -1737,25 +1828,25 @@ do {
                         Write-Host "Script Name: $($script.displayName), Type: $scriptType, Script ID: $($script.id)" -ForegroundColor White
                     }
                 }
-            }
 
-            # Prompt the user to export results to CSV
-            $export = Read-Host "Would you like to export the results to a CSV file? (y/n)"
-            if ($export -eq 'y') {
-                Add-Type -AssemblyName System.Windows.Forms
-                $SaveFileDialog = New-Object System.Windows.Forms.SaveFileDialog
-                $SaveFileDialog.Filter = "CSV files (*.csv)|*.csv|All files (*.*)|*.*"
-                $SaveFileDialog.Title = "Save results to CSV"
-                $SaveFileDialog.ShowDialog() | Out-Null
-                $outputPath = $SaveFileDialog.FileName
+                # Prompt the user to export results to CSV
+                $export = Read-Host "Would you like to export the results to a CSV file? (y/n)"
+                if ($export -eq 'y') {
+                    Add-Type -AssemblyName System.Windows.Forms
+                    $SaveFileDialog = New-Object System.Windows.Forms.SaveFileDialog
+                    $SaveFileDialog.Filter = "CSV files (*.csv)|*.csv|All files (*.*)|*.*"
+                    $SaveFileDialog.Title = "Save results to CSV"
+                    $SaveFileDialog.ShowDialog() | Out-Null
+                    $outputPath = $SaveFileDialog.FileName
 
-                if ($outputPath) {
-                    # Export data to CSV
-                    $exportData | Export-Csv -Path $outputPath -NoTypeInformation
-                    Write-Host "Results have been exported to $outputPath" -ForegroundColor Green
-                }
-                else {
-                    Write-Host "No file selected, export cancelled." -ForegroundColor Red
+                    if ($outputPath) {
+                        # Export data to CSV
+                        $exportData | Export-Csv -Path $outputPath -NoTypeInformation
+                        Write-Host "Results have been exported to $outputPath" -ForegroundColor Green
+                    }
+                    else {
+                        Write-Host "No file selected, export cancelled." -ForegroundColor Red
+                    }
                 }
             }
         }
@@ -1809,6 +1900,7 @@ do {
                 $deviceRelevantAppsRequired = @()
                 $deviceRelevantAppsAvailable = @()
                 $deviceRelevantAppsUninstall = @()
+                $deviceRelevantPlatformScripts = @()
 
                 # Define URIs for Intune Policies and Applications
                 $deviceConfigsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceConfigurations"
@@ -2083,7 +2175,82 @@ do {
                 }
                 Write-Host "`rFetching Application $totalApps of $totalApps" -NoNewline
                 Start-Sleep -Milliseconds 100
-                Write-Host ""  # Move to the next line after the loop
+                Write-Host ""
+                
+                # Fetch and process Platform Scripts (PowerShell and Shell)
+                $scriptsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceManagementScripts"
+                $scriptsResponse = Invoke-MgGraphRequest -Uri $scriptsUri -Method Get
+                $allScripts = $scriptsResponse.value
+                while ($scriptsResponse.'@odata.nextLink') {
+                    $scriptsResponse = Invoke-MgGraphRequest -Uri $scriptsResponse.'@odata.nextLink' -Method Get
+                    $allScripts += $scriptsResponse.value
+                }
+                $shellScriptsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceShellScripts"
+                $shellScriptsResponse = Invoke-MgGraphRequest -Uri $shellScriptsUri -Method Get
+                $allShellScripts = $shellScriptsResponse.value
+                while ($shellScriptsResponse.'@odata.nextLink') {
+                    $shellScriptsResponse = Invoke-MgGraphRequest -Uri $shellScriptsResponse.'@odata.nextLink' -Method Get
+                    $allShellScripts += $shellScriptsResponse.value
+                }
+                $totalScripts = $allScripts.Count + $allShellScripts.Count
+                $currentScript = 0
+  
+                foreach ($script in $allScripts) {
+                    $currentScript++
+                    Write-Host "`rFetching Platform Script $currentScript of $totalScripts" -NoNewline
+                    $scriptId = $script.id
+                    $assignmentsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceManagementScripts('$scriptId')/assignments"
+                    $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
+  
+                    foreach ($assignment in $assignmentResponse.value) {
+                        $assignmentReason = $null
+                        if ($assignment.target.'@odata.type' -eq '#microsoft.graph.allDevicesAssignmentTarget') {
+                            $assignmentReason = "All Devices"
+                        }
+                        elseif ($assignment.target.'@odata.type' -eq '#microsoft.graph.allLicensedUsersAssignmentTarget') {
+                            $assignmentReason = "All Users"
+                        }
+                        elseif ($assignment.target.'@odata.type' -eq '#microsoft.graph.groupAssignmentTarget' -and $groupIds -contains $assignment.target.groupId) {
+                            $assignmentReason = "Group Assignment"
+                        }
+  
+                        if ($assignmentReason) {
+                            Add-Member -InputObject $script -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentReason -Force
+                            $deviceRelevantPlatformScripts += $script
+                            break
+                        }
+                    }
+                }
+  
+                foreach ($script in $allShellScripts) {
+                    $currentScript++
+                    Write-Host "`rFetching Platform Script $currentScript of $totalScripts" -NoNewline
+                    $scriptId = $script.id
+                    $assignmentsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceShellScripts('$scriptId')/groupAssignments"
+                    $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
+  
+                    foreach ($assignment in $assignmentResponse.value) {
+                        $assignmentReason = $null
+                        if ($assignment.target.'@odata.type' -eq '#microsoft.graph.allDevicesAssignmentTarget') {
+                            $assignmentReason = "All Devices"
+                        }
+                        elseif ($assignment.target.'@odata.type' -eq '#microsoft.graph.allLicensedUsersAssignmentTarget') {
+                            $assignmentReason = "All Users"
+                        }
+                        elseif ($groupIds -contains $assignment.targetGroupId) {
+                            $assignmentReason = "Group Assignment"
+                        }
+  
+                        if ($assignmentReason) {
+                            Add-Member -InputObject $script -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentReason -Force
+                            $deviceRelevantPlatformScripts += $script
+                            break
+                        }
+                    }
+                }
+                Write-Host "`rFetching Platform Script $totalScripts of $totalScripts" -NoNewline
+                Start-Sleep -Milliseconds 100
+                Write-Host ""
 
                 Write-Host "Intune Profiles and Apps have been successfully fetched for the device." -ForegroundColor Green
 
@@ -2178,6 +2345,15 @@ do {
                     Write-Host "App Name: $appName, App ID: $appId" -ForegroundColor White
                 }
 
+                # Display the fetched Platform Scripts
+                Write-Host "------- Platform Scripts -------" -ForegroundColor Cyan
+                foreach ($script in $deviceRelevantPlatformScripts) {
+                    $scriptName = if ([string]::IsNullOrWhiteSpace($script.name)) { $script.displayName } else { $script.name }
+                    $scriptType = if ($script.'@odata.type' -eq '#microsoft.graph.deviceShellScript') { "Shell" } else { "PowerShell" }
+                    $assignmentInfo = if ($script.AssignmentReason) { ", Assignment Reason: $($script.AssignmentReason)" } else { "" }
+                    Write-Host "Script Name: $scriptName, Type: $scriptType, Script ID: $($script.id)$assignmentInfo" -ForegroundColor White
+                }
+
                 # Modify the Add-ExportData function to include the Assignment Reason
                 function Add-ExportData($Category, $Items) {
                     foreach ($item in $Items) {
@@ -2214,8 +2390,38 @@ do {
                     $SaveFileDialog.Title = "Save results to CSV"
                     $SaveFileDialog.ShowDialog() | Out-Null
                     $outputPath = $SaveFileDialog.FileName
-                
+
                     if ($outputPath) {
+                        Add-ExportData "Device Configuration" $allDeviceDeviceConfigs
+                        Add-ExportData "Settings Catalog Policy" $allDeviceSettingsCatalog 
+                        Add-ExportData "Administrative Template" $allDeviceAdminTemplates 
+                        Add-ExportData "Compliance Policy" $allDeviceCompliancePolicies
+                        Add-ExportData "App Configuration Policy" $allDeviceAppConfigurationPolicies 
+ 
+                        foreach ($policy in $allDeviceAppProtectionPolicies) {
+                            $policyType = switch ($policy.'@odata.type') {
+                                "#microsoft.graph.androidManagedAppProtection" { "Android" }
+                                "#microsoft.graph.iosManagedAppProtection" { "iOS" }
+                                "#microsoft.graph.windowsManagedAppProtection" { "Windows" }
+                                default { "Unknown" }
+                            }
+                            $protectedApps = ($policy.apps | ForEach-Object { 
+                                    if ($_.mobileAppIdentifier.windowsAppId) { $_.mobileAppIdentifier.windowsAppId }
+                                    elseif ($_.mobileAppIdentifier.bundleId) { $_.mobileAppIdentifier.bundleId }
+                                    elseif ($_.mobileAppIdentifier.packageId) { $_.mobileAppIdentifier.packageId }
+                                }) -join '; '
+    
+                            $exportData += [PSCustomObject]@{
+                                Category      = "App Protection Policy ($policyType)"
+                                Item          = "$($policy.displayName) (ID: $($policy.id))"
+                                ProtectedApps = $protectedApps
+                            }
+                        }
+ 
+                        Add-AppExportData "App (Required)" $allDeviceAppsRequired
+                        Add-AppExportData "App (Available)" $allDeviceAppsAvailable
+                        Add-AppExportData "App (Uninstall)" $allDeviceAppsUninstall
+ 
                         # Export data to CSV
                         $exportData | Export-Csv -Path $outputPath -NoTypeInformation
                         Write-Host "Results have been exported to $outputPath" -ForegroundColor Green
@@ -2941,7 +3147,7 @@ do {
                 $SaveFileDialog.Title = "Save results to CSV"
                 $SaveFileDialog.ShowDialog() | Out-Null
                 $outputPath = $SaveFileDialog.FileName
- 
+
                 if ($outputPath) {
                     Add-ExportData "Device Configuration" $allDeviceDeviceConfigs
                     Add-ExportData "Settings Catalog Policy" $allDeviceSettingsCatalog 
