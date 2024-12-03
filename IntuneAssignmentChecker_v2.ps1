@@ -1362,6 +1362,7 @@ do {
                 $groupRelevantAppsRequired = @()
                 $groupRelevantAppsAvailable = @()
                 $groupRelevantAppsUninstall = @()
+                $groupRelevantPlatformScripts = @()
 
 
                 # Define URIs for Intune Policies and Applications
@@ -1689,6 +1690,52 @@ do {
                     RequiredApps             = ($groupRelevantAppsRequired | ForEach-Object { $_.displayName }) -join '; '
                     AvailableApps            = ($groupRelevantAppsAvailable | ForEach-Object { $_.displayName }) -join '; '
                     UninstallApps            = ($groupRelevantAppsUninstall | ForEach-Object { $_.displayName }) -join '; '
+                    PlatformScripts          = ($groupRelevantPlatformScripts | ForEach-Object { $_.displayName }) -join '; '
+                }
+
+                # Process Platform Scripts (PowerShell)
+                Write-Host "Fetching PowerShell Scripts..." -ForegroundColor Yellow
+                $scriptsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceManagementScripts"
+                $scriptsResponse = Invoke-MgGraphRequest -Uri $scriptsUri -Method Get
+                foreach ($script in $scriptsResponse.value) {
+                    $scriptId = $script.id
+                    $assignmentsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceManagementScripts('$scriptId')/assignments"
+                    $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
+
+                    foreach ($assignment in $assignmentResponse.value) {
+                        if ($assignment.target.groupId -eq $groupId) {
+                            $scriptInfo = "$($script.displayName) (PowerShell)"
+                            $groupRelevantPlatformScripts += $script
+                            break
+                        }
+                    }
+                }
+
+                # Process Shell Scripts (macOS)
+                Write-Host "Fetching Shell Scripts..." -ForegroundColor Yellow
+                $shellScriptsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceShellScripts"
+                $shellScriptsResponse = Invoke-MgGraphRequest -Uri $shellScriptsUri -Method Get
+                foreach ($script in $shellScriptsResponse.value) {
+                    $scriptId = $script.id
+                    $assignmentsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceShellScripts('$scriptId')/groupAssignments"
+                    $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
+
+                    foreach ($assignment in $assignmentResponse.value) {
+                        if ($assignment.targetGroupId -eq $groupId) {
+                            $scriptInfo = "$($script.displayName) (Shell)"
+                            $groupRelevantPlatformScripts += $script
+                            break
+                        }
+                    }
+                }
+
+                # Add Platform Scripts section to results display
+                if ($groupRelevantPlatformScripts.Count -gt 0) {
+                    Write-Host "------- Platform Scripts -------" -ForegroundColor Cyan
+                    foreach ($script in $groupRelevantPlatformScripts) {
+                        $scriptType = if ($script.scriptContent) { "PowerShell" } else { "Shell" }
+                        Write-Host "Script Name: $($script.displayName), Type: $scriptType, Script ID: $($script.id)" -ForegroundColor White
+                    }
                 }
             }
 
@@ -3216,7 +3263,16 @@ do {
                 # Process Device Configurations
                 $deviceConfigsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceConfigurations"
                 $deviceConfigsResponse = Invoke-MgGraphRequest -Uri $deviceConfigsUri -Method Get
-                foreach ($config in $deviceConfigsResponse.value) {
+                $allDeviceConfigs = $deviceConfigsResponse.value
+                while ($deviceConfigsResponse.'@odata.nextLink') {
+                    $deviceConfigsResponse = Invoke-MgGraphRequest -Uri $deviceConfigsResponse.'@odata.nextLink' -Method Get
+                    $allDeviceConfigs += $deviceConfigsResponse.value
+                }
+                $totalDeviceConfigs = $allDeviceConfigs.Count
+                $currentDeviceConfig = 0
+                foreach ($config in $allDeviceConfigs) {
+                    $currentDeviceConfig++
+                    Write-Host "`rFetching Device Configuration $currentDeviceConfig of $totalDeviceConfigs" -NoNewline
                     $configId = $config.id
                     $assignmentsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceConfigurations('$configId')/assignments"
                     $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
@@ -3225,11 +3281,23 @@ do {
                         [void]$groupAssignments[$groupName].DeviceConfigs.Add($config.displayName)
                     }
                 }
+                Write-Host "`rFetching Device Configuration $totalDeviceConfigs of $totalDeviceConfigs" -NoNewline
+                Start-Sleep -Milliseconds 100
+                Write-Host ""  # Move to the next line after the loop
 
                 # Process Settings Catalog
                 $settingsCatalogUri = "https://graph.microsoft.com/beta/deviceManagement/configurationPolicies"
                 $settingsCatalogResponse = Invoke-MgGraphRequest -Uri $settingsCatalogUri -Method Get
-                foreach ($policy in $settingsCatalogResponse.value) {
+                $allSettingsCatalog = $settingsCatalogResponse.value
+                while ($settingsCatalogResponse.'@odata.nextLink') {
+                    $settingsCatalogResponse = Invoke-MgGraphRequest -Uri $settingsCatalogResponse.'@odata.nextLink' -Method Get
+                    $allSettingsCatalog += $settingsCatalogResponse.value
+                }
+                $totalSettingsCatalog = $allSettingsCatalog.Count
+                $currentSettingsCatalog = 0
+                foreach ($policy in $allSettingsCatalog) {
+                    $currentSettingsCatalog++
+                    Write-Host "`rFetching Settings Catalog Policy $currentSettingsCatalog of $totalSettingsCatalog" -NoNewline
                     $policyId = $policy.id
                     $assignmentsUri = "https://graph.microsoft.com/beta/deviceManagement/configurationPolicies('$policyId')/assignments"
                     $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
@@ -3238,11 +3306,23 @@ do {
                         [void]$groupAssignments[$groupName].SettingsCatalog.Add($policy.name)
                     }
                 }
+                Write-Host "`rFetching Settings Catalog Policy $totalSettingsCatalog of $totalSettingsCatalog" -NoNewline
+                Start-Sleep -Milliseconds 100
+                Write-Host ""  # Move to the next line after the loop
 
                 # Process Administrative Templates
                 $adminTemplatesUri = "https://graph.microsoft.com/beta/deviceManagement/groupPolicyConfigurations"
                 $adminTemplatesResponse = Invoke-MgGraphRequest -Uri $adminTemplatesUri -Method Get
-                foreach ($template in $adminTemplatesResponse.value) {
+                $allAdminTemplates = $adminTemplatesResponse.value
+                while ($adminTemplatesResponse.'@odata.nextLink') {
+                    $adminTemplatesResponse = Invoke-MgGraphRequest -Uri $adminTemplatesResponse.'@odata.nextLink' -Method Get
+                    $allAdminTemplates += $adminTemplatesResponse.value
+                }
+                $totalAdminTemplates = $allAdminTemplates.Count
+                $currentAdminTemplate = 0
+                foreach ($template in $allAdminTemplates) {
+                    $currentAdminTemplate++
+                    Write-Host "`rFetching Administrative Template $currentAdminTemplate of $totalAdminTemplates" -NoNewline
                     $templateId = $template.id
                     $assignmentsUri = "https://graph.microsoft.com/beta/deviceManagement/groupPolicyConfigurations('$templateId')/assignments"
                     $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
@@ -3251,11 +3331,23 @@ do {
                         [void]$groupAssignments[$groupName].AdminTemplates.Add($template.displayName)
                     }
                 }
+                Write-Host "`rFetching Administrative Template $totalAdminTemplates of $totalAdminTemplates" -NoNewline
+                Start-Sleep -Milliseconds 100
+                Write-Host ""  # Move to the next line after the loop
 
                 # Process Compliance Policies
                 $complianceUri = "https://graph.microsoft.com/beta/deviceManagement/deviceCompliancePolicies"
                 $complianceResponse = Invoke-MgGraphRequest -Uri $complianceUri -Method Get
-                foreach ($policy in $complianceResponse.value) {
+                $allCompliancePolicies = $complianceResponse.value
+                while ($complianceResponse.'@odata.nextLink') {
+                    $complianceResponse = Invoke-MgGraphRequest -Uri $complianceResponse.'@odata.nextLink' -Method Get
+                    $allCompliancePolicies += $complianceResponse.value
+                }
+                $totalCompliancePolicies = $allCompliancePolicies.Count
+                $currentCompliancePolicy = 0
+                foreach ($policy in $allCompliancePolicies) {
+                    $currentCompliancePolicy++
+                    Write-Host "`rFetching Compliance Policy $currentCompliancePolicy of $totalCompliancePolicies" -NoNewline
                     $policyId = $policy.id
                     $assignmentsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceCompliancePolicies('$policyId')/assignments"
                     $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
@@ -3264,11 +3356,23 @@ do {
                         [void]$groupAssignments[$groupName].CompliancePolicies.Add($policy.displayName)
                     }
                 }
+                Write-Host "`rFetching Compliance Policy $totalCompliancePolicies of $totalCompliancePolicies" -NoNewline
+                Start-Sleep -Milliseconds 100
+                Write-Host ""  # Move to the next line after the loop
 
                 # Process Apps
                 $appUri = "https://graph.microsoft.com/beta/deviceAppManagement/mobileApps?`$filter=isAssigned eq true"
                 $appResponse = Invoke-MgGraphRequest -Uri $appUri -Method Get
-                foreach ($app in $appResponse.value) {
+                $allApps = $appResponse.value
+                while ($appResponse.'@odata.nextLink') {
+                    $appResponse = Invoke-MgGraphRequest -Uri $appResponse.'@odata.nextLink' -Method Get
+                    $allApps += $appResponse.value
+                }
+                $totalApps = $allApps.Count
+                $currentApp = 0
+                foreach ($app in $allApps) {
+                    $currentApp++
+                    Write-Host "`rFetching Application $currentApp of $totalApps" -NoNewline
                     # Skip built-in and Microsoft apps
                     if ($app.isFeatured -or $app.isBuiltIn -or $app.publisher -eq "Microsoft Corporation") {
                         continue
@@ -3288,6 +3392,9 @@ do {
                         }
                     }
                 }
+                Write-Host "`rFetching Application $totalApps of $totalApps" -NoNewline
+                Start-Sleep -Milliseconds 100
+                Write-Host ""  # Move to the next line after the loop
 
                 # Process Platform Scripts (PowerShell)
                 $scriptsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceManagementScripts"
