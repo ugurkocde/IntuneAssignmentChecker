@@ -3823,7 +3823,7 @@ do {
                 }
                 else {
                     # Try to find group by display name
-                    $groupUri = "https://graph.microsoft.com/v1.0/groups?$filter=displayName eq '$input'"
+                    $groupUri = "https://graph.microsoft.com/v1.0/groups?`$filter=displayName eq '$input'"
                     $groupResponse = Invoke-MgGraphRequest -Uri $groupUri -Method Get
 
                     if ($groupResponse.value.Count -eq 0) {
