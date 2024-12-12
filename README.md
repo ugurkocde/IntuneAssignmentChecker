@@ -8,9 +8,6 @@
     <a href="https://www.linkedin.com/in/ugurkocde/">
       <img src="https://img.shields.io/badge/LinkedIn-Connect-0A66C2?style=flat&logo=linkedin" alt="LinkedIn"/>
     </a>
-    <a href="https://newsletter.ugurkoc.de/">
-      <img src="https://img.shields.io/badge/Newsletter-Subscribe-FF6B6B?style=flat" alt="Newsletter"/>
-    </a>
     <img src="https://img.shields.io/github/license/ugurkocde/IntuneAssignmentChecker?style=flat" alt="License"/>
   </p>
 </div>
