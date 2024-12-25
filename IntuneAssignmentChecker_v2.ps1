@@ -31,7 +31,7 @@
 ################################ Prerequisites #####################################################
 
 #Read the configuration variables from the file below.  Change the path to suit your needs.
-$secretsFile = '.\.secrets\config.json'
+$secretsFile = '.\.secrets\config-intune.json'
 #Check to see if the file exists.
 if (Test-Path $secretsFile)
 {
