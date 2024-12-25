@@ -416,7 +416,7 @@ function Export-HTMLReport {
         [string]$FilePath
     )
 
-    # HTML Template with Bootstrap, DataTables, and Charts
+    # HTML template with placeholders for $tabHeaders, $tabContent, and summary stats
     $htmlTemplate = @"
 <!DOCTYPE html>
 <html lang="en">
@@ -647,30 +647,28 @@ function Export-HTMLReport {
                 },
                 columnDefs: [
                     {
-                        targets: [4], // Hide the "All" column
+                        targets: [4], 
                         visible: false,
                         searchable: true
                     }
                 ]
             });
 
-            // Group name search functionality
-            `$('#groupSearch').on('keyup', function() {
+            \$('#groupSearch').on('keyup', function() {
                 const searchTerm = this.value.toLowerCase();
                 tables.search(searchTerm).draw();
             });
 
-
-            // Show first tab by default
-            document.querySelector('.nav-tabs .nav-link').classList.add('active');
-            document.querySelector('.tab-pane').classList.add('show', 'active');
+            // Show the first tab by default
+            document.querySelector('.nav-tabs .nav-link')?.classList.add('active');
+            document.querySelector('.tab-pane')?.classList.add('show','active');
         });
     </script>
 </body>
 </html>
 "@
 
-    # Initialize collections for policies
+    # Initialize collections
     $policies = @{
         DeviceConfigs = @()
         SettingsCatalog = @()
@@ -821,210 +819,205 @@ function Export-HTMLReport {
     # Generate summary statistics
     $summaryStats = @{
         TotalPolicies = 0
-        AllUsers = 0
-        AllDevices = 0
+        AllUsers      = 0
+        AllDevices    = 0
         GroupAssigned = 0
-        Unassigned = 0
-    }
-$categories = @(
-    @{ Key = "all"; Name = "All" },
-    @{ Key = "DeviceConfigs"; Name = "Device Configurations" },
-    @{ Key = "SettingsCatalog"; Name = "Settings Catalog" },
-    @{ Key = "AdminTemplates"; Name = "Administrative Templates" },
-    @{ Key = "CompliancePolicies"; Name = "Compliance Policies" },
-    @{ Key = "AppProtectionPolicies"; Name = "App Protection Policies" },
-    @{ Key = "Scripts"; Name = "Scripts" }
-)
-
-    foreach ($category in $categories) {
-        $categoryPolicies = $policies.($category.Key)
-        $summaryStats.TotalPolicies += $categoryPolicies.Count
-        $summaryStats.AllUsers += ($categoryPolicies | Where-Object { $_.AssignmentType -eq "All Users" }).Count
-        $summaryStats.AllDevices += ($categoryPolicies | Where-Object { $_.AssignmentType -eq "All Devices" }).Count
-        $summaryStats.GroupAssigned += ($categoryPolicies | Where-Object { $_.AssignmentType -eq "Group" }).Count
-        $summaryStats.Unassigned += ($categoryPolicies | Where-Object { $_.AssignmentType -eq "None" }).Count
+        Unassigned    = 0
     }
 
-    # Generate HTML content
+    $categories = @(
+        @{ Key = 'all';               Name = 'All' },
+        @{ Key = 'DeviceConfigs';     Name = 'Device Configurations' },
+        @{ Key = 'SettingsCatalog';   Name = 'Settings Catalog' },
+        @{ Key = 'AdminTemplates';    Name = 'Administrative Templates' },
+        @{ Key = 'CompliancePolicies';Name = 'Compliance Policies' },
+        @{ Key = 'AppProtectionPolicies'; Name = 'App Protection Policies' },
+        @{ Key = 'Scripts';          Name = 'Platform Scripts' },
+        @{ Key = 'HealthScripts';    Name = 'Proactive Remediation Scripts' }
+    )
+
+    foreach($category in $categories) {
+        $items = $policies[$category.Key]
+        $summaryStats.TotalPolicies += $items.Count
+        $summaryStats.AllUsers      += ($items | Where-Object { $_.AssignmentType -eq "All Users" }).Count
+        $summaryStats.AllDevices    += ($items | Where-Object { $_.AssignmentType -eq "All Devices" }).Count
+        $summaryStats.GroupAssigned += ($items | Where-Object { $_.AssignmentType -eq "Group" }).Count
+        $summaryStats.Unassigned    += ($items | Where-Object { $_.AssignmentType -eq "None" }).Count
+    }
+
+    # Build dynamic tab headers and tab content
     $tabHeaders = ""
     $tabContent = ""
-    foreach ($category in $categories) {
-        $isActive = $category -eq $categories[0]
-        $categoryId = $category.Key.ToLower()
-        
-        # Generate tab header
-        $tabHeaders += @"
-        <li class="nav-item" role="presentation">
-            <button class="nav-link$(if($isActive -and $category.Key -ne 'all'){' active'} else {''})"
-                    id="$categoryId-tab"
-                    data-bs-toggle="tab"
-                    data-bs-target="#$categoryId"
-                    type="button"
-                    role="tab"
-                    aria-controls="$categoryId"
-                    aria-selected="$(if($isActive -and $category.Key -ne 'all'){'true'} else {'false'})">
-                $($category.Name)
-            </button>
-        </li>
-"@
-        
-        # Generate tab content
-        $tableRows = $policies.($category.Key) | ForEach-Object {
-            $badgeClass = switch ($_.AssignmentType) {
-                "All Users" { "badge-all-users" }
-                "All Devices" { "badge-all-devices" }
-                "Group" { "badge-group" }
-                default { "badge-none" }
-            }
-            
-            @"
-            <tr>
-                <td>$($_.Name)</td>
-                <td>$($_.ID)</td>
-                <td><span class="badge $badgeClass">$($_.AssignmentType)</span></td>
-                <td>$($_.AssignedTo)</td>
-                <td>$($_.Name) $($_.ID) $($_.AssignmentType) $($_.AssignedTo)</td>
-            </tr>
-"@
-        }
 
-        if ($category.Key -eq "all") {
-            # Combine all policies for the "All" tab
-            $allTableRows = @()
-            foreach ($cat in $categories | Where-Object { $_.Key -ne "all" }) {
-                $allTableRows += $policies.($cat.Key) | ForEach-Object {
-                    $badgeClass = switch ($_.AssignmentType) {
-                        "All Users" { "badge-all-users" }
-                        "All Devices" { "badge-all-devices" }
-                        "Group" { "badge-group" }
-                        default { "badge-none" }
-                    }
-                    
-                    @"
-                    <tr>
-                        <td>$($_.Name)</td>
-                        <td>$($_.ID)</td>
-                        <td><span class="badge $badgeClass">$($_.AssignmentType)</span></td>
-                        <td>$($_.AssignedTo)</td>
-                        <td>$($_.Name) $($_.ID) $($_.AssignmentType) $($_.AssignedTo)</td>
-                    </tr>
+    foreach($category in $categories) {
+        $isActive   = ($category -eq $categories[0])
+        $categoryId = $category.Key.ToLower()
+
+        $tabHeaders += @"
+<li class="nav-item" role="presentation">
+    <button class="nav-link$(if($isActive -and $category.Key -ne 'all'){ ' active' } else { '' })"
+            id="$categoryId-tab"
+            data-bs-toggle="tab"
+            data-bs-target="#$categoryId"
+            type="button"
+            role="tab"
+            aria-controls="$categoryId"
+            aria-selected="$(if($isActive -and $category.Key -ne 'all'){ 'true' } else { 'false' })">
+        $($category.Name)
+    </button>
+</li>
 "@
+
+        if($category.Key -eq 'all') {
+            $allTableRows = foreach($cat in $categories | Where-Object { $_.Key -ne 'all' }) {
+                foreach($p in $policies[$cat.Key]) {
+                    $badgeClass = switch($p.AssignmentType) {
+                        'All Users'   { 'badge-all-users' }
+                        'All Devices' { 'badge-all-devices' }
+                        'Group'       { 'badge-group' }
+                        default       { 'badge-none' }
+                    }
+                    "<tr>
+                        <td>$($p.Name)</td>
+                        <td>$($p.ID)</td>
+                        <td><span class='badge $badgeClass'>$($p.AssignmentType)</span></td>
+                        <td>$($p.AssignedTo)</td>
+                        <td>$($p.Name) $($p.ID) $($p.AssignmentType) $($p.AssignedTo)</td>
+                    </tr>"
                 }
             }
-
             $tabContent += @"
-            <div class="tab-pane fade"
-                 id="$categoryId"
-                 role="tabpanel"
-                 aria-labelledby="$categoryId-tab">
-                <div class="table-container">
-                    <table class="table table-striped policy-table">
-                        <thead>
-                            <tr>
-                                <th>Name</th>
-                                <th>ID</th>
-                                <th>Assignment Type</th>
-                                <th>Assigned To</th>
-                                <th>All</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            $($allTableRows -join "`n")
-                        </tbody>
-                    </table>
-                </div>
-            </div>
+<div class="tab-pane fade$(if($isActive){ ' show active' } else { '' })"
+     id="$categoryId"
+     role="tabpanel"
+     aria-labelledby="$categoryId-tab">
+    <div class="table-container">
+        <table class="table table-striped policy-table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>ID</th>
+                    <th>Assignment Type</th>
+                    <th>Assigned To</th>
+                    <th>All</th>
+                </tr>
+            </thead>
+            <tbody>
+                $($allTableRows -join "`n")
+            </tbody>
+        </table>
+    </div>
+</div>
 "@
-        } else {
+        }
+        else {
+            $tableRows = foreach($p in $policies[$category.Key]) {
+                $badgeClass = switch($p.AssignmentType) {
+                    'All Users'   { 'badge-all-users' }
+                    'All Devices' { 'badge-all-devices' }
+                    'Group'       { 'badge-group' }
+                    default       { 'badge-none' }
+                }
+                "<tr>
+                    <td>$($p.Name)</td>
+                    <td>$($p.ID)</td>
+                    <td><span class='badge $badgeClass'>$($p.AssignmentType)</span></td>
+                    <td>$($p.AssignedTo)</td>
+                    <td>$($p.Name) $($p.ID) $($p.AssignmentType) $($p.AssignedTo)</td>
+                </tr>"
+            }
             $tabContent += @"
-            <div class="tab-pane fade$(if($isActive){' show active'} else {''})"
-                 id="$categoryId"
-                 role="tabpanel"
-                 aria-labelledby="$categoryId-tab">
-                <div class="table-container">
-                    <table class="table table-striped policy-table">
-                        <thead>
-                            <tr>
-                                <th>Name</th>
-                                <th>ID</th>
-                                <th>Assignment Type</th>
-                                <th>Assigned To</th>
-                                <th>All</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            $($tableRows -join "`n")
-                        </tbody>
-                    </table>
-                </div>
-            </div>
+<div class="tab-pane fade$(if($isActive){ ' show active' } else { '' })"
+     id="$categoryId"
+     role="tabpanel"
+     aria-labelledby="$categoryId-tab">
+    <div class="table-container">
+        <table class="table table-striped policy-table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>ID</th>
+                    <th>Assignment Type</th>
+                    <th>Assigned To</th>
+                    <th>All</th>
+                </tr>
+            </thead>
+            <tbody>
+                $($tableRows -join "`n")
+            </tbody>
+        </table>
+    </div>
+</div>
 "@
         }
     }
 
-    # Generate summary cards
+    # Summary cards
     $summaryCards = @"
-    <div class="col">
-        <div class="card text-center summary-card">
-            <div class="card-body">
-                <i class="fas fa-layer-group mb-3" style="font-size: 2rem; color: #0d6efd;"></i>
-                <h5 class="card-title">Total Policies</h5>
-                <h3 class="card-text">$($summaryStats.TotalPolicies)</h3>
-                <p class="text-muted small">Total configured policies</p>
-            </div>
+<div class="col">
+    <div class="card text-center summary-card">
+        <div class="card-body">
+            <i class="fas fa-layer-group mb-3" style="font-size:2rem;color:#0d6efd;"></i>
+            <h5 class="card-title">Total Policies</h5>
+            <h3 class="card-text">$($summaryStats.TotalPolicies)</h3>
+            <p class="text-muted small">Total configured policies</p>
         </div>
     </div>
-    <div class="col">
-        <div class="card text-center summary-card">
-            <div class="card-body">
-                <i class="fas fa-users mb-3" style="font-size: 2rem; color: #28a745;"></i>
-                <h5 class="card-title">All Users</h5>
-                <h3 class="card-text">$($summaryStats.AllUsers)</h3>
-                <p class="text-muted small">Assigned to all users</p>
-            </div>
+</div>
+<div class="col">
+    <div class="card text-center summary-card">
+        <div class="card-body">
+            <i class="fas fa-users mb-3" style="font-size:2rem;color:#28a745;"></i>
+            <h5 class="card-title">All Users</h5>
+            <h3 class="card-text">$($summaryStats.AllUsers)</h3>
+            <p class="text-muted small">Assigned to all users</p>
         </div>
     </div>
-    <div class="col">
-        <div class="card text-center summary-card">
-            <div class="card-body">
-                <i class="fas fa-laptop mb-3" style="font-size: 2rem; color: #17a2b8;"></i>
-                <h5 class="card-title">All Devices</h5>
-                <h3 class="card-text">$($summaryStats.AllDevices)</h3>
-                <p class="text-muted small">Assigned to all devices</p>
-            </div>
+</div>
+<div class="col">
+    <div class="card text-center summary-card">
+        <div class="card-body">
+            <i class="fas fa-laptop mb-3" style="font-size:2rem;color:#17a2b8;"></i>
+            <h5 class="card-title">All Devices</h5>
+            <h3 class="card-text">$($summaryStats.AllDevices)</h3>
+            <p class="text-muted small">Assigned to all devices</p>
         </div>
     </div>
-    <div class="col">
-        <div class="card text-center summary-card">
-            <div class="card-body">
-                <i class="fas fa-object-group mb-3" style="font-size: 2rem; color: #ffc107;"></i>
-                <h5 class="card-title">Group Assigned</h5>
-                <h3 class="card-text">$($summaryStats.GroupAssigned)</h3>
-                <p class="text-muted small">Assigned to specific groups</p>
-            </div>
+</div>
+<div class="col">
+    <div class="card text-center summary-card">
+        <div class="card-body">
+            <i class="fas fa-object-group mb-3" style="font-size:2rem;color:#ffc107;"></i>
+            <h5 class="card-title">Group Assigned</h5>
+            <h3 class="card-text">$($summaryStats.GroupAssigned)</h3>
+            <p class="text-muted small">Assigned to specific groups</p>
         </div>
     </div>
-    <div class="col">
-        <div class="card text-center summary-card">
-            <div class="card-body">
-                <i class="fas fa-exclamation-triangle mb-3" style="font-size: 2rem; color: #dc3545;"></i>
-                <h5 class="card-title">Unassigned</h5>
-                <h3 class="card-text">$($summaryStats.Unassigned)</h3>
-                <p class="text-muted small">Not assigned to any target</p>
-            </div>
+</div>
+<div class="col">
+    <div class="card text-center summary-card">
+        <div class="card-body">
+            <i class="fas fa-exclamation-triangle mb-3" style="font-size:2rem;color:#dc3545;"></i>
+            <h5 class="card-title">Unassigned</h5>
+            <h3 class="card-text">$($summaryStats.Unassigned)</h3>
+            <p class="text-muted small">Not assigned to any target</p>
         </div>
     </div>
+</div>
 "@
 
-    # Replace placeholders in template
-    $htmlContent = $htmlTemplate -replace '<!-- Summary stats will be inserted here -->', $summaryCards
-    $htmlContent = $htmlContent -replace '<!-- Tab headers will be inserted here -->', $tabHeaders
-    $htmlContent = $htmlContent -replace '<!-- Tab content will be inserted here -->', $tabContent
+    # Final HTML
+    $htmlContent = $htmlTemplate `
+        -replace '<!-- Tab headers will be inserted here -->', $tabHeaders `
+        -replace '<!-- Tab content will be inserted here -->', $tabContent `
+        -replace '<!-- Summary stats will be inserted here -->', $summaryCards
 
-    # Save HTML report
+    # Output file
     $htmlContent | Out-File -FilePath $FilePath -Encoding UTF8
     Write-Host "HTML report exported to: $FilePath" -ForegroundColor Green
 }
+
+
 
 function Get-AssignmentInfo {
     param (
