@@ -1,4 +1,4 @@
-Write-Host "🚀 Intune Assignment Checker v3.0" -ForegroundColor Green
+Write-Host "🚀 Intune Assignment Checker v2.7" -ForegroundColor Green
 Write-Host "📄 Changelog: " -NoNewline -ForegroundColor Cyan
 Write-Host "https://github.com/ugurkocde/IntuneAssignmentChecker/releases" -ForegroundColor White
 Write-Host ""
@@ -12,18 +12,18 @@ Write-Host ""
 # Autoupdate function
 
 # URL to the version file on GitHub
-$versionUrl = "https://raw.githubusercontent.com/ugurkocde/IntuneAssignmentChecker/main/version_v3.txt"
+$versionUrl = "https://raw.githubusercontent.com/ugurkocde/IntuneAssignmentChecker/main/version_v2.7.txt"
 
 # URL to the latest script on GitHub
-$scriptUrl = "https://raw.githubusercontent.com/ugurkocde/IntuneAssignmentChecker/main/IntuneAssignmentChecker_v3.ps1"
+$scriptUrl = "https://raw.githubusercontent.com/ugurkocde/IntuneAssignmentChecker/main/IntuneAssignmentChecker_v2.7.ps1"
 
 # Determine the script path based on whether it's run as a file or from an IDE
 if ($PSScriptRoot) {
-    $newScriptPath = Join-Path $PSScriptRoot "IntuneAssignmentChecker_v3.ps1"
+    $newScriptPath = Join-Path $PSScriptRoot "IntuneAssignmentChecker_v2.7.ps1"
 }
 else {
     $currentDirectory = Get-Location
-    $newScriptPath = Join-Path $currentDirectory "IntuneAssignmentChecker_v3.ps1"
+    $newScriptPath = Join-Path $currentDirectory "IntuneAssignmentChecker_v2.7.ps1"
 }
 
 # Flag to control auto-update behavior
