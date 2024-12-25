@@ -2116,7 +2116,7 @@ do {
                 }
             }
         }
-        '6' {
+         '6' {
             Write-Host "Fetching all 'All Devices' assignments..." -ForegroundColor Green
             $exportData = [System.Collections.ArrayList]::new()
 
@@ -2362,6 +2362,671 @@ do {
                 if ($exportPath) {
                     $exportData | Export-Csv -Path $exportPath -NoTypeInformation
                     Write-Host "Results exported to $exportPath" -ForegroundColor Green
+                }
+            }
+        }
+        '8' {
+            Write-Host "Fetching policies without assignments..." -ForegroundColor Green
+            $exportData = [System.Collections.ArrayList]::new()
+
+            # Initialize collections for policies without assignments
+            $unassignedPolicies = @{
+                DeviceConfigs = @()
+                SettingsCatalog = @()
+                AdminTemplates = @()
+                CompliancePolicies = @()
+                AppProtectionPolicies = @()
+                AppConfigurationPolicies = @()
+                PlatformScripts = @()
+                HealthScripts = @()
+            }
+
+            # Get Device Configurations
+            Write-Host "Fetching Device Configurations..." -ForegroundColor Yellow
+            $deviceConfigs = Get-IntuneEntities -EntityType "deviceConfigurations"
+            foreach ($config in $deviceConfigs) {
+                $assignments = Get-IntuneAssignments -EntityType "deviceConfigurations" -EntityId $config.id
+                if ($assignments.Count -eq 0) {
+                    $unassignedPolicies.DeviceConfigs += $config
+                }
+            }
+
+            # Get Settings Catalog Policies
+            Write-Host "Fetching Settings Catalog Policies..." -ForegroundColor Yellow
+            $settingsCatalog = Get-IntuneEntities -EntityType "configurationPolicies"
+            foreach ($policy in $settingsCatalog) {
+                $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
+                if ($assignments.Count -eq 0) {
+                    $unassignedPolicies.SettingsCatalog += $policy
+                }
+            }
+
+            # Get Administrative Templates
+            Write-Host "Fetching Administrative Templates..." -ForegroundColor Yellow
+            $adminTemplates = Get-IntuneEntities -EntityType "groupPolicyConfigurations"
+            foreach ($template in $adminTemplates) {
+                $assignments = Get-IntuneAssignments -EntityType "groupPolicyConfigurations" -EntityId $template.id
+                if ($assignments.Count -eq 0) {
+                    $unassignedPolicies.AdminTemplates += $template
+                }
+            }
+
+            # Get Compliance Policies
+            Write-Host "Fetching Compliance Policies..." -ForegroundColor Yellow
+            $compliancePolicies = Get-IntuneEntities -EntityType "deviceCompliancePolicies"
+            foreach ($policy in $compliancePolicies) {
+                $assignments = Get-IntuneAssignments -EntityType "deviceCompliancePolicies" -EntityId $policy.id
+                if ($assignments.Count -eq 0) {
+                    $unassignedPolicies.CompliancePolicies += $policy
+                }
+            }
+
+            # Get App Protection Policies
+            Write-Host "Fetching App Protection Policies..." -ForegroundColor Yellow
+            $appProtectionPolicies = Get-IntuneEntities -EntityType "deviceAppManagement/managedAppPolicies"
+            foreach ($policy in $appProtectionPolicies) {
+                $policyType = $policy.'@odata.type'
+                $assignmentsUri = switch ($policyType) {
+                    "#microsoft.graph.androidManagedAppProtection" { "https://graph.microsoft.com/beta/deviceAppManagement/androidManagedAppProtections('$($policy.id)')/assignments" }
+                    "#microsoft.graph.iosManagedAppProtection" { "https://graph.microsoft.com/beta/deviceAppManagement/iosManagedAppProtections('$($policy.id)')/assignments" }
+                    "#microsoft.graph.windowsManagedAppProtection" { "https://graph.microsoft.com/beta/deviceAppManagement/windowsManagedAppProtections('$($policy.id)')/assignments" }
+                    default { $null }
+                }
+
+                if ($assignmentsUri) {
+                    try {
+                        $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
+                        if ($assignmentResponse.value.Count -eq 0) {
+                            $unassignedPolicies.AppProtectionPolicies += $policy
+                        }
+                    }
+                    catch {
+                        Write-Host "Error fetching assignments for policy $($policy.displayName): $($_.Exception.Message)" -ForegroundColor Red
+                    }
+                }
+            }
+
+            # Get App Configuration Policies
+            Write-Host "Fetching App Configuration Policies..." -ForegroundColor Yellow
+            $appConfigPolicies = Get-IntuneEntities -EntityType "deviceAppManagement/mobileAppConfigurations"
+            foreach ($policy in $appConfigPolicies) {
+                $assignments = Get-IntuneAssignments -EntityType "mobileAppConfigurations" -EntityId $policy.id
+                if ($assignments.Count -eq 0) {
+                    $unassignedPolicies.AppConfigurationPolicies += $policy
+                }
+            }
+
+            # Get Platform Scripts
+            Write-Host "Fetching Platform Scripts..." -ForegroundColor Yellow
+            $platformScripts = Get-IntuneEntities -EntityType "deviceManagementScripts"
+            foreach ($script in $platformScripts) {
+                $assignments = Get-IntuneAssignments -EntityType "deviceManagementScripts" -EntityId $script.id
+                if ($assignments.Count -eq 0) {
+                    $unassignedPolicies.PlatformScripts += $script
+                }
+            }
+
+            # Get Proactive Remediation Scripts
+            Write-Host "Fetching Proactive Remediation Scripts..." -ForegroundColor Yellow
+            $healthScripts = Get-IntuneEntities -EntityType "deviceHealthScripts"
+            foreach ($script in $healthScripts) {
+                $assignments = Get-IntuneAssignments -EntityType "deviceHealthScripts" -EntityId $script.id
+                if ($assignments.Count -eq 0) {
+                    $unassignedPolicies.HealthScripts += $script
+                }
+            }
+
+            # Display results
+            Write-Host "`nPolicies Without Assignments:" -ForegroundColor Green
+
+            # Display Device Configurations
+            Write-Host "`n------- Device Configurations -------" -ForegroundColor Cyan
+            if ($unassignedPolicies.DeviceConfigs.Count -eq 0) {
+                Write-Host "No unassigned Device Configurations found" -ForegroundColor Gray
+            }
+            else {
+                foreach ($config in $unassignedPolicies.DeviceConfigs) {
+                    $configName = if ([string]::IsNullOrWhiteSpace($config.name)) { $config.displayName } else { $config.name }
+                    Write-Host "Device Configuration Name: $configName, Configuration ID: $($config.id)" -ForegroundColor White
+                    Add-ExportData -ExportData $exportData -Category "Device Configuration" -Items @($config) -AssignmentReason "No Assignment"
+                }
+            }
+
+            # Display Settings Catalog Policies
+            Write-Host "`n------- Settings Catalog Policies -------" -ForegroundColor Cyan
+            if ($unassignedPolicies.SettingsCatalog.Count -eq 0) {
+                Write-Host "No unassigned Settings Catalog Policies found" -ForegroundColor Gray
+            }
+            else {
+                foreach ($policy in $unassignedPolicies.SettingsCatalog) {
+                    $policyName = if ([string]::IsNullOrWhiteSpace($policy.name)) { $policy.displayName } else { $policy.name }
+                    Write-Host "Settings Catalog Policy Name: $policyName, Policy ID: $($policy.id)" -ForegroundColor White
+                    Add-ExportData -ExportData $exportData -Category "Settings Catalog Policy" -Items @($policy) -AssignmentReason "No Assignment"
+                }
+            }
+
+            # Display Administrative Templates
+            Write-Host "`n------- Administrative Templates -------" -ForegroundColor Cyan
+            if ($unassignedPolicies.AdminTemplates.Count -eq 0) {
+                Write-Host "No unassigned Administrative Templates found" -ForegroundColor Gray
+            }
+            else {
+                foreach ($template in $unassignedPolicies.AdminTemplates) {
+                    $templateName = if ([string]::IsNullOrWhiteSpace($template.name)) { $template.displayName } else { $template.name }
+                    Write-Host "Administrative Template Name: $templateName, Template ID: $($template.id)" -ForegroundColor White
+                    Add-ExportData -ExportData $exportData -Category "Administrative Template" -Items @($template) -AssignmentReason "No Assignment"
+                }
+            }
+
+            # Display Compliance Policies
+            Write-Host "`n------- Compliance Policies -------" -ForegroundColor Cyan
+            if ($unassignedPolicies.CompliancePolicies.Count -eq 0) {
+                Write-Host "No unassigned Compliance Policies found" -ForegroundColor Gray
+            }
+            else {
+                foreach ($policy in $unassignedPolicies.CompliancePolicies) {
+                    $policyName = if ([string]::IsNullOrWhiteSpace($policy.name)) { $policy.displayName } else { $policy.name }
+                    Write-Host "Compliance Policy Name: $policyName, Policy ID: $($policy.id)" -ForegroundColor White
+                    Add-ExportData -ExportData $exportData -Category "Compliance Policy" -Items @($policy) -AssignmentReason "No Assignment"
+                }
+            }
+
+            # Display App Protection Policies
+            Write-Host "`n------- App Protection Policies -------" -ForegroundColor Cyan
+            if ($unassignedPolicies.AppProtectionPolicies.Count -eq 0) {
+                Write-Host "No unassigned App Protection Policies found" -ForegroundColor Gray
+            }
+            else {
+                foreach ($policy in $unassignedPolicies.AppProtectionPolicies) {
+                    $policyName = $policy.displayName
+                    $policyType = switch ($policy.'@odata.type') {
+                        "#microsoft.graph.androidManagedAppProtection" { "Android" }
+                        "#microsoft.graph.iosManagedAppProtection" { "iOS" }
+                        "#microsoft.graph.windowsManagedAppProtection" { "Windows" }
+                        default { "Unknown" }
+                    }
+                    Write-Host "App Protection Policy Name: $policyName, Policy ID: $($policy.id), Type: $policyType" -ForegroundColor White
+                    Add-ExportData -ExportData $exportData -Category "App Protection Policy" -Items @($policy) -AssignmentReason "No Assignment"
+                }
+            }
+
+            # Display App Configuration Policies
+            Write-Host "`n------- App Configuration Policies -------" -ForegroundColor Cyan
+            if ($unassignedPolicies.AppConfigurationPolicies.Count -eq 0) {
+                Write-Host "No unassigned App Configuration Policies found" -ForegroundColor Gray
+            }
+            else {
+                foreach ($policy in $unassignedPolicies.AppConfigurationPolicies) {
+                    $policyName = if ([string]::IsNullOrWhiteSpace($policy.name)) { $policy.displayName } else { $policy.name }
+                    Write-Host "App Configuration Policy Name: $policyName, Policy ID: $($policy.id)" -ForegroundColor White
+                    Add-ExportData -ExportData $exportData -Category "App Configuration Policy" -Items @($policy) -AssignmentReason "No Assignment"
+                }
+            }
+
+            # Display Platform Scripts
+            Write-Host "`n------- Platform Scripts -------" -ForegroundColor Cyan
+            if ($unassignedPolicies.PlatformScripts.Count -eq 0) {
+                Write-Host "No unassigned Platform Scripts found" -ForegroundColor Gray
+            }
+            else {
+                foreach ($script in $unassignedPolicies.PlatformScripts) {
+                    $scriptName = if ([string]::IsNullOrWhiteSpace($script.name)) { $script.displayName } else { $script.name }
+                    Write-Host "Script Name: $scriptName, Script ID: $($script.id)" -ForegroundColor White
+                    Add-ExportData -ExportData $exportData -Category "Platform Scripts" -Items @($script) -AssignmentReason "No Assignment"
+                }
+            }
+
+            # Display Proactive Remediation Scripts
+            Write-Host "`n------- Proactive Remediation Scripts -------" -ForegroundColor Cyan
+            if ($unassignedPolicies.HealthScripts.Count -eq 0) {
+                Write-Host "No unassigned Proactive Remediation Scripts found" -ForegroundColor Gray
+            }
+            else {
+                foreach ($script in $unassignedPolicies.HealthScripts) {
+                    $scriptName = if ([string]::IsNullOrWhiteSpace($script.name)) { $script.displayName } else { $script.name }
+                    Write-Host "Script Name: $scriptName, Script ID: $($script.id)" -ForegroundColor White
+                    Add-ExportData -ExportData $exportData -Category "Proactive Remediation Scripts" -Items @($script) -AssignmentReason "No Assignment"
+                }
+            }
+
+            # Offer to export results
+            $export = Read-Host "`nWould you like to export the results to CSV? (y/n)"
+            if ($export -eq 'y') {
+                $exportPath = Show-SaveFileDialog -DefaultFileName "IntuneUnassignedPolicies.csv"
+                if ($exportPath) {
+                    $exportData | Export-Csv -Path $exportPath -NoTypeInformation
+                    Write-Host "Results exported to $exportPath" -ForegroundColor Green
+                }
+            }
+        }
+       
+         '9' {
+            Write-Host "Checking for policies assigned to empty groups..." -ForegroundColor Green
+            $exportData = [System.Collections.ArrayList]::new()
+
+            # Helper function to check if a group is empty
+            function Test-EmptyGroup {
+                param (
+                    [Parameter(Mandatory = $true)]
+                    [string]$GroupId
+                )
+
+                try {
+                    $membersUri = "https://graph.microsoft.com/v1.0/groups/$GroupId/members?`$select=id&`$top=1"
+                    $response = Invoke-MgGraphRequest -Uri $membersUri -Method Get
+                    return $response.value.Count -eq 0
+                }
+                catch {
+                    Write-Host "Error checking members for group $GroupId : $($_.Exception.Message)" -ForegroundColor Red
+                    return $false
+                }
+            }
+
+            # Initialize collections for policies with empty group assignments
+            $emptyGroupAssignments = @{
+                DeviceConfigs = @()
+                SettingsCatalog = @()
+                AdminTemplates = @()
+                CompliancePolicies = @()
+                AppProtectionPolicies = @()
+                AppConfigurationPolicies = @()
+                PlatformScripts = @()
+                HealthScripts = @()
+            }
+
+            # Get Device Configurations
+            Write-Host "Fetching Device Configurations..." -ForegroundColor Yellow
+            $deviceConfigs = Get-IntuneEntities -EntityType "deviceConfigurations"
+            foreach ($config in $deviceConfigs) {
+                $assignments = Get-IntuneAssignments -EntityType "deviceConfigurations" -EntityId $config.id
+                foreach ($assignment in $assignments) {
+                    if ($assignment.Reason -eq "Group Assignment" -and $assignment.GroupId) {
+                        $groupInfo = Get-GroupInfo -GroupId $assignment.GroupId
+                        if ($groupInfo.Success -and (Test-EmptyGroup -GroupId $assignment.GroupId)) {
+                            $config | Add-Member -NotePropertyName 'EmptyGroupInfo' -NotePropertyValue "Assigned to empty group: $($groupInfo.DisplayName)" -Force
+                            $emptyGroupAssignments.DeviceConfigs += $config
+                            break
+                        }
+                    }
+                }
+            }
+
+            # Get Settings Catalog Policies
+            Write-Host "Fetching Settings Catalog Policies..." -ForegroundColor Yellow
+            $settingsCatalog = Get-IntuneEntities -EntityType "configurationPolicies"
+            foreach ($policy in $settingsCatalog) {
+                $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
+                foreach ($assignment in $assignments) {
+                    if ($assignment.Reason -eq "Group Assignment" -and $assignment.GroupId) {
+                        $groupInfo = Get-GroupInfo -GroupId $assignment.GroupId
+                        if ($groupInfo.Success -and (Test-EmptyGroup -GroupId $assignment.GroupId)) {
+                            $policy | Add-Member -NotePropertyName 'EmptyGroupInfo' -NotePropertyValue "Assigned to empty group: $($groupInfo.DisplayName)" -Force
+                            $emptyGroupAssignments.SettingsCatalog += $policy
+                            break
+                        }
+                    }
+                }
+            }
+
+            # Get Administrative Templates
+            Write-Host "Fetching Administrative Templates..." -ForegroundColor Yellow
+            $adminTemplates = Get-IntuneEntities -EntityType "groupPolicyConfigurations"
+            foreach ($template in $adminTemplates) {
+                $assignments = Get-IntuneAssignments -EntityType "groupPolicyConfigurations" -EntityId $template.id
+                foreach ($assignment in $assignments) {
+                    if ($assignment.Reason -eq "Group Assignment" -and $assignment.GroupId) {
+                        $groupInfo = Get-GroupInfo -GroupId $assignment.GroupId
+                        if ($groupInfo.Success -and (Test-EmptyGroup -GroupId $assignment.GroupId)) {
+                            $template | Add-Member -NotePropertyName 'EmptyGroupInfo' -NotePropertyValue "Assigned to empty group: $($groupInfo.DisplayName)" -Force
+                            $emptyGroupAssignments.AdminTemplates += $template
+                            break
+                        }
+                    }
+                }
+            }
+
+            # Get Compliance Policies
+            Write-Host "Fetching Compliance Policies..." -ForegroundColor Yellow
+            $compliancePolicies = Get-IntuneEntities -EntityType "deviceCompliancePolicies"
+            foreach ($policy in $compliancePolicies) {
+                $assignments = Get-IntuneAssignments -EntityType "deviceCompliancePolicies" -EntityId $policy.id
+                foreach ($assignment in $assignments) {
+                    if ($assignment.Reason -eq "Group Assignment" -and $assignment.GroupId) {
+                        $groupInfo = Get-GroupInfo -GroupId $assignment.GroupId
+                        if ($groupInfo.Success -and (Test-EmptyGroup -GroupId $assignment.GroupId)) {
+                            $policy | Add-Member -NotePropertyName 'EmptyGroupInfo' -NotePropertyValue "Assigned to empty group: $($groupInfo.DisplayName)" -Force
+                            $emptyGroupAssignments.CompliancePolicies += $policy
+                            break
+                        }
+                    }
+                }
+            }
+
+            # Get App Protection Policies
+            Write-Host "Fetching App Protection Policies..." -ForegroundColor Yellow
+            $appProtectionPolicies = Get-IntuneEntities -EntityType "deviceAppManagement/managedAppPolicies"
+            foreach ($policy in $appProtectionPolicies) {
+                $policyType = $policy.'@odata.type'
+                $assignmentsUri = switch ($policyType) {
+                    "#microsoft.graph.androidManagedAppProtection" { "https://graph.microsoft.com/beta/deviceAppManagement/androidManagedAppProtections('$($policy.id)')/assignments" }
+                    "#microsoft.graph.iosManagedAppProtection" { "https://graph.microsoft.com/beta/deviceAppManagement/iosManagedAppProtections('$($policy.id)')/assignments" }
+                    "#microsoft.graph.windowsManagedAppProtection" { "https://graph.microsoft.com/beta/deviceAppManagement/windowsManagedAppProtections('$($policy.id)')/assignments" }
+                    default { $null }
+                }
+
+                if ($assignmentsUri) {
+                    try {
+                        $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
+                        foreach ($assignment in $assignmentResponse.value) {
+                            if ($assignment.target.'@odata.type' -eq '#microsoft.graph.groupAssignmentTarget') {
+                                $groupId = $assignment.target.groupId
+                                $groupInfo = Get-GroupInfo -GroupId $groupId
+                                if ($groupInfo.Success -and (Test-EmptyGroup -GroupId $groupId)) {
+                                    $policy | Add-Member -NotePropertyName 'EmptyGroupInfo' -NotePropertyValue "Assigned to empty group: $($groupInfo.DisplayName)" -Force
+                                    $emptyGroupAssignments.AppProtectionPolicies += $policy
+                                    break
+                                }
+                            }
+                        }
+                    }
+                    catch {
+                        Write-Host "Error fetching assignments for policy $($policy.displayName): $($_.Exception.Message)" -ForegroundColor Red
+                    }
+                }
+            }
+
+            # Get App Configuration Policies
+            Write-Host "Fetching App Configuration Policies..." -ForegroundColor Yellow
+            $appConfigPolicies = Get-IntuneEntities -EntityType "deviceAppManagement/mobileAppConfigurations"
+            foreach ($policy in $appConfigPolicies) {
+                $assignments = Get-IntuneAssignments -EntityType "mobileAppConfigurations" -EntityId $policy.id
+                foreach ($assignment in $assignments) {
+                    if ($assignment.Reason -eq "Group Assignment" -and $assignment.GroupId) {
+                        $groupInfo = Get-GroupInfo -GroupId $assignment.GroupId
+                        if ($groupInfo.Success -and (Test-EmptyGroup -GroupId $assignment.GroupId)) {
+                            $policy | Add-Member -NotePropertyName 'EmptyGroupInfo' -NotePropertyValue "Assigned to empty group: $($groupInfo.DisplayName)" -Force
+                            $emptyGroupAssignments.AppConfigurationPolicies += $policy
+                            break
+                        }
+                    }
+                }
+            }
+
+            # Get Platform Scripts
+            Write-Host "Fetching Platform Scripts..." -ForegroundColor Yellow
+            $platformScripts = Get-IntuneEntities -EntityType "deviceManagementScripts"
+            foreach ($script in $platformScripts) {
+                $assignments = Get-IntuneAssignments -EntityType "deviceManagementScripts" -EntityId $script.id
+                foreach ($assignment in $assignments) {
+                    if ($assignment.Reason -eq "Group Assignment" -and $assignment.GroupId) {
+                        $groupInfo = Get-GroupInfo -GroupId $assignment.GroupId
+                        if ($groupInfo.Success -and (Test-EmptyGroup -GroupId $assignment.GroupId)) {
+                            $script | Add-Member -NotePropertyName 'EmptyGroupInfo' -NotePropertyValue "Assigned to empty group: $($groupInfo.DisplayName)" -Force
+                            $emptyGroupAssignments.PlatformScripts += $script
+                            break
+                        }
+                    }
+                }
+            }
+
+            # Get Proactive Remediation Scripts
+            Write-Host "Fetching Proactive Remediation Scripts..." -ForegroundColor Yellow
+            $healthScripts = Get-IntuneEntities -EntityType "deviceHealthScripts"
+            foreach ($script in $healthScripts) {
+                $assignments = Get-IntuneAssignments -EntityType "deviceHealthScripts" -EntityId $script.id
+                foreach ($assignment in $assignments) {
+                    if ($assignment.Reason -eq "Group Assignment" -and $assignment.GroupId) {
+                        $groupInfo = Get-GroupInfo -GroupId $assignment.GroupId
+                        if ($groupInfo.Success -and (Test-EmptyGroup -GroupId $assignment.GroupId)) {
+                            $script | Add-Member -NotePropertyName 'EmptyGroupInfo' -NotePropertyValue "Assigned to empty group: $($groupInfo.DisplayName)" -Force
+                            $emptyGroupAssignments.HealthScripts += $script
+                            break
+                        }
+                    }
+                }
+            }
+
+            # Display results
+            Write-Host "`nPolicies Assigned to Empty Groups:" -ForegroundColor Green
+
+            # Display Device Configurations
+            Write-Host "`n------- Device Configurations -------" -ForegroundColor Cyan
+            if ($emptyGroupAssignments.DeviceConfigs.Count -eq 0) {
+                Write-Host "No Device Configurations assigned to empty groups" -ForegroundColor Gray
+            }
+            else {
+                foreach ($config in $emptyGroupAssignments.DeviceConfigs) {
+                    $configName = if ([string]::IsNullOrWhiteSpace($config.name)) { $config.displayName } else { $config.name }
+                    Write-Host "Device Configuration Name: $configName" -ForegroundColor White
+                    Write-Host "Configuration ID: $($config.id)" -ForegroundColor Gray
+                    Write-Host "$($config.EmptyGroupInfo)" -ForegroundColor Yellow
+                    Write-Host ""
+                    Add-ExportData -ExportData $exportData -Category "Device Configuration" -Items @($config) -AssignmentReason $config.EmptyGroupInfo
+                }
+            }
+
+            # Display Settings Catalog Policies
+            Write-Host "`n------- Settings Catalog Policies -------" -ForegroundColor Cyan
+            if ($emptyGroupAssignments.SettingsCatalog.Count -eq 0) {
+                Write-Host "No Settings Catalog Policies assigned to empty groups" -ForegroundColor Gray
+            }
+            else {
+                foreach ($policy in $emptyGroupAssignments.SettingsCatalog) {
+                    $policyName = if ([string]::IsNullOrWhiteSpace($policy.name)) { $policy.displayName } else { $policy.name }
+                    Write-Host "Settings Catalog Policy Name: $policyName" -ForegroundColor White
+                    Write-Host "Policy ID: $($policy.id)" -ForegroundColor Gray
+                    Write-Host "$($policy.EmptyGroupInfo)" -ForegroundColor Yellow
+                    Write-Host ""
+                    Add-ExportData -ExportData $exportData -Category "Settings Catalog Policy" -Items @($policy) -AssignmentReason $policy.EmptyGroupInfo
+                }
+            }
+
+            # Display Administrative Templates
+            Write-Host "`n------- Administrative Templates -------" -ForegroundColor Cyan
+            if ($emptyGroupAssignments.AdminTemplates.Count -eq 0) {
+                Write-Host "No Administrative Templates assigned to empty groups" -ForegroundColor Gray
+            }
+            else {
+                foreach ($template in $emptyGroupAssignments.AdminTemplates) {
+                    $templateName = if ([string]::IsNullOrWhiteSpace($template.name)) { $template.displayName } else { $template.name }
+                    Write-Host "Administrative Template Name: $templateName" -ForegroundColor White
+                    Write-Host "Template ID: $($template.id)" -ForegroundColor Gray
+                    Write-Host "$($template.EmptyGroupInfo)" -ForegroundColor Yellow
+                    Write-Host ""
+                    Add-ExportData -ExportData $exportData -Category "Administrative Template" -Items @($template) -AssignmentReason $template.EmptyGroupInfo
+                }
+            }
+
+            # Display Compliance Policies
+            Write-Host "`n------- Compliance Policies -------" -ForegroundColor Cyan
+            if ($emptyGroupAssignments.CompliancePolicies.Count -eq 0) {
+                Write-Host "No Compliance Policies assigned to empty groups" -ForegroundColor Gray
+            }
+            else {
+                foreach ($policy in $emptyGroupAssignments.CompliancePolicies) {
+                    $policyName = if ([string]::IsNullOrWhiteSpace($policy.name)) { $policy.displayName } else { $policy.name }
+                    Write-Host "Compliance Policy Name: $policyName" -ForegroundColor White
+                    Write-Host "Policy ID: $($policy.id)" -ForegroundColor Gray
+                    Write-Host "$($policy.EmptyGroupInfo)" -ForegroundColor Yellow
+                    Write-Host ""
+                    Add-ExportData -ExportData $exportData -Category "Compliance Policy" -Items @($policy) -AssignmentReason $policy.EmptyGroupInfo
+                }
+            }
+
+            # Display App Protection Policies
+            Write-Host "`n------- App Protection Policies -------" -ForegroundColor Cyan
+            if ($emptyGroupAssignments.AppProtectionPolicies.Count -eq 0) {
+                Write-Host "No App Protection Policies assigned to empty groups" -ForegroundColor Gray
+            }
+            else {
+                foreach ($policy in $emptyGroupAssignments.AppProtectionPolicies) {
+                    $policyName = $policy.displayName
+                    $policyType = switch ($policy.'@odata.type') {
+                        "#microsoft.graph.androidManagedAppProtection" { "Android" }
+                        "#microsoft.graph.iosManagedAppProtection" { "iOS" }
+                        "#microsoft.graph.windowsManagedAppProtection" { "Windows" }
+                        default { "Unknown" }
+                    }
+                    Write-Host "App Protection Policy Name: $policyName" -ForegroundColor White
+                    Write-Host "Policy ID: $($policy.id), Type: $policyType" -ForegroundColor Gray
+                    Write-Host "$($policy.EmptyGroupInfo)" -ForegroundColor Yellow
+                    Write-Host ""
+                    Add-ExportData -ExportData $exportData -Category "App Protection Policy" -Items @($policy) -AssignmentReason $policy.EmptyGroupInfo
+                }
+            }
+
+            # Display App Configuration Policies
+            Write-Host "`n------- App Configuration Policies -------" -ForegroundColor Cyan
+            if ($emptyGroupAssignments.AppConfigurationPolicies.Count -eq 0) {
+                Write-Host "No App Configuration Policies assigned to empty groups" -ForegroundColor Gray
+            }
+            else {
+                foreach ($policy in $emptyGroupAssignments.AppConfigurationPolicies) {
+                    $policyName = if ([string]::IsNullOrWhiteSpace($policy.name)) { $policy.displayName } else { $policy.name }
+                    Write-Host "App Configuration Policy Name: $policyName" -ForegroundColor White
+                    Write-Host "Policy ID: $($policy.id)" -ForegroundColor Gray
+                    Write-Host "$($policy.EmptyGroupInfo)" -ForegroundColor Yellow
+                    Write-Host ""
+                    Add-ExportData -ExportData $exportData -Category "App Configuration Policy" -Items @($policy) -AssignmentReason $policy.EmptyGroupInfo
+                }
+            }
+
+            # Display Platform Scripts
+            Write-Host "`n------- Platform Scripts -------" -ForegroundColor Cyan
+            if ($emptyGroupAssignments.PlatformScripts.Count -eq 0) {
+                Write-Host "No Platform Scripts assigned to empty groups" -ForegroundColor Gray
+            }
+            else {
+                foreach ($script in $emptyGroupAssignments.PlatformScripts) {
+                    $scriptName = if ([string]::IsNullOrWhiteSpace($script.name)) { $script.displayName } else { $script.name }
+                    Write-Host "Script Name: $scriptName" -ForegroundColor White
+                    Write-Host "Script ID: $($script.id)" -ForegroundColor Gray
+                    Write-Host "$($script.EmptyGroupInfo)" -ForegroundColor Yellow
+                    Write-Host ""
+                    Add-ExportData -ExportData $exportData -Category "Platform Scripts" -Items @($script) -AssignmentReason $script.EmptyGroupInfo
+                }
+            }
+
+            # Display Proactive Remediation Scripts
+            Write-Host "`n------- Proactive Remediation Scripts -------" -ForegroundColor Cyan
+            if ($emptyGroupAssignments.HealthScripts.Count -eq 0) {
+                Write-Host "No Proactive Remediation Scripts assigned to empty groups" -ForegroundColor Gray
+            }
+            else {
+                foreach ($script in $emptyGroupAssignments.HealthScripts) {
+                    $scriptName = if ([string]::IsNullOrWhiteSpace($script.name)) { $script.displayName } else { $script.name }
+                    Write-Host "Script Name: $scriptName" -ForegroundColor White
+                    Write-Host "Script ID: $($script.id)" -ForegroundColor Gray
+                    Write-Host "$($script.EmptyGroupInfo)" -ForegroundColor Yellow
+                    Write-Host ""
+                    Add-ExportData -ExportData $exportData -Category "Proactive Remediation Scripts" -Items @($script) -AssignmentReason $script.EmptyGroupInfo
+                }
+            }
+
+            # Offer to export results
+            $export = Read-Host "`nWould you like to export the results to CSV? (y/n)"
+            if ($export -eq 'y') {
+                $exportPath = Show-SaveFileDialog -DefaultFileName "IntuneEmptyGroupAssignments.csv"
+                if ($exportPath) {
+                    $exportData | Export-Csv -Path $exportPath -NoTypeInformation
+                    Write-Host "Results exported to $exportPath" -ForegroundColor Green
+                }
+            }
+        }
+        '10' {
+            Write-Host "⚠️  WARNING: Administrative Templates will be deprecated in December 2024" -ForegroundColor Yellow
+            Write-Host "Microsoft recommends migrating to Settings Catalog" -ForegroundColor Yellow
+            Write-Host ""
+            Write-Host "Fetching all Administrative Templates..." -ForegroundColor Green
+            $exportData = [System.Collections.ArrayList]::new()
+
+            # Get Administrative Templates
+            $adminTemplates = Get-IntuneEntities -EntityType "groupPolicyConfigurations"
+            
+            if ($adminTemplates.Count -eq 0) {
+                Write-Host "No Administrative Templates found" -ForegroundColor Gray
+            }
+            else {
+                # Process each template and its assignments
+                foreach ($template in $adminTemplates) {
+                    $assignments = Get-IntuneAssignments -EntityType "groupPolicyConfigurations" -EntityId $template.id
+                    $assignmentSummary = $assignments | ForEach-Object {
+                        if ($_.Reason -eq "Group Assignment") {
+                            $groupInfo = Get-GroupInfo -GroupId $_.GroupId
+                            "$($_.Reason) - $($groupInfo.DisplayName)"
+                        }
+                        else {
+                            $_.Reason
+                        }
+                    }
+                    $template | Add-Member -NotePropertyName 'AssignmentSummary' -NotePropertyValue ($assignmentSummary -join "; ") -Force
+                }
+
+                # Display results in a table format
+                Write-Host "`n------- Administrative Templates -------" -ForegroundColor Cyan
+                
+                # Create table header
+                $headerFormat = "{0,-50} {1,-40} {2,-50}" -f "Template Name", "Template ID", "Assignments"
+                $separator = "-" * 140
+                
+                Write-Host $separator
+                Write-Host $headerFormat -ForegroundColor Yellow
+                Write-Host $separator
+                
+                foreach ($template in $adminTemplates) {
+                    $templateName = if ([string]::IsNullOrWhiteSpace($template.name)) { 
+                        $template.displayName 
+                    } else { 
+                        $template.name 
+                    }
+                    
+                    # Truncate long names and add ellipsis
+                    if ($templateName.Length -gt 47) {
+                        $templateName = $templateName.Substring(0, 44) + "..."
+                    }
+                    
+                    # Format ID
+                    $id = $template.id
+                    if ($id.Length -gt 37) {
+                        $id = $id.Substring(0, 34) + "..."
+                    }
+                    
+                    # Format assignment summary
+                    $assignments = if ($template.AssignmentSummary) { 
+                        $template.AssignmentSummary 
+                    } else { 
+                        "No Assignments" 
+                    }
+                    if ($assignments.Length -gt 47) {
+                        $assignments = $assignments.Substring(0, 44) + "..."
+                    }
+                    
+                    # Output formatted row
+                    $rowFormat = "{0,-50} {1,-40} {2,-50}" -f $templateName, $id, $assignments
+                    Write-Host $rowFormat -ForegroundColor White
+                    
+                    # Add to export data
+                    Add-ExportData -ExportData $exportData -Category "Administrative Template" -Items @($template) -AssignmentReason $template.AssignmentSummary
+                }
+                
+                Write-Host $separator
+                
+                # Display summary
+                Write-Host "`nSummary:" -ForegroundColor Cyan
+                Write-Host "Total Administrative Templates: $($adminTemplates.Count)" -ForegroundColor White
+                $assignedCount = ($adminTemplates | Where-Object { $_.AssignmentSummary }).Count
+                $unassignedCount = $adminTemplates.Count - $assignedCount
+                Write-Host "Templates with assignments: $assignedCount" -ForegroundColor White
+                Write-Host "Templates without assignments: $unassignedCount" -ForegroundColor White
+                
+                # Offer to export results
+                $export = Read-Host "`nWould you like to export the results to CSV? (y/n)"
+                if ($export -eq 'y') {
+                    $exportPath = Show-SaveFileDialog -DefaultFileName "IntuneAdministrativeTemplates.csv"
+                    if ($exportPath) {
+                        $exportData | Export-Csv -Path $exportPath -NoTypeInformation
+                        Write-Host "Results exported to $exportPath" -ForegroundColor Green
+                    }
                 }
             }
         }
