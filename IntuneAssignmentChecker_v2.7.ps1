@@ -424,22 +424,43 @@ function Export-HTMLReport {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Intune Assignment Report</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdn.datatables.net/1.11.5/css/dataTables.bootstrap5.min.css" rel="stylesheet">
-    <link href="https://cdn.datatables.net/buttons/2.2.2/css/buttons.bootstrap5.min.css" rel="stylesheet">
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.datatables.net/1.13.7/css/dataTables.bootstrap5.min.css" rel="stylesheet">
+    <link href="https://cdn.datatables.net/buttons/2.4.2/css/buttons.bootstrap5.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
     <style>
+        :root {
+            --bg-color: #f5f7fa;
+            --text-color: #000;
+            --card-bg: #fff;
+            --table-bg: #fff;
+            --hover-bg: #f8f9fa;
+            --border-color: #dee2e6;
+        }
+
+        [data-theme="dark"] {
+            --bg-color: #1a1a1a;
+            --text-color: #fff;
+            --card-bg: #2d2d2d;
+            --table-bg: #2d2d2d;
+            --hover-bg: #3d3d3d;
+            --border-color: #404040;
+        }
+
         body {
             padding: 20px;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: #f5f7fa;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            transition: background-color 0.3s ease, color 0.3s ease;
         }
         .card {
             margin-bottom: 20px;
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
             border-radius: 10px;
-            background-color: white;
-            transition: transform 0.2s;
+            background-color: var(--card-bg);
+            transition: transform 0.2s, background-color 0.3s ease;
+            border-color: var(--border-color);
         }
         .card:hover {
             transform: translateY(-2px);
@@ -474,14 +495,31 @@ function Export-HTMLReport {
         }
         .table-container {
             margin-top: 20px;
-            background: white;
+            background: var(--table-bg);
             padding: 20px;
             border-radius: 10px;
             box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+            transition: background-color 0.3s ease;
+        }
+
+        .table {
+            color: var(--text-color) !important;
+        }
+
+        .table thead th {
+            color: var(--text-color) !important;
+        }
+
+        .table tbody tr:hover {
+            background-color: var(--hover-bg) !important;
+        }
+
+        .dataTables_info, .dataTables_length, .dataTables_filter label {
+            color: var(--text-color) !important;
         }
         .nav-tabs {
             margin-bottom: 20px;
-            border-bottom: 2px solid #dee2e6;
+            border-bottom: 2px solid var(--border-color);
         }
         .nav-tabs .nav-link {
             border: none;
@@ -497,9 +535,10 @@ function Export-HTMLReport {
         }
         .tab-content {
             padding: 20px;
-            border: 1px solid #dee2e6;
+            border: 1px solid var(--border-color);
             border-top: none;
             border-radius: 0 0 10px 10px;
+            background-color: var(--card-bg);
         }
         .chart-container {
             margin: 20px 0;
@@ -530,6 +569,45 @@ function Export-HTMLReport {
             margin-bottom: 30px;
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
             animation: fadeIn 0.5s ease-in-out;
+            position: relative;
+        }
+
+        .theme-toggle {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: none;
+            border: none;
+            color: white;
+            font-size: 1.5rem;
+            cursor: pointer;
+            transition: transform 0.3s ease;
+        }
+
+        .theme-toggle:hover {
+            transform: scale(1.1);
+        }
+
+        @media print {
+            body {
+                background-color: white !important;
+                color: black !important;
+            }
+            .card, .table-container, .tab-content {
+                background-color: white !important;
+                color: black !important;
+                box-shadow: none !important;
+            }
+            .theme-toggle, .buttons-collection {
+                display: none !important;
+            }
+            .table {
+                color: black !important;
+            }
+            .table thead th {
+                color: black !important;
+                background-color: #f8f9fa !important;
+            }
         }
         @keyframes fadeIn {
             from { opacity: 0; transform: translateY(-20px); }
@@ -647,21 +725,31 @@ function Export-HTMLReport {
                 },
                 columnDefs: [
                     {
-                        targets: [4], 
+                        targets: [4], // Hidden column for combined search
                         visible: false,
                         searchable: true
+                    },
+                    {
+                        targets: '_all',
+                        orderable: true,
+                        type: 'string'
                     }
-                ]
+                ],
+                order: [[0, 'asc']], // Default sort by first column ascending
+                orderCellsTop: true,
+                fixedHeader: true
             });
 
-            \$('#groupSearch').on('keyup', function() {
+            $('#groupSearch').on('keyup', function() {
                 const searchTerm = this.value.toLowerCase();
                 tables.search(searchTerm).draw();
             });
 
             // Show the first tab by default
-            document.querySelector('.nav-tabs .nav-link')?.classList.add('active');
-            document.querySelector('.tab-pane')?.classList.add('show','active');
+            const firstTab = document.querySelector('.nav-tabs .nav-link');
+            const firstPane = document.querySelector('.tab-pane');
+            if (firstTab) firstTab.classList.add('active');
+            if (firstPane) firstPane.classList.add('show', 'active');
         });
     </script>
 </body>
@@ -676,7 +764,8 @@ function Export-HTMLReport {
         CompliancePolicies = @()
         AppProtectionPolicies = @()
         AppConfigurationPolicies = @()
-        Scripts = @()
+        PlatformScripts = @()
+        HealthScripts = @()
     }
 
     # Fetch all policies
@@ -802,15 +891,31 @@ function Export-HTMLReport {
                     }
                 }
 
-    Write-Host "Fetching Scripts..." -ForegroundColor Yellow
-    $scripts = Get-IntuneEntities -EntityType "deviceManagementScripts"
-    foreach ($script in $scripts) {
+    # Get Platform Scripts
+    Write-Host "Fetching Platform Scripts..." -ForegroundColor Yellow
+    $platformScripts = Get-IntuneEntities -EntityType "deviceManagementScripts"
+    foreach ($script in $platformScripts) {
         $assignments = Get-IntuneAssignments -EntityType "deviceManagementScripts" -EntityId $script.id
         $assignmentInfo = Get-AssignmentInfo -Assignments $assignments
-        $policies.Scripts += @{
+        $policies.PlatformScripts += @{
             Name = $script.displayName
             ID = $script.id
             Type = "PowerShell Script"
+            AssignmentType = $assignmentInfo.Type
+            AssignedTo = $assignmentInfo.Target
+        }
+    }
+
+    # Get Proactive Remediation Scripts
+    Write-Host "Fetching Proactive Remediation Scripts..." -ForegroundColor Yellow
+    $healthScripts = Get-IntuneEntities -EntityType "deviceHealthScripts"
+    foreach ($script in $healthScripts) {
+        $assignments = Get-IntuneAssignments -EntityType "deviceHealthScripts" -EntityId $script.id
+        $assignmentInfo = Get-AssignmentInfo -Assignments $assignments
+        $policies.HealthScripts += @{
+            Name = $script.displayName
+            ID = $script.id
+            Type = "Proactive Remediation Script"
             AssignmentType = $assignmentInfo.Type
             AssignedTo = $assignmentInfo.Target
         }
@@ -826,14 +931,14 @@ function Export-HTMLReport {
     }
 
     $categories = @(
-        @{ Key = 'all';               Name = 'All' },
-        @{ Key = 'DeviceConfigs';     Name = 'Device Configurations' },
-        @{ Key = 'SettingsCatalog';   Name = 'Settings Catalog' },
-        @{ Key = 'AdminTemplates';    Name = 'Administrative Templates' },
-        @{ Key = 'CompliancePolicies';Name = 'Compliance Policies' },
+        @{ Key = 'all';                   Name = 'All' },
+        @{ Key = 'DeviceConfigs';         Name = 'Device Configurations' },
+        @{ Key = 'SettingsCatalog';       Name = 'Settings Catalog' },
+        @{ Key = 'AdminTemplates';        Name = 'Administrative Templates' },
+        @{ Key = 'CompliancePolicies';    Name = 'Compliance Policies' },
         @{ Key = 'AppProtectionPolicies'; Name = 'App Protection Policies' },
-        @{ Key = 'Scripts';          Name = 'Platform Scripts' },
-        @{ Key = 'HealthScripts';    Name = 'Proactive Remediation Scripts' }
+        @{ Key = 'PlatformScripts';       Name = 'Platform Scripts' },
+        @{ Key = 'HealthScripts';         Name = 'Proactive Remediation Scripts' }
     )
 
     foreach($category in $categories) {
@@ -870,20 +975,23 @@ function Export-HTMLReport {
 
         if($category.Key -eq 'all') {
             $allTableRows = foreach($cat in $categories | Where-Object { $_.Key -ne 'all' }) {
-                foreach($p in $policies[$cat.Key]) {
-                    $badgeClass = switch($p.AssignmentType) {
-                        'All Users'   { 'badge-all-users' }
-                        'All Devices' { 'badge-all-devices' }
-                        'Group'       { 'badge-group' }
-                        default       { 'badge-none' }
+                $categoryPolicies = $policies[$cat.Key]
+                if ($categoryPolicies) {
+                    foreach($p in $categoryPolicies) {
+                        $badgeClass = switch($p.AssignmentType) {
+                            'All Users'   { 'badge-all-users' }
+                            'All Devices' { 'badge-all-devices' }
+                            'Group'       { 'badge-group' }
+                            default       { 'badge-none' }
+                        }
+                        "<tr>
+                            <td>$($p.Name)</td>
+                            <td>$($p.ID)</td>
+                            <td><span class='badge $badgeClass'>$($p.AssignmentType)</span></td>
+                            <td>$($p.AssignedTo)</td>
+                            <td>$($p.Name) $($p.ID) $($p.AssignmentType) $($p.AssignedTo)</td>
+                        </tr>"
                     }
-                    "<tr>
-                        <td>$($p.Name)</td>
-                        <td>$($p.ID)</td>
-                        <td><span class='badge $badgeClass'>$($p.AssignmentType)</span></td>
-                        <td>$($p.AssignedTo)</td>
-                        <td>$($p.Name) $($p.ID) $($p.AssignmentType) $($p.AssignedTo)</td>
-                    </tr>"
                 }
             }
             $tabContent += @"
@@ -895,11 +1003,11 @@ function Export-HTMLReport {
         <table class="table table-striped policy-table">
             <thead>
                 <tr>
-                    <th>Name</th>
-                    <th>ID</th>
-                    <th>Assignment Type</th>
-                    <th>Assigned To</th>
-                    <th>All</th>
+                    <th data-sort="string">Name</th>
+                    <th data-sort="string">ID</th>
+                    <th data-sort="string">Assignment Type</th>
+                    <th data-sort="string">Assigned To</th>
+                    <th data-sort="string">All</th>
                 </tr>
             </thead>
             <tbody>
@@ -935,11 +1043,11 @@ function Export-HTMLReport {
         <table class="table table-striped policy-table">
             <thead>
                 <tr>
-                    <th>Name</th>
-                    <th>ID</th>
-                    <th>Assignment Type</th>
-                    <th>Assigned To</th>
-                    <th>All</th>
+                    <th data-sort="string">Name</th>
+                    <th data-sort="string">ID</th>
+                    <th data-sort="string">Assignment Type</th>
+                    <th data-sort="string">Assigned To</th>
+                    <th data-sort="string">All</th>
                 </tr>
             </thead>
             <tbody>
