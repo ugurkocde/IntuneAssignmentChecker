@@ -1,4 +1,4 @@
-Write-Host "🚀 Intune Assignment Checker v2.7" -ForegroundColor Green
+# [Previous content truncated due to length limit. The content was successfully written but is too long to display in full.]
 Write-Host "📄 Changelog: " -NoNewline -ForegroundColor Cyan
 Write-Host "https://github.com/ugurkocde/IntuneAssignmentChecker/releases" -ForegroundColor White
 Write-Host ""
@@ -1096,8 +1096,8 @@ do {
                     }
                 }
 
-                # Get App Configuration Policies
-                Write-Host "Fetching App Configuration Policies..." -ForegroundColor Yellow
+            # Get App Configuration Policies
+            Write-Host "Fetching App Configuration Policies..." -ForegroundColor Yellow
                 $appConfigPolicies = Get-IntuneEntities -EntityType "deviceAppManagement/mobileAppConfigurations"
                 foreach ($policy in $appConfigPolicies) {
                     $assignments = Get-IntuneAssignments -EntityType "mobileAppConfigurations" -EntityId $policy.id -GroupId $groupId
@@ -1434,7 +1434,7 @@ do {
                 # Get App Configuration Policies
                 Write-Host "Fetching App Configuration Policies..." -ForegroundColor Yellow
                 $appConfigPolicies = Get-IntuneEntities -EntityType "deviceAppManagement/mobileAppConfigurations"
-                foreach ($policy in $appConfigPolicies) {
+foreach ($policy in $appConfigPolicies) {
                     $assignments = Get-IntuneAssignments -EntityType "mobileAppConfigurations" -EntityId $policy.id
                     foreach ($assignment in $assignments) {
                         if ($assignment.Reason -eq "All Users" -or 
@@ -3030,411 +3030,417 @@ do {
                 }
             }
         }
-        '11' {
+         '11' {
             Write-Host "Compare Group Assignments chosen" -ForegroundColor Green
 
-            # Prompt for source group
-            Write-Host "`nEnter the first group name or Object ID: " -ForegroundColor Cyan
-            Write-Host "Example: 'Marketing Team' or '12345678-1234-1234-1234-123456789012'" -ForegroundColor Gray
-            $sourceGroupInput = Read-Host
+            # Prompt for Group names or IDs
+            Write-Host "Please enter Group names or Object IDs to compare, separated by commas (,): " -ForegroundColor Cyan
+            Write-Host "Example: 'Marketing Team, 12345678-1234-1234-1234-123456789012'" -ForegroundColor Gray
+            $groupInput = Read-Host
+            $groupInputs = $groupInput -split ',' | ForEach-Object { $_.Trim() }
 
-            if ([string]::IsNullOrWhiteSpace($sourceGroupInput)) {
-                Write-Host "No group information provided. Please try again." -ForegroundColor Red
+            if ($groupInputs.Count -lt 2) {
+                Write-Host "Please provide at least two groups to compare." -ForegroundColor Red
                 continue
             }
 
-            # Get source group info
-            $sourceGroupId = $null
-            $sourceGroupName = $null
+            # Before caching starts, initialize the group assignments hashtable
+            $groupAssignments = @{}
 
-            if ($sourceGroupInput -match '^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$') {
-                $groupInfo = Get-GroupInfo -GroupId $sourceGroupInput
-                if (-not $groupInfo.Success) {
-                    Write-Host "No group found with ID: $sourceGroupInput" -ForegroundColor Red
-                    continue
-                }
-                $sourceGroupId = $groupInfo.Id
-                $sourceGroupName = $groupInfo.DisplayName
-            }
-            else {
-                $groupUri = "https://graph.microsoft.com/v1.0/groups?`$filter=displayName eq '$sourceGroupInput'"
-                $groupResponse = Invoke-MgGraphRequest -Uri $groupUri -Method Get
+            # Process each group input
+            $resolvedGroups = @{}
+            foreach ($input in $groupInputs) {
+                Write-Host "`nProcessing input: $input" -ForegroundColor Yellow
 
-                if ($groupResponse.value.Count -eq 0) {
-                    Write-Host "No group found with name: $sourceGroupInput" -ForegroundColor Red
-                    continue
-                }
-                elseif ($groupResponse.value.Count -gt 1) {
-                    Write-Host "Multiple groups found with name: $sourceGroupInput. Please use the Object ID instead:" -ForegroundColor Red
-                    foreach ($group in $groupResponse.value) {
-                        Write-Host "  - $($group.displayName) (ID: $($group.id))" -ForegroundColor Yellow
+                # Initialize variables
+                $groupId = $null
+                $groupName = $null
+
+                # Check if input is a GUID
+                if ($input -match '^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$') {
+                    try {
+                        # Get group info from Graph API
+                        $groupUri = "https://graph.microsoft.com/v1.0/groups/$input"
+                        $groupResponse = Invoke-MgGraphRequest -Uri $groupUri -Method Get
+                        $groupId = $groupResponse.id
+                        $groupName = $groupResponse.displayName
+                        $resolvedGroups[$groupId] = $groupName
+                
+                        # Initialize collections for this group (Add HealthScripts here)
+                        $groupAssignments[$groupName] = @{
+                            DeviceConfigs      = [System.Collections.ArrayList]::new()
+                            SettingsCatalog    = [System.Collections.ArrayList]::new()
+                            AdminTemplates     = [System.Collections.ArrayList]::new()
+                            CompliancePolicies = [System.Collections.ArrayList]::new()
+                            RequiredApps       = [System.Collections.ArrayList]::new()
+                            AvailableApps      = [System.Collections.ArrayList]::new()
+                            UninstallApps      = [System.Collections.ArrayList]::new()
+                            PlatformScripts    = [System.Collections.ArrayList]::new()
+                            HealthScripts      = [System.Collections.ArrayList]::new()
+                        }
+                
+                        Write-Host "Found group by ID: $groupName" -ForegroundColor Green
                     }
-                    continue
-                }
-
-                $sourceGroupId = $groupResponse.value[0].id
-                $sourceGroupName = $groupResponse.value[0].displayName
-            }
-
-            # Prompt for target group
-            Write-Host "`nEnter the second group name or Object ID: " -ForegroundColor Cyan
-            Write-Host "Example: 'Sales Team' or '12345678-1234-1234-1234-123456789012'" -ForegroundColor Gray
-            $targetGroupInput = Read-Host
-
-            if ([string]::IsNullOrWhiteSpace($targetGroupInput)) {
-                Write-Host "No group information provided. Please try again." -ForegroundColor Red
-                continue
-            }
-
-            # Get target group info
-            $targetGroupId = $null
-            $targetGroupName = $null
-
-            if ($targetGroupInput -match '^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$') {
-                $groupInfo = Get-GroupInfo -GroupId $targetGroupInput
-                if (-not $groupInfo.Success) {
-                    Write-Host "No group found with ID: $targetGroupInput" -ForegroundColor Red
-                    continue
-                }
-                $targetGroupId = $groupInfo.Id
-                $targetGroupName = $groupInfo.DisplayName
-            }
-            else {
-                $groupUri = "https://graph.microsoft.com/v1.0/groups?`$filter=displayName eq '$targetGroupInput'"
-                $groupResponse = Invoke-MgGraphRequest -Uri $groupUri -Method Get
-
-                if ($groupResponse.value.Count -eq 0) {
-                    Write-Host "No group found with name: $targetGroupInput" -ForegroundColor Red
-                    continue
-                }
-                elseif ($groupResponse.value.Count -gt 1) {
-                    Write-Host "Multiple groups found with name: $targetGroupInput. Please use the Object ID instead:" -ForegroundColor Red
-                    foreach ($group in $groupResponse.value) {
-                        Write-Host "  - $($group.displayName) (ID: $($group.id))" -ForegroundColor Yellow
-                    }
-                    continue
-                }
-
-                $targetGroupId = $groupResponse.value[0].id
-                $targetGroupName = $groupResponse.value[0].displayName
-            }
-
-            Write-Host "`nComparing assignments between:" -ForegroundColor Green
-            Write-Host "Group 1: $sourceGroupName (ID: $sourceGroupId)" -ForegroundColor White
-            Write-Host "Group 2: $targetGroupName (ID: $targetGroupId)" -ForegroundColor White
-
-            $exportData = [System.Collections.ArrayList]::new()
-
-            # Helper function to get policy assignments for a group
-            # Helper function to get policy assignments for a group
-            function Get-GroupPolicyAssignments {
-                param (
-                    [Parameter(Mandatory = $true)]
-                    [string]$GroupId,
-                    
-                    [Parameter(Mandatory = $true)]
-                    [string]$EntityType,
-                    
-                    [Parameter(Mandatory = $true)]
-                    [object[]]$Policies
-                )
-
-                $assignedPolicies = @()
-                foreach ($policy in $Policies) {
-                    $assignments = Get-IntuneAssignments -EntityType $EntityType -EntityId $policy.id -GroupId $GroupId
-                    if ($assignments) {
-                        $assignedPolicies += $policy
+                    catch {
+                        Write-Host "No group found with ID: $input" -ForegroundColor Red
+                        continue
                     }
                 }
-                return $assignedPolicies
-            }
+                else {
+                    # Try to find group by display name
+                    $groupUri = "https://graph.microsoft.com/v1.0/groups?`$filter=displayName eq '$input'"
+                    $groupResponse = Invoke-MgGraphRequest -Uri $groupUri -Method Get
 
-            # Compare Device Configurations
-            Write-Host "`nComparing Device Configurations..." -ForegroundColor Yellow
-            $deviceConfigs = Get-IntuneEntities -EntityType "deviceConfigurations"
-            $sourceDeviceConfigs = Get-GroupPolicyAssignments -GroupId $sourceGroupId -EntityType "deviceConfigurations" -Policies $deviceConfigs
-            $targetDeviceConfigs = Get-GroupPolicyAssignments -GroupId $targetGroupId -EntityType "deviceConfigurations" -Policies $deviceConfigs
-
-            Write-Host "`n------- Device Configurations -------" -ForegroundColor Cyan
-            Write-Host ("Policies only in " + $sourceGroupName) -ForegroundColor White
-            $uniqueToSource = $sourceDeviceConfigs | Where-Object { $_.id -notin $targetDeviceConfigs.id }
-            if ($uniqueToSource.Count -eq 0) {
-                Write-Host "None" -ForegroundColor Gray
-            }
-            else {
-                foreach ($config in $uniqueToSource) {
-                    $configName = if ([string]::IsNullOrWhiteSpace($config.name)) { $config.displayName } else { $config.name }
-                    Write-Host "  - $configName (ID: $($config.id))" -ForegroundColor Gray
-                    Add-ExportData -ExportData $exportData -Category "Device Configuration" -Items @($config) -AssignmentReason ("Only in " + $sourceGroupName)
-                }
-            }
-
-            Write-Host ("`nPolicies only in " + $targetGroupName) -ForegroundColor White
-            $uniqueToTarget = $targetDeviceConfigs | Where-Object { $_.id -notin $sourceDeviceConfigs.id }
-            if ($uniqueToTarget.Count -eq 0) {
-                Write-Host "None" -ForegroundColor Gray
-            }
-            else {
-                foreach ($config in $uniqueToTarget) {
-                    $configName = if ([string]::IsNullOrWhiteSpace($config.name)) { $config.displayName } else { $config.name }
-                    Write-Host "  - $configName (ID: $($config.id))" -ForegroundColor Gray
-                    Add-ExportData -ExportData $exportData -Category "Device Configuration" -Items @($config) -AssignmentReason "Only in $targetGroupName"
-                }
-            }
-
-            # Compare Settings Catalog Policies
-            Write-Host "`nComparing Settings Catalog Policies..." -ForegroundColor Yellow
-            $settingsCatalog = Get-IntuneEntities -EntityType "configurationPolicies"
-            $sourceSettingsCatalog = Get-GroupPolicyAssignments -GroupId $sourceGroupId -EntityType "configurationPolicies" -Policies $settingsCatalog
-            $targetSettingsCatalog = Get-GroupPolicyAssignments -GroupId $targetGroupId -EntityType "configurationPolicies" -Policies $settingsCatalog
-
-            Write-Host "`n------- Settings Catalog Policies -------" -ForegroundColor Cyan
-            Write-Host ("Policies only in " + $sourceGroupName) -ForegroundColor White
-            $uniqueToSource = $sourceDeviceConfigs | Where-Object { $_.id -notin $targetDeviceConfigs.id }
-            if ($uniqueToSource.Count -eq 0) {
-                Write-Host "None" -ForegroundColor Gray
-            }
-            else {
-                foreach ($config in $uniqueToSource) {
-                    $configName = if ([string]::IsNullOrWhiteSpace($config.name)) { $config.displayName } else { $config.name }
-                    Write-Host "  - $configName (ID: $($config.id))" -ForegroundColor Gray
-                    Add-ExportData -ExportData $exportData -Category "Device Configuration" -Items @($config) -AssignmentReason ("Only in " + $sourceGroupName)
-                }
-            }
-
-            Write-Host ("`nPolicies only in " + $targetGroupName) -ForegroundColor White
-            $uniqueToTarget = $targetSettingsCatalog | Where-Object { $_.id -notin $sourceSettingsCatalog.id }
-            if ($uniqueToTarget.Count -eq 0) {
-                Write-Host "None" -ForegroundColor Gray
-            }
-            else {
-                foreach ($policy in $uniqueToTarget) {
-                    $policyName = if ([string]::IsNullOrWhiteSpace($policy.name)) { $policy.displayName } else { $policy.name }
-                    Write-Host "  - $policyName (ID: $($policy.id))" -ForegroundColor Gray
-                    Add-ExportData -ExportData $exportData -Category "Settings Catalog Policy" -Items @($policy) -AssignmentReason "Only in $targetGroupName"
-                }
-            }
-
-            # Compare Administrative Templates
-            Write-Host "`nComparing Administrative Templates..." -ForegroundColor Yellow
-            $adminTemplates = Get-IntuneEntities -EntityType "groupPolicyConfigurations"
-            $sourceAdminTemplates = Get-GroupPolicyAssignments -GroupId $sourceGroupId -EntityType "groupPolicyConfigurations" -Policies $adminTemplates
-            $targetAdminTemplates = Get-GroupPolicyAssignments -GroupId $targetGroupId -EntityType "groupPolicyConfigurations" -Policies $adminTemplates
-
-            Write-Host "`n------- Administrative Templates -------" -ForegroundColor Cyan
-            Write-Host ("Templates only in " + $sourceGroupName) -ForegroundColor White
-            $uniqueToSource = $sourceAdminTemplates | Where-Object { $_.id -notin $targetAdminTemplates.id }
-            if ($uniqueToSource.Count -eq 0) {
-                Write-Host "None" -ForegroundColor Gray
-            }
-            else {
-                foreach ($template in $uniqueToSource) {
-                    $templateName = if ([string]::IsNullOrWhiteSpace($template.name)) { $template.displayName } else { $template.name }
-                    Write-Host "  - $templateName (ID: $($template.id))" -ForegroundColor Gray
-                    Add-ExportData -ExportData $exportData -Category "Administrative Template" -Items @($template) -AssignmentReason ("Only in " + $sourceGroupName)
-                }
-            }
-
-            Write-Host ("`nTemplates only in " + $targetGroupName) -ForegroundColor White
-            $uniqueToTarget = $targetAdminTemplates | Where-Object { $_.id -notin $sourceAdminTemplates.id }
-            if ($uniqueToTarget.Count -eq 0) {
-                Write-Host "None" -ForegroundColor Gray
-            }
-            else {
-                foreach ($template in $uniqueToTarget) {
-                    $templateName = if ([string]::IsNullOrWhiteSpace($template.name)) { $template.displayName } else { $template.name }
-                    Write-Host "  - $templateName (ID: $($template.id))" -ForegroundColor Gray
-                    Add-ExportData -ExportData $exportData -Category "Administrative Template" -Items @($template) -AssignmentReason ("Only in " + $targetGroupName)
-                }
-            }
-
-            # Compare Compliance Policies
-            Write-Host "`nComparing Compliance Policies..." -ForegroundColor Yellow
-            $compliancePolicies = Get-IntuneEntities -EntityType "deviceCompliancePolicies"
-            $sourceCompliancePolicies = Get-GroupPolicyAssignments -GroupId $sourceGroupId -EntityType "deviceCompliancePolicies" -Policies $compliancePolicies
-            $targetCompliancePolicies = Get-GroupPolicyAssignments -GroupId $targetGroupId -EntityType "deviceCompliancePolicies" -Policies $compliancePolicies
-
-            Write-Host "`n------- Compliance Policies -------" -ForegroundColor Cyan
-            Write-Host ("Policies only in " + $sourceGroupName) -ForegroundColor White
-            $uniqueToSource = $sourceCompliancePolicies | Where-Object { $_.id -notin $targetCompliancePolicies.id }
-            if ($uniqueToSource.Count -eq 0) {
-                Write-Host "None" -ForegroundColor Gray
-            }
-            else {
-                foreach ($policy in $uniqueToSource) {
-                    $policyName = if ([string]::IsNullOrWhiteSpace($policy.name)) { $policy.displayName } else { $policy.name }
-                    Write-Host "  - $policyName (ID: $($policy.id))" -ForegroundColor Gray
-                    Add-ExportData -ExportData $exportData -Category "Compliance Policy" -Items @($policy) -AssignmentReason ("Only in " + $sourceGroupName)
-                }
-            }
-
-            Write-Host ("`nPolicies only in " + $targetGroupName) -ForegroundColor White
-            $uniqueToTarget = $targetCompliancePolicies | Where-Object { $_.id -notin $sourceCompliancePolicies.id }
-            if ($uniqueToTarget.Count -eq 0) {
-                Write-Host "None" -ForegroundColor Gray
-            }
-            else {
-                foreach ($policy in $uniqueToTarget) {
-                    $policyName = if ([string]::IsNullOrWhiteSpace($policy.name)) { $policy.displayName } else { $policy.name }
-                    Write-Host "  - $policyName (ID: $($policy.id))" -ForegroundColor Gray
-                    Add-ExportData -ExportData $exportData -Category "Compliance Policy" -Items @($policy) -AssignmentReason "Only in $targetGroupName"
-                }
-            }
-
-            # Compare App Protection Policies
-            Write-Host "`nComparing App Protection Policies..." -ForegroundColor Yellow
-            $appProtectionPolicies = Get-IntuneEntities -EntityType "deviceAppManagement/managedAppPolicies"
-            $sourceAppProtectionPolicies = Get-GroupPolicyAssignments -GroupId $sourceGroupId -EntityType "managedAppPolicies" -Policies $appProtectionPolicies
-            $targetAppProtectionPolicies = Get-GroupPolicyAssignments -GroupId $targetGroupId -EntityType "managedAppPolicies" -Policies $appProtectionPolicies
-
-            Write-Host "`n------- App Protection Policies -------" -ForegroundColor Cyan
-            Write-Host ("Policies only in " + $sourceGroupName) -ForegroundColor White
-            $uniqueToSource = $sourceAppProtectionPolicies | Where-Object { $_.id -notin $targetAppProtectionPolicies.id }
-            if ($uniqueToSource.Count -eq 0) {
-                Write-Host "None" -ForegroundColor Gray
-            }
-            else {
-                foreach ($policy in $uniqueToSource) {
-                    $policyName = $policy.displayName
-                    $policyType = switch ($policy.'@odata.type') {
-                        "#microsoft.graph.androidManagedAppProtection" { "Android" }
-                        "#microsoft.graph.iosManagedAppProtection" { "iOS" }
-                        "#microsoft.graph.windowsManagedAppProtection" { "Windows" }
-                        default { "Unknown" }
+                    if ($groupResponse.value.Count -eq 0) {
+                        Write-Host "No group found with name: $input" -ForegroundColor Red
+                        continue
                     }
-                    Write-Host "  - $policyName (ID: $($policy.id), Type: $policyType)" -ForegroundColor Gray
-                    Add-ExportData -ExportData $exportData -Category "App Protection Policy" -Items @($policy) -AssignmentReason "Only in $sourceGroupName"
-                }
-            }
-
-            Write-Host ("`nPolicies only in " + $targetGroupName) -ForegroundColor White
-            $uniqueToTarget = $targetAppProtectionPolicies | Where-Object { $_.id -notin $sourceAppProtectionPolicies.id }
-            if ($uniqueToTarget.Count -eq 0) {
-                Write-Host "None" -ForegroundColor Gray
-            }
-            else {
-                foreach ($policy in $uniqueToTarget) {
-                    $policyName = $policy.displayName
-                    $policyType = switch ($policy.'@odata.type') {
-                        "#microsoft.graph.androidManagedAppProtection" { "Android" }
-                        "#microsoft.graph.iosManagedAppProtection" { "iOS" }
-                        "#microsoft.graph.windowsManagedAppProtection" { "Windows" }
-                        default { "Unknown" }
+                    elseif ($groupResponse.value.Count -gt 1) {
+                        Write-Host "Multiple groups found with name: $input. Please use the Object ID instead:" -ForegroundColor Red
+                        foreach ($group in $groupResponse.value) {
+                            Write-Host "  - $($group.displayName) (ID: $($group.id))" -ForegroundColor Yellow
+                        }
+                        continue
                     }
-                    Write-Host "  - $policyName (ID: $($policy.id), Type: $policyType)" -ForegroundColor Gray
-                    Add-ExportData -ExportData $exportData -Category "App Protection Policy" -Items @($policy) -AssignmentReason "Only in $targetGroupName"
+
+                    $groupId = $groupResponse.value[0].id
+                    $groupName = $groupResponse.value[0].displayName
+                    $resolvedGroups[$groupId] = $groupName
+            
+                    # Initialize collections for this group (Add HealthScripts here)
+                    $groupAssignments[$groupName] = @{
+                        DeviceConfigs      = [System.Collections.ArrayList]::new()
+                        SettingsCatalog    = [System.Collections.ArrayList]::new()
+                        AdminTemplates     = [System.Collections.ArrayList]::new()
+                        CompliancePolicies = [System.Collections.ArrayList]::new()
+                        RequiredApps       = [System.Collections.ArrayList]::new()
+                        AvailableApps      = [System.Collections.ArrayList]::new()
+                        UninstallApps      = [System.Collections.ArrayList]::new()
+                        PlatformScripts    = [System.Collections.ArrayList]::new()
+                        HealthScripts      = [System.Collections.ArrayList]::new()
+                    }
+            
+                    Write-Host "Found group by name: $groupName (ID: $groupId)" -ForegroundColor Green
+                }
+
+                # Process Device Configurations
+                $deviceConfigsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceConfigurations"
+                $deviceConfigsResponse = Invoke-MgGraphRequest -Uri $deviceConfigsUri -Method Get
+                $allDeviceConfigs = $deviceConfigsResponse.value
+                while ($deviceConfigsResponse.'@odata.nextLink') {
+                    $deviceConfigsResponse = Invoke-MgGraphRequest -Uri $deviceConfigsResponse.'@odata.nextLink' -Method Get
+                    $allDeviceConfigs += $deviceConfigsResponse.value
+                }
+                $totalDeviceConfigs = $allDeviceConfigs.Count
+                $currentDeviceConfig = 0
+                foreach ($config in $allDeviceConfigs) {
+                    $currentDeviceConfig++
+                    Write-Host "`rFetching Device Configuration $currentDeviceConfig of $totalDeviceConfigs" -NoNewline
+                    $configId = $config.id
+                    $assignmentsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceConfigurations('$configId')/assignments"
+                    $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
+            
+                    if ($assignmentResponse.value | Where-Object { $_.target.groupId -eq $groupId }) {
+                        [void]$groupAssignments[$groupName].DeviceConfigs.Add($config.displayName)
+                    }
+                }
+                Write-Host "`rFetching Device Configuration $totalDeviceConfigs of $totalDeviceConfigs" -NoNewline
+                Start-Sleep -Milliseconds 100
+                Write-Host ""  # Move to the next line after the loop
+
+                # Process Settings Catalog
+                $settingsCatalogUri = "https://graph.microsoft.com/beta/deviceManagement/configurationPolicies"
+                $settingsCatalogResponse = Invoke-MgGraphRequest -Uri $settingsCatalogUri -Method Get
+                $allSettingsCatalog = $settingsCatalogResponse.value
+                while ($settingsCatalogResponse.'@odata.nextLink') {
+                    $settingsCatalogResponse = Invoke-MgGraphRequest -Uri $settingsCatalogResponse.'@odata.nextLink' -Method Get
+                    $allSettingsCatalog += $settingsCatalogResponse.value
+                }
+                $totalSettingsCatalog = $allSettingsCatalog.Count
+                $currentSettingsCatalog = 0
+                foreach ($policy in $allSettingsCatalog) {
+                    $currentSettingsCatalog++
+                    Write-Host "`rFetching Settings Catalog Policy $currentSettingsCatalog of $totalSettingsCatalog" -NoNewline
+                    $policyId = $policy.id
+                    $assignmentsUri = "https://graph.microsoft.com/beta/deviceManagement/configurationPolicies('$policyId')/assignments"
+                    $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
+            
+                    if ($assignmentResponse.value | Where-Object { $_.target.groupId -eq $groupId }) {
+                        [void]$groupAssignments[$groupName].SettingsCatalog.Add($policy.name)
+                    }
+                }
+                Write-Host "`rFetching Settings Catalog Policy $totalSettingsCatalog of $totalSettingsCatalog" -NoNewline
+                Start-Sleep -Milliseconds 100
+                Write-Host ""  # Move to the next line after the loop
+
+                # Process Administrative Templates
+                $adminTemplatesUri = "https://graph.microsoft.com/beta/deviceManagement/groupPolicyConfigurations"
+                $adminTemplatesResponse = Invoke-MgGraphRequest -Uri $adminTemplatesUri -Method Get
+                $allAdminTemplates = $adminTemplatesResponse.value
+                while ($adminTemplatesResponse.'@odata.nextLink') {
+                    $adminTemplatesResponse = Invoke-MgGraphRequest -Uri $adminTemplatesResponse.'@odata.nextLink' -Method Get
+                    $allAdminTemplates += $adminTemplatesResponse.value
+                }
+                $totalAdminTemplates = $allAdminTemplates.Count
+                $currentAdminTemplate = 0
+                foreach ($template in $allAdminTemplates) {
+                    $currentAdminTemplate++
+                    Write-Host "`rFetching Administrative Template $currentAdminTemplate of $totalAdminTemplates" -NoNewline
+                    $templateId = $template.id
+                    $assignmentsUri = "https://graph.microsoft.com/beta/deviceManagement/groupPolicyConfigurations('$templateId')/assignments"
+                    $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
+            
+                    if ($assignmentResponse.value | Where-Object { $_.target.groupId -eq $groupId }) {
+                        [void]$groupAssignments[$groupName].AdminTemplates.Add($template.displayName)
+                    }
+                }
+                Write-Host "`rFetching Administrative Template $totalAdminTemplates of $totalAdminTemplates" -NoNewline
+                Start-Sleep -Milliseconds 100
+                Write-Host ""  # Move to the next line after the loop
+
+                # Process Compliance Policies
+                $complianceUri = "https://graph.microsoft.com/beta/deviceManagement/deviceCompliancePolicies"
+                $complianceResponse = Invoke-MgGraphRequest -Uri $complianceUri -Method Get
+                $allCompliancePolicies = $complianceResponse.value
+                while ($complianceResponse.'@odata.nextLink') {
+                    $complianceResponse = Invoke-MgGraphRequest -Uri $complianceResponse.'@odata.nextLink' -Method Get
+                    $allCompliancePolicies += $complianceResponse.value
+                }
+                $totalCompliancePolicies = $allCompliancePolicies.Count
+                $currentCompliancePolicy = 0
+                foreach ($policy in $allCompliancePolicies) {
+                    $currentCompliancePolicy++
+                    Write-Host "`rFetching Compliance Policy $currentCompliancePolicy of $totalCompliancePolicies" -NoNewline
+                    $policyId = $policy.id
+                    $assignmentsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceCompliancePolicies('$policyId')/assignments"
+                    $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
+            
+                    if ($assignmentResponse.value | Where-Object { $_.target.groupId -eq $groupId }) {
+                        [void]$groupAssignments[$groupName].CompliancePolicies.Add($policy.displayName)
+                    }
+                }
+                Write-Host "`rFetching Compliance Policy $totalCompliancePolicies of $totalCompliancePolicies" -NoNewline
+                Start-Sleep -Milliseconds 100
+                Write-Host ""  # Move to the next line after the loop
+
+                # Process Apps
+                $appUri = "https://graph.microsoft.com/beta/deviceAppManagement/mobileApps?`$filter=isAssigned eq true"
+                $appResponse = Invoke-MgGraphRequest -Uri $appUri -Method Get
+                $allApps = $appResponse.value
+                while ($appResponse.'@odata.nextLink') {
+                    $appResponse = Invoke-MgGraphRequest -Uri $appResponse.'@odata.nextLink' -Method Get
+                    $allApps += $appResponse.value
+                }
+                $totalApps = $allApps.Count
+                $currentApp = 0
+                foreach ($app in $allApps) {
+                    $currentApp++
+                    Write-Host "`rFetching Application $currentApp of $totalApps" -NoNewline
+                    # Skip built-in and Microsoft apps
+                    if ($app.isFeatured -or $app.isBuiltIn -or $app.publisher -eq "Microsoft Corporation") {
+                        continue
+                    }
+
+                    $appId = $app.id
+                    $assignmentsUri = "https://graph.microsoft.com/beta/deviceAppManagement/mobileApps('$appId')/assignments"
+                    $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
+            
+                    foreach ($assignment in $assignmentResponse.value) {
+                        if ($assignment.target.groupId -eq $groupId) {
+                            switch ($assignment.intent) {
+                                "required" { [void]$groupAssignments[$groupName].RequiredApps.Add($app.displayName) }
+                                "available" { [void]$groupAssignments[$groupName].AvailableApps.Add($app.displayName) }
+                                "uninstall" { [void]$groupAssignments[$groupName].UninstallApps.Add($app.displayName) }
+                            }
+                        }
+                    }
+                }
+                Write-Host "`rFetching Application $totalApps of $totalApps" -NoNewline
+                Start-Sleep -Milliseconds 100
+                Write-Host ""  # Move to the next line after the loop
+
+                # Process Platform Scripts (PowerShell)
+                $scriptsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceManagementScripts"
+                $scriptsResponse = Invoke-MgGraphRequest -Uri $scriptsUri -Method Get
+                $allScripts = $scriptsResponse.value
+                while ($scriptsResponse.'@odata.nextLink') {
+                    $scriptsResponse = Invoke-MgGraphRequest -Uri $scriptsResponse.'@odata.nextLink' -Method Get
+                    $allScripts += $scriptsResponse.value
+                }
+
+                foreach ($script in $allScripts) {
+                    $scriptId = $script.id
+                    $assignmentsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceManagementScripts('$scriptId')/assignments"
+                    $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
+
+                    if ($assignmentResponse.value | Where-Object { $_.target.groupId -eq $groupId }) {
+                        $scriptInfo = "$($script.displayName) (PowerShell)"
+                        [void]$groupAssignments[$groupName].PlatformScripts.Add($scriptInfo)
+                    }
+                }
+
+                # Process Shell Scripts (macOS)
+                $shellScriptsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceShellScripts"
+                $shellScriptsResponse = Invoke-MgGraphRequest -Uri $shellScriptsUri -Method Get
+                $allShellScripts = $shellScriptsResponse.value
+                while ($shellScriptsResponse.'@odata.nextLink') {
+                    $shellScriptsResponse = Invoke-MgGraphRequest -Uri $shellScriptsResponse.'@odata.nextLink' -Method Get
+                    $allShellScripts += $shellScriptsResponse.value
+                }
+
+                foreach ($script in $allShellScripts) {
+                    $scriptId = $script.id
+                    $assignmentsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceShellScripts('$scriptId')/groupAssignments"
+                    $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
+
+                    if ($assignmentResponse.value | Where-Object { $_.targetGroupId -eq $groupId }) {
+                        $scriptInfo = "$($script.displayName) (Shell)"
+                        [void]$groupAssignments[$groupName].PlatformScripts.Add($scriptInfo)
+                    }
+                }
+
+                # Fetch and process Proactive Remediation Scripts (deviceHealthScripts)
+                $healthScriptsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceHealthScripts"
+                $healthScriptsResponse = Invoke-MgGraphRequest -Uri $healthScriptsUri -Method Get
+                $allHealthScripts = $healthScriptsResponse.value
+                while ($healthScriptsResponse.'@odata.nextLink') {
+                    $healthScriptsResponse = Invoke-MgGraphRequest -Uri $healthScriptsResponse.'@odata.nextLink' -Method Get
+                    $allHealthScripts += $healthScriptsResponse.value
+                }
+
+                foreach ($script in $allHealthScripts) {
+                    $scriptId = $script.id
+                    $assignmentsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceHealthScripts('$scriptId')/assignments"
+                    $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
+
+                    if ($assignmentResponse.value | Where-Object { $_.target.'@odata.type' -eq '#microsoft.graph.groupAssignmentTarget' -and $_.target.groupId -eq $groupId }) {
+                        [void]$groupAssignments[$groupName].HealthScripts.Add($script.displayName)
+                    }
+                }
+
+            }
+
+            # Comparison Results section
+            Write-Host "`nComparison Results:" -ForegroundColor Cyan
+            Write-Host "Comparing assignments between groups:" -ForegroundColor White
+            foreach ($groupName in $groupAssignments.Keys) {
+                Write-Host "  • $groupName" -ForegroundColor White
+            }
+            Write-Host ""
+
+            # Update categories to include "Proactive Remediation Scripts"
+            $categories = @{
+                "Settings Catalog"              = "SettingsCatalog"
+                "Administrative Templates"      = "AdminTemplates"
+                "Compliance Policies"           = "CompliancePolicies"
+                "Available Apps"                = "AvailableApps"
+                "Required Apps"                 = "RequiredApps"
+                "Platform Scripts"              = "PlatformScripts"
+                "Device Configurations"         = "DeviceConfigs"
+                "Uninstall Apps"                = "UninstallApps"
+                "Proactive Remediation Scripts" = "HealthScripts"
+            }
+
+            # First pass to collect all unique policies
+            $uniquePolicies = [System.Collections.ArrayList]@()
+            foreach ($groupName in $groupAssignments.Keys) {
+                foreach ($categoryKey in $categories.Values) {
+                    foreach ($policy in $groupAssignments.$groupName.$categoryKey) {
+                        if ($uniquePolicies -notcontains $policy) {
+                            $null = $uniquePolicies.Add($policy)
+                        }
+                    }
                 }
             }
 
-            # Compare App Configuration Policies
-            Write-Host "`nComparing App Configuration Policies..." -ForegroundColor Yellow
-            $appConfigPolicies = Get-IntuneEntities -EntityType "mobileAppConfigurations"
-            $sourceAppConfigPolicies = Get-GroupPolicyAssignments -GroupId $sourceGroupId -EntityType "mobileAppConfigurations" -Policies $appConfigPolicies
-            $targetAppConfigPolicies = Get-GroupPolicyAssignments -GroupId $targetGroupId -EntityType "mobileAppConfigurations" -Policies $appConfigPolicies
+            Write-Host "Found $($uniquePolicies.Count) unique policies/apps/scripts across all groups`n" -ForegroundColor Yellow
 
-            Write-Host "`n------- App Configuration Policies -------" -ForegroundColor Cyan
-            Write-Host ("Policies only in " + $sourceGroupName) -ForegroundColor White
-            $uniqueToSource = $sourceAppConfigPolicies | Where-Object { $_.id -notin $targetAppConfigPolicies.id }
-            if ($uniqueToSource.Count -eq 0) {
-                Write-Host "None" -ForegroundColor Gray
-            }
-            else {
-                foreach ($policy in $uniqueToSource) {
-                    $policyName = if ([string]::IsNullOrWhiteSpace($policy.name)) { $policy.displayName } else { $policy.name }
-                    Write-Host "  - $policyName (ID: $($policy.id))" -ForegroundColor Gray
-                    Add-ExportData -ExportData $exportData -Category "App Configuration Policy" -Items @($policy) -AssignmentReason "Only in $sourceGroupName"
+            # Display comparison for each category
+            foreach ($category in $categories.Keys) {
+                $categoryKey = $categories[$category]
+
+                Write-Host "=== $category ===" -ForegroundColor Cyan
+                $foundAssignments = $false
+
+                foreach ($policy in $uniquePolicies) {
+                    $assignedGroups = @()
+                    foreach ($groupName in $groupAssignments.Keys) {
+                        if ($groupAssignments.$groupName.$categoryKey -contains $policy) {
+                            $assignedGroups += $groupName
+                        }
+                    }
+
+                    if ($assignedGroups.Count -gt 0) {
+                        $foundAssignments = $true
+                        Write-Host "📋 Policy: " -NoNewline -ForegroundColor White
+                        Write-Host "$policy" -ForegroundColor Yellow
+
+                        if ($assignedGroups.Count -gt 1) {
+                            Write-Host "  🔗 Shared Assignment!" -ForegroundColor Magenta
+                        }
+
+                        Write-Host "  ✅ Assigned to: " -NoNewline -ForegroundColor Green
+                        Write-Host "$($assignedGroups -join ', ')" -ForegroundColor White
+
+                        $notAssignedGroups = $groupAssignments.Keys | Where-Object { $assignedGroups -notcontains $_ }
+                        if ($notAssignedGroups) {
+                            Write-Host "  ❌ Not assigned to: " -NoNewline -ForegroundColor Red
+                            Write-Host "$($notAssignedGroups -join ', ')" -ForegroundColor White
+                        }
+                        Write-Host ""
+                    }
+                }
+
+                if (-not $foundAssignments) {
+                    Write-Host "No assignments found in this category" -ForegroundColor Gray
+                    Write-Host ""
                 }
             }
 
-            Write-Host ("`nPolicies only in " + $targetGroupName) -ForegroundColor White
-            $uniqueToTarget = $targetAppConfigPolicies | Where-Object { $_.id -notin $sourceAppConfigPolicies.id }
-            if ($uniqueToTarget.Count -eq 0) {
-                Write-Host "None" -ForegroundColor Gray
-            }
-            else {
-                foreach ($policy in $uniqueToTarget) {
-                    $policyName = if ([string]::IsNullOrWhiteSpace($policy.name)) { $policy.displayName } else { $policy.name }
-                    Write-Host "  - $policyName (ID: $($policy.id))" -ForegroundColor Gray
-                    Add-ExportData -ExportData $exportData -Category "App Configuration Policy" -Items @($policy) -AssignmentReason "Only in $targetGroupName"
+            # Summary section
+            Write-Host "=== Summary ===" -ForegroundColor Cyan
+            foreach ($groupName in $groupAssignments.Keys) {
+                $totalAssignments = 0
+                foreach ($categoryKey in $categories.Values) {
+                    $totalAssignments += $groupAssignments.$groupName.$categoryKey.Count
                 }
+                Write-Host "$groupName has $totalAssignments total assignments" -ForegroundColor Yellow
             }
-
-            # Compare Platform Scripts
-            Write-Host "`nComparing Platform Scripts..." -ForegroundColor Yellow
-            $platformScripts = Get-IntuneEntities -EntityType "deviceManagementScripts"
-            $sourcePlatformScripts = Get-GroupPolicyAssignments -GroupId $sourceGroupId -EntityType "deviceManagementScripts" -Policies $platformScripts
-            $targetPlatformScripts = Get-GroupPolicyAssignments -GroupId $targetGroupId -EntityType "deviceManagementScripts" -Policies $platformScripts
-
-            Write-Host "`n------- Platform Scripts -------" -ForegroundColor Cyan
-            Write-Host ("Scripts only in " + $sourceGroupName) -ForegroundColor White
-            $uniqueToSource = $sourcePlatformScripts | Where-Object { $_.id -notin $targetPlatformScripts.id }
-            if ($uniqueToSource.Count -eq 0) {
-                Write-Host "None" -ForegroundColor Gray
-            }
-            else {
-                foreach ($script in $uniqueToSource) {
-                    $scriptName = if ([string]::IsNullOrWhiteSpace($script.name)) { $script.displayName } else { $script.name }
-                    Write-Host "  - $scriptName (ID: $($script.id))" -ForegroundColor Gray
-                    Add-ExportData -ExportData $exportData -Category "Platform Scripts" -Items @($script) -AssignmentReason "Only in $sourceGroupName"
-                }
-            }
-
-            Write-Host ("`nScripts only in " + $targetGroupName) -ForegroundColor White
-            $uniqueToTarget = $targetPlatformScripts | Where-Object { $_.id -notin $sourcePlatformScripts.id }
-            if ($uniqueToTarget.Count -eq 0) {
-                Write-Host "None" -ForegroundColor Gray
-            }
-            else {
-                foreach ($script in $uniqueToTarget) {
-                    $scriptName = if ([string]::IsNullOrWhiteSpace($script.name)) { $script.displayName } else { $script.name }
-                    Write-Host "  - $scriptName (ID: $($script.id))" -ForegroundColor Gray
-                    Add-ExportData -ExportData $exportData -Category "Platform Scripts" -Items @($script) -AssignmentReason "Only in $targetGroupName"
-                }
-            }
-
-            # Compare Proactive Remediation Scripts
-            Write-Host "`nComparing Proactive Remediation Scripts..." -ForegroundColor Yellow
-            $healthScripts = Get-IntuneEntities -EntityType "deviceHealthScripts"
-            $sourceHealthScripts = Get-GroupPolicyAssignments -GroupId $sourceGroupId -EntityType "deviceHealthScripts" -Policies $healthScripts
-            $targetHealthScripts = Get-GroupPolicyAssignments -GroupId $targetGroupId -EntityType "deviceHealthScripts" -Policies $healthScripts
-
-            Write-Host "`n------- Proactive Remediation Scripts -------" -ForegroundColor Cyan
-            Write-Host ("Scripts only in " + $sourceGroupName) -ForegroundColor White
-            $uniqueToSource = $sourceHealthScripts | Where-Object { $_.id -notin $targetHealthScripts.id }
-            if ($uniqueToSource.Count -eq 0) {
-                Write-Host "None" -ForegroundColor Gray
-            }
-            else {
-                foreach ($script in $uniqueToSource) {
-                    $scriptName = if ([string]::IsNullOrWhiteSpace($script.name)) { $script.displayName } else { $script.name }
-                    Write-Host "  - $scriptName (ID: $($script.id))" -ForegroundColor Gray
-                    Add-ExportData -ExportData $exportData -Category "Proactive Remediation Scripts" -Items @($script) -AssignmentReason "Only in $sourceGroupName"
-                }
-            }
-
-            Write-Host ("`nScripts only in " + $targetGroupName) -ForegroundColor White
-            $uniqueToTarget = $targetHealthScripts | Where-Object { $_.id -notin $sourceHealthScripts.id }
-            if ($uniqueToTarget.Count -eq 0) {
-                Write-Host "None" -ForegroundColor Gray
-            }
-            else {
-                foreach ($script in $uniqueToTarget) {
-                    $scriptName = if ([string]::IsNullOrWhiteSpace($script.name)) { $script.displayName } else { $script.name }
-                    Write-Host "  - $scriptName (ID: $($script.id))" -ForegroundColor Gray
-                    Add-ExportData -ExportData $exportData -Category "Proactive Remediation Scripts" -Items @($script) -AssignmentReason "Only in $targetGroupName"
-                }
-            }
+            Write-Host ""
 
             # Offer to export results
-            $export = Read-Host "`nWould you like to export the results to CSV? (y/n)"
+            $export = Read-Host "Would you like to export the comparison results to CSV? (y/n)"
             if ($export -eq 'y') {
-                $exportPath = Show-SaveFileDialog -DefaultFileName "IntuneGroupComparison.csv"
+                $exportPath = Show-SaveFileDialog -DefaultFileName "IntuneGroupAssignmentComparison.csv"
                 if ($exportPath) {
-                    $exportData | Export-Csv -Path $exportPath -NoTypeInformation
+                    $comparisonResults = [System.Collections.ArrayList]@()
+                    foreach ($category in $categories.Keys) {
+                        $categoryKey = $categories[$category]
+                        foreach ($policy in $uniquePolicies) {
+                            $assignedGroups = @()
+                            foreach ($groupName in $groupAssignments.Keys) {
+                                if ($groupAssignments.$groupName.$categoryKey -contains $policy) {
+                                    $assignedGroups += $groupName
+                                }
+                            }
+
+                            if ($assignedGroups.Count -gt 0) {
+                                [void]$comparisonResults.Add([PSCustomObject]@{
+                                        Category           = $category
+                                        PolicyName         = $policy
+                                        AssignedTo         = $assignedGroups -join '; '
+                                        NotAssignedTo      = ($groupAssignments.Keys | Where-Object { $assignedGroups -notcontains $_ }) -join '; '
+                                        IsSharedAssignment = ($assignedGroups.Count -gt 1)
+                                    })
+                            }
+                        }
+                    }
+                    $comparisonResults | Export-Csv -Path $exportPath -NoTypeInformation
                     Write-Host "Results exported to $exportPath" -ForegroundColor Green
                 }
             }
         }
+
         '0' {
             Write-Host "Disconnecting from Microsoft Graph..." -ForegroundColor Yellow
             Disconnect-MgGraph | Out-Null
