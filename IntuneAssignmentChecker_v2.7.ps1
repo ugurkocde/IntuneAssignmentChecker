@@ -226,7 +226,7 @@ function Get-IntuneAssignments {
                     $assignmentReason = "All Users"
                 }
                 '#microsoft.graph.groupAssignmentTarget' {
-                                    if ($assignment.target.groupId -eq $groupId) {
+                                    if ($assignment.target.groupId -eq $GroupId) {
                                         $assignmentReason = "Direct Assignment"
                                     }
                 }
@@ -619,10 +619,6 @@ function Export-HTMLReport {
             background: white;
             border-radius: 10px;
             box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-            transition: transform 0.3s ease;
-        }
-        .chart-container:hover {
-            transform: translateY(-5px);
         }
         .search-box {
             margin: 20px 0;
@@ -709,7 +705,7 @@ function Export-HTMLReport {
     <script src="https://cdn.datatables.net/buttons/2.2.2/js/buttons.html5.min.js"></script>
     <script>
         `$(document).ready(function() {
-            // Initialize DataTables with search functionality
+            // Initialize DataTables with search and sort functionality
             const tables = `$('.policy-table').DataTable({
                 dom: 'Blfrtip',
                 buttons: [
@@ -717,27 +713,15 @@ function Export-HTMLReport {
                     'excelHtml5',
                     'csvHtml5'
                 ],
-                pageLength: 25,
-                lengthMenu: [[25, 50, 75, 100], [25, 50, 75, 100]],
-                order: [[0, 'asc']],
-                language: {
-                    search: "Filter records:"
-                },
+                pageLength: 10,
+                lengthMenu: [[10, 25, 50, -1], [10, 25, 50, "All"]],
+                ordering: false, // Disable sorting
                 columnDefs: [
                     {
-                        targets: [4], // Hidden column for combined search
-                        visible: false,
-                        searchable: true
-                    },
-                    {
                         targets: '_all',
-                        orderable: true,
-                        type: 'string'
+                        orderable: false // Disable sorting for all columns
                     }
-                ],
-                order: [[0, 'asc']], // Default sort by first column ascending
-                orderCellsTop: true,
-                fixedHeader: true
+                ]
             });
 
             $('#groupSearch').on('keyup', function() {
@@ -842,16 +826,14 @@ function Export-HTMLReport {
                             $assignments = @()
                             foreach ($assignment in $assignmentResponse.value) {
                                 $assignmentReason = $null
-                                # Only process group assignments when GroupId is provided
-                                if ($GroupId) {
-                                    if ($assignment.target.'@odata.type' -eq '#microsoft.graph.groupAssignmentTarget' -and
-                                        $assignment.target.groupId -eq $GroupId) {
-                                        $assignmentReason = "Direct Assignment"
+                                switch ($assignment.target.'@odata.type') {
+                                    '#microsoft.graph.allLicensedUsersAssignmentTarget' { 
+                                        $assignmentReason = "All Users"
                                     }
-                                } else {
-                                    $assignmentReason = switch ($assignment.target.'@odata.type') {
-                                        '#microsoft.graph.allLicensedUsersAssignmentTarget' { "All Users" }
-                                        '#microsoft.graph.groupAssignmentTarget' { "Group Assignment" }
+                                    '#microsoft.graph.groupAssignmentTarget' {
+                                        if (!$GroupId -or $assignment.target.groupId -eq $GroupId) {
+                                            $assignmentReason = "Group Assignment"
+                                        }
                                     }
                                 }
 
@@ -986,10 +968,8 @@ function Export-HTMLReport {
                         }
                         "<tr>
                             <td>$($p.Name)</td>
-                            <td>$($p.ID)</td>
                             <td><span class='badge $badgeClass'>$($p.AssignmentType)</span></td>
                             <td>$($p.AssignedTo)</td>
-                            <td>$($p.Name) $($p.ID) $($p.AssignmentType) $($p.AssignedTo)</td>
                         </tr>"
                     }
                 }
@@ -1003,11 +983,9 @@ function Export-HTMLReport {
         <table class="table table-striped policy-table">
             <thead>
                 <tr>
-                    <th data-sort="string">Name</th>
-                    <th data-sort="string">ID</th>
-                    <th data-sort="string">Assignment Type</th>
-                    <th data-sort="string">Assigned To</th>
-                    <th data-sort="string">All</th>
+                    <th>Name</th>
+                    <th>Assignment Type</th>
+                    <th>Assigned To</th>
                 </tr>
             </thead>
             <tbody>
@@ -1028,10 +1006,8 @@ function Export-HTMLReport {
                 }
                 "<tr>
                     <td>$($p.Name)</td>
-                    <td>$($p.ID)</td>
                     <td><span class='badge $badgeClass'>$($p.AssignmentType)</span></td>
                     <td>$($p.AssignedTo)</td>
-                    <td>$($p.Name) $($p.ID) $($p.AssignmentType) $($p.AssignedTo)</td>
                 </tr>"
             }
             $tabContent += @"
@@ -1043,11 +1019,9 @@ function Export-HTMLReport {
         <table class="table table-striped policy-table">
             <thead>
                 <tr>
-                    <th data-sort="string">Name</th>
-                    <th data-sort="string">ID</th>
-                    <th data-sort="string">Assignment Type</th>
-                    <th data-sort="string">Assigned To</th>
-                    <th data-sort="string">All</th>
+                    <th>Name</th>
+                    <th>Assignment Type</th>
+                    <th>Assigned To</th>
                 </tr>
             </thead>
             <tbody>
@@ -1124,8 +1098,6 @@ function Export-HTMLReport {
     $htmlContent | Out-File -FilePath $FilePath -Encoding UTF8
     Write-Host "HTML report exported to: $FilePath" -ForegroundColor Green
 }
-
-
 
 function Get-AssignmentInfo {
     param (
@@ -1630,7 +1602,7 @@ do {
                     displayName = $upn
                     id = $userInfo.Id
                     AssignmentReason = "N/A"
-                })
+                }
 
                 Add-ExportData -ExportData $exportData -Category "Device Configuration" -Items $relevantPolicies.DeviceConfigs -AssignmentReason { param($item) $item.AssignmentReason }
                 Add-ExportData -ExportData $exportData -Category "Settings Catalog Policy" -Items $relevantPolicies.SettingsCatalog -AssignmentReason { param($item) $item.AssignmentReason }
@@ -1640,15 +1612,16 @@ do {
                 Add-ExportData -ExportData $exportData -Category "App Configuration Policy" -Items $relevantPolicies.AppConfigurationPolicies -AssignmentReason { param($item) $item.AssignmentReason }
                 Add-ExportData -ExportData $exportData -Category "Platform Scripts" -Items $relevantPolicies.PlatformScripts -AssignmentReason { param($item) $item.AssignmentReason }
                 Add-ExportData -ExportData $exportData -Category "Proactive Remediation Scripts" -Items $relevantPolicies.HealthScripts -AssignmentReason { param($item) $item.AssignmentReason }
+                )
+            }
 
-                # Offer to export results
-                $export = Read-Host "`nWould you like to export the results to CSV? (y/n)"
-                if ($export -eq 'y') {
-                    $exportPath = Show-SaveFileDialog -DefaultFileName "IntuneUserAssignments.csv"
-                    if ($exportPath) {
-                        $exportData | Export-Csv -Path $exportPath -NoTypeInformation
-                        Write-Host "Results exported to $exportPath" -ForegroundColor Green
-                    }
+            # Offer to export results
+            $export = Read-Host "`nWould you like to export the results to CSV? (y/n)"
+            if ($export -eq 'y') {
+                $exportPath = Show-SaveFileDialog -DefaultFileName "IntuneUserAssignments.csv"
+                if ($exportPath) {
+                    $exportData | Export-Csv -Path $exportPath -NoTypeInformation
+                    Write-Host "Results exported to $exportPath" -ForegroundColor Green
                 }
             }
         }
@@ -1831,7 +1804,7 @@ do {
                                         $assignmentReason = "All Users"
                                     }
                                     '#microsoft.graph.groupAssignmentTarget' {
-                                        if (!$GroupId -or $assignment.target.groupId -eq $GroupId) {
+                                        if (!$GroupId -or $assignment.target.groupId -eq $groupId) {
                                             $assignmentReason = "Group Assignment"
                                         }
                                     }
@@ -2007,7 +1980,7 @@ do {
                     displayName = $groupName
                     id = $groupId
                     AssignmentReason = "Direct Assignment"
-                })
+                }
 
                 Add-ExportData -ExportData $exportData -Category "Device Configuration" -Items $relevantPolicies.DeviceConfigs -AssignmentReason { param($item) $item.AssignmentReason }
                 Add-ExportData -ExportData $exportData -Category "Settings Catalog Policy" -Items $relevantPolicies.SettingsCatalog -AssignmentReason { param($item) $item.AssignmentReason }
@@ -2017,6 +1990,7 @@ do {
                 Add-ExportData -ExportData $exportData -Category "App Configuration Policy" -Items $relevantPolicies.AppConfigurationPolicies -AssignmentReason { param($item) $item.AssignmentReason }
                 Add-ExportData -ExportData $exportData -Category "Platform Scripts" -Items $relevantPolicies.PlatformScripts -AssignmentReason { param($item) $item.AssignmentReason }
                 Add-ExportData -ExportData $exportData -Category "Proactive Remediation Scripts" -Items $relevantPolicies.HealthScripts -AssignmentReason { param($item) $item.AssignmentReason }
+                )
             }
 
             # Offer to export results
@@ -2165,17 +2139,18 @@ do {
                             $assignments = @()
                             foreach ($assignment in $assignmentResponse.value) {
                                 $assignmentReason = $null
-                                $assignmentReason = switch ($assignment.target.'@odata.type') {
-                                    '#microsoft.graph.allLicensedUsersAssignmentTarget' { "All Users" }
-                                    '#microsoft.graph.allDevicesAssignmentTarget' { "All Devices" }
+                                switch ($assignment.target.'@odata.type') {
+                                    '#microsoft.graph.allLicensedUsersAssignmentTarget' { 
+                                        $assignmentReason = "All Users"
+                                    }
+                                    '#microsoft.graph.allDevicesAssignmentTarget' { 
+                                        $assignmentReason = "All Devices"
+                                    }
                                     '#microsoft.graph.groupAssignmentTarget' {
                                         if ($groupMemberships.id -contains $assignment.target.groupId) {
-                                            "Group Assignment"
-                                        } else {
-                                            $null
+                                            $assignmentReason = "Group Assignment"
                                         }
                                     }
-                                    default { $null }
                                 }
 
                                 if ($assignmentReason -and $assignmentReason -ne "All Users") {
@@ -2377,7 +2352,7 @@ foreach ($policy in $appConfigPolicies) {
                     displayName = $deviceName
                     id = $deviceInfo.Id
                     AssignmentReason = "N/A"
-                })
+                }
 
                 Add-ExportData -ExportData $exportData -Category "Device Configuration" -Items $relevantPolicies.DeviceConfigs -AssignmentReason { param($item) $item.AssignmentReason }
                 Add-ExportData -ExportData $exportData -Category "Settings Catalog Policy" -Items $relevantPolicies.SettingsCatalog -AssignmentReason { param($item) $item.AssignmentReason }
@@ -2387,6 +2362,7 @@ foreach ($policy in $appConfigPolicies) {
                 Add-ExportData -ExportData $exportData -Category "App Configuration Policy" -Items $relevantPolicies.AppConfigurationPolicies -AssignmentReason { param($item) $item.AssignmentReason }
                 Add-ExportData -ExportData $exportData -Category "Platform Scripts" -Items $relevantPolicies.PlatformScripts -AssignmentReason { param($item) $item.AssignmentReason }
                 Add-ExportData -ExportData $exportData -Category "Proactive Remediation Scripts" -Items $relevantPolicies.HealthScripts -AssignmentReason { param($item) $item.AssignmentReason }
+                )
             }
 
             # Offer to export results
@@ -2537,11 +2513,8 @@ foreach ($policy in $appConfigPolicies) {
                                     $assignmentReason = "All Users"
                                 }
                                 '#microsoft.graph.groupAssignmentTarget' {
-                                    if ($assignment.target.groupId -eq $groupId) {
-                                        $assignmentReason = "Direct Assignment"
-                                    } else {
-                                        $groupInfo = Get-GroupInfo -GroupId $assignment.target.groupId
-                                        $assignmentReason = "Group Assignment - $($groupInfo.DisplayName)"
+                                    if (!$GroupId -or $assignment.target.groupId -eq $GroupId) {
+                                        $assignmentReason = "Group Assignment"
                                     }
                                 }
                             }
@@ -2550,6 +2523,7 @@ foreach ($policy in $appConfigPolicies) {
                                 $assignments += $assignmentReason
                             }
                         }
+
                         if ($assignments.Count -gt 0) {
                             $policy | Add-Member -NotePropertyName 'AssignmentSummary' -NotePropertyValue ($assignments -join "; ") -Force
                             $allPolicies.AppProtectionPolicies += $policy
@@ -3407,7 +3381,7 @@ foreach ($policy in $appConfigPolicies) {
                 )
 
                 try {
-                    $membersUri = "https://graph.microsoft.com/v1.0/groups/$GroupId/members?`$select=id&`$top=1"
+                    $membersUri = "https://graph.microsoft.com/v1.0/groups/$GroupId/members?`$filter=id&`$top=1"
                     $response = Invoke-MgGraphRequest -Uri $membersUri -Method Get
                     return $response.value.Count -eq 0
                 }
@@ -3512,16 +3486,40 @@ foreach ($policy in $appConfigPolicies) {
                 if ($assignmentsUri) {
                     try {
                         $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
+                        $assignments = @()
                         foreach ($assignment in $assignmentResponse.value) {
-                            if ($assignment.target.'@odata.type' -eq '#microsoft.graph.groupAssignmentTarget') {
-                                $groupId = $assignment.target.groupId
-                                $groupInfo = Get-GroupInfo -GroupId $groupId
-                                if ($groupInfo.Success -and (Test-EmptyGroup -GroupId $groupId)) {
-                                    $policy | Add-Member -NotePropertyName 'EmptyGroupInfo' -NotePropertyValue "Assigned to empty group: $($groupInfo.DisplayName)" -Force
-                                    $emptyGroupAssignments.AppProtectionPolicies += $policy
-                                    break
+                            $assignmentReason = $null
+                            switch ($assignment.target.'@odata.type') {
+                                '#microsoft.graph.allLicensedUsersAssignmentTarget' { 
+                                    $assignmentReason = "All Users"
+                                }
+                                '#microsoft.graph.groupAssignmentTarget' {
+                                    if (!$GroupId -or $assignment.target.groupId -eq $GroupId) {
+                                        $assignmentReason = "Group Assignment"
+                                    }
                                 }
                             }
+
+                            if ($assignmentReason) {
+                                $assignments += @{
+                                    Reason = $assignmentReason
+                                    GroupId = $assignment.target.groupId
+                                }
+                            }
+                        }
+
+                        if ($assignments.Count -gt 0) {
+                            $assignmentSummary = $assignments | ForEach-Object {
+                                if ($_.Reason -eq "Group Assignment") {
+                                    $groupInfo = Get-GroupInfo -GroupId $_.GroupId
+                                    "$($_.Reason) - $($groupInfo.DisplayName)"
+                                }
+                                else {
+                                    $_.Reason
+                                }
+                            }
+                            $policy | Add-Member -NotePropertyName 'AssignmentSummary' -NotePropertyValue ($assignmentSummary -join "; ") -Force
+                            $emptyGroupAssignments.AppProtectionPolicies += $policy
                         }
                     }
                     catch {
@@ -3869,7 +3867,7 @@ foreach ($policy in $appConfigPolicies) {
                             CompliancePolicies = [System.Collections.ArrayList]::new()
                             RequiredApps       = [System.Collections.ArrayList]::new()
                             AvailableApps      = [System.Collections.ArrayList]::new()
-                            UninstallApps      = [System.Collections.ArrayList]::new()
+                            AppsUninstall      = [System.Collections.ArrayList]::new()
                             PlatformScripts    = [System.Collections.ArrayList]::new()
                             HealthScripts      = [System.Collections.ArrayList]::new()
                         }
@@ -3910,7 +3908,7 @@ foreach ($policy in $appConfigPolicies) {
                         CompliancePolicies = [System.Collections.ArrayList]::new()
                         RequiredApps       = [System.Collections.ArrayList]::new()
                         AvailableApps      = [System.Collections.ArrayList]::new()
-                        UninstallApps      = [System.Collections.ArrayList]::new()
+                        AppsUninstall      = [System.Collections.ArrayList]::new()
                         PlatformScripts    = [System.Collections.ArrayList]::new()
                         HealthScripts      = [System.Collections.ArrayList]::new()
                     }
@@ -3946,91 +3944,50 @@ foreach ($policy in $appConfigPolicies) {
                 # Process Settings Catalog
                 $settingsCatalogUri = "https://graph.microsoft.com/beta/deviceManagement/configurationPolicies"
                 $settingsCatalogResponse = Invoke-MgGraphRequest -Uri $settingsCatalogUri -Method Get
-                $allSettingsCatalog = $settingsCatalogResponse.value
-                while ($settingsCatalogResponse.'@odata.nextLink') {
-                    $settingsCatalogResponse = Invoke-MgGraphRequest -Uri $settingsCatalogResponse.'@odata.nextLink' -Method Get
-                    $allSettingsCatalog += $settingsCatalogResponse.value
-                }
-                $totalSettingsCatalog = $allSettingsCatalog.Count
-                $currentSettingsCatalog = 0
-                foreach ($policy in $allSettingsCatalog) {
-                    $currentSettingsCatalog++
-                    Write-Host "`rFetching Settings Catalog Policy $currentSettingsCatalog of $totalSettingsCatalog" -NoNewline
+
+                foreach ($policy in $settingsCatalogResponse.value) {
                     $policyId = $policy.id
                     $assignmentsUri = "https://graph.microsoft.com/beta/deviceManagement/configurationPolicies('$policyId')/assignments"
                     $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
-            
+
                     if ($assignmentResponse.value | Where-Object { $_.target.groupId -eq $groupId }) {
                         [void]$groupAssignments[$groupName].SettingsCatalog.Add($policy.name)
                     }
                 }
-                Write-Host "`rFetching Settings Catalog Policy $totalSettingsCatalog of $totalSettingsCatalog" -NoNewline
-                Start-Sleep -Milliseconds 100
-                Write-Host ""  # Move to the next line after the loop
 
                 # Process Administrative Templates
                 $adminTemplatesUri = "https://graph.microsoft.com/beta/deviceManagement/groupPolicyConfigurations"
                 $adminTemplatesResponse = Invoke-MgGraphRequest -Uri $adminTemplatesUri -Method Get
-                $allAdminTemplates = $adminTemplatesResponse.value
-                while ($adminTemplatesResponse.'@odata.nextLink') {
-                    $adminTemplatesResponse = Invoke-MgGraphRequest -Uri $adminTemplatesResponse.'@odata.nextLink' -Method Get
-                    $allAdminTemplates += $adminTemplatesResponse.value
-                }
-                $totalAdminTemplates = $allAdminTemplates.Count
-                $currentAdminTemplate = 0
-                foreach ($template in $allAdminTemplates) {
-                    $currentAdminTemplate++
-                    Write-Host "`rFetching Administrative Template $currentAdminTemplate of $totalAdminTemplates" -NoNewline
+
+                foreach ($template in $adminTemplatesResponse.value) {
                     $templateId = $template.id
                     $assignmentsUri = "https://graph.microsoft.com/beta/deviceManagement/groupPolicyConfigurations('$templateId')/assignments"
                     $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
-            
+
                     if ($assignmentResponse.value | Where-Object { $_.target.groupId -eq $groupId }) {
                         [void]$groupAssignments[$groupName].AdminTemplates.Add($template.displayName)
                     }
                 }
-                Write-Host "`rFetching Administrative Template $totalAdminTemplates of $totalAdminTemplates" -NoNewline
-                Start-Sleep -Milliseconds 100
-                Write-Host ""  # Move to the next line after the loop
 
                 # Process Compliance Policies
                 $complianceUri = "https://graph.microsoft.com/beta/deviceManagement/deviceCompliancePolicies"
                 $complianceResponse = Invoke-MgGraphRequest -Uri $complianceUri -Method Get
-                $allCompliancePolicies = $complianceResponse.value
-                while ($complianceResponse.'@odata.nextLink') {
-                    $complianceResponse = Invoke-MgGraphRequest -Uri $complianceResponse.'@odata.nextLink' -Method Get
-                    $allCompliancePolicies += $complianceResponse.value
-                }
-                $totalCompliancePolicies = $allCompliancePolicies.Count
-                $currentCompliancePolicy = 0
-                foreach ($policy in $allCompliancePolicies) {
-                    $currentCompliancePolicy++
-                    Write-Host "`rFetching Compliance Policy $currentCompliancePolicy of $totalCompliancePolicies" -NoNewline
+
+                foreach ($policy in $complianceResponse.value) {
                     $policyId = $policy.id
                     $assignmentsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceCompliancePolicies('$policyId')/assignments"
                     $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
-            
+
                     if ($assignmentResponse.value | Where-Object { $_.target.groupId -eq $groupId }) {
                         [void]$groupAssignments[$groupName].CompliancePolicies.Add($policy.displayName)
                     }
                 }
-                Write-Host "`rFetching Compliance Policy $totalCompliancePolicies of $totalCompliancePolicies" -NoNewline
-                Start-Sleep -Milliseconds 100
-                Write-Host ""  # Move to the next line after the loop
 
                 # Process Apps
                 $appUri = "https://graph.microsoft.com/beta/deviceAppManagement/mobileApps?`$filter=isAssigned eq true"
                 $appResponse = Invoke-MgGraphRequest -Uri $appUri -Method Get
-                $allApps = $appResponse.value
-                while ($appResponse.'@odata.nextLink') {
-                    $appResponse = Invoke-MgGraphRequest -Uri $appResponse.'@odata.nextLink' -Method Get
-                    $allApps += $appResponse.value
-                }
-                $totalApps = $allApps.Count
-                $currentApp = 0
-                foreach ($app in $allApps) {
-                    $currentApp++
-                    Write-Host "`rFetching Application $currentApp of $totalApps" -NoNewline
+
+                foreach ($app in $appResponse.value) {
                     # Skip built-in and Microsoft apps
                     if ($app.isFeatured -or $app.isBuiltIn -or $app.publisher -eq "Microsoft Corporation") {
                         continue
@@ -4039,7 +3996,7 @@ foreach ($policy in $appConfigPolicies) {
                     $appId = $app.id
                     $assignmentsUri = "https://graph.microsoft.com/beta/deviceAppManagement/mobileApps('$appId')/assignments"
                     $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
-            
+
                     foreach ($assignment in $assignmentResponse.value) {
                         if ($assignment.target.groupId -eq $groupId) {
                             switch ($assignment.intent) {
@@ -4050,20 +4007,12 @@ foreach ($policy in $appConfigPolicies) {
                         }
                     }
                 }
-                Write-Host "`rFetching Application $totalApps of $totalApps" -NoNewline
-                Start-Sleep -Milliseconds 100
-                Write-Host ""  # Move to the next line after the loop
 
                 # Process Platform Scripts (PowerShell)
                 $scriptsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceManagementScripts"
                 $scriptsResponse = Invoke-MgGraphRequest -Uri $scriptsUri -Method Get
-                $allScripts = $scriptsResponse.value
-                while ($scriptsResponse.'@odata.nextLink') {
-                    $scriptsResponse = Invoke-MgGraphRequest -Uri $scriptsResponse.'@odata.nextLink' -Method Get
-                    $allScripts += $scriptsResponse.value
-                }
-
-                foreach ($script in $allScripts) {
+                # For PowerShell scripts, we need to check the script type
+                foreach ($script in $scriptsResponse.value) {
                     $scriptId = $script.id
                     $assignmentsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceManagementScripts('$scriptId')/assignments"
                     $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
@@ -4077,13 +4026,8 @@ foreach ($policy in $appConfigPolicies) {
                 # Process Shell Scripts (macOS)
                 $shellScriptsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceShellScripts"
                 $shellScriptsResponse = Invoke-MgGraphRequest -Uri $shellScriptsUri -Method Get
-                $allShellScripts = $shellScriptsResponse.value
-                while ($shellScriptsResponse.'@odata.nextLink') {
-                    $shellScriptsResponse = Invoke-MgGraphRequest -Uri $shellScriptsResponse.'@odata.nextLink' -Method Get
-                    $allShellScripts += $shellScriptsResponse.value
-                }
-
-                foreach ($script in $allShellScripts) {
+                # For Shell scripts, we need to check the script type
+                foreach ($script in $shellScriptsResponse.value) {
                     $scriptId = $script.id
                     $assignmentsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceShellScripts('$scriptId')/groupAssignments"
                     $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
@@ -4097,13 +4041,7 @@ foreach ($policy in $appConfigPolicies) {
                 # Fetch and process Proactive Remediation Scripts (deviceHealthScripts)
                 $healthScriptsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceHealthScripts"
                 $healthScriptsResponse = Invoke-MgGraphRequest -Uri $healthScriptsUri -Method Get
-                $allHealthScripts = $healthScriptsResponse.value
-                while ($healthScriptsResponse.'@odata.nextLink') {
-                    $healthScriptsResponse = Invoke-MgGraphRequest -Uri $healthScriptsResponse.'@odata.nextLink' -Method Get
-                    $allHealthScripts += $healthScriptsResponse.value
-                }
-
-                foreach ($script in $allHealthScripts) {
+                foreach ($script in $healthScriptsResponse.value) {
                     $scriptId = $script.id
                     $assignmentsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceHealthScripts('$scriptId')/assignments"
                     $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
@@ -4140,7 +4078,7 @@ foreach ($policy in $appConfigPolicies) {
             $uniquePolicies = [System.Collections.ArrayList]@()
             foreach ($groupName in $groupAssignments.Keys) {
                 foreach ($categoryKey in $categories.Values) {
-                    foreach ($policy in $groupAssignments.$groupName.$categoryKey) {
+                    foreach ($policy in $groupAssignments[$groupName][$categoryKey]) {
                         if ($uniquePolicies -notcontains $policy) {
                             $null = $uniquePolicies.Add($policy)
                         }
@@ -4151,7 +4089,7 @@ foreach ($policy in $appConfigPolicies) {
             Write-Host "Found $($uniquePolicies.Count) unique policies/apps/scripts across all groups`n" -ForegroundColor Yellow
 
             # Display comparison for each category
-            foreach ($category in $categories.Keys) {
+            foreach($category in $categories.Keys) {
                 $categoryKey = $categories[$category]
 
                 Write-Host "=== $category ===" -ForegroundColor Cyan
@@ -4160,7 +4098,7 @@ foreach ($policy in $appConfigPolicies) {
                 foreach ($policy in $uniquePolicies) {
                     $assignedGroups = @()
                     foreach ($groupName in $groupAssignments.Keys) {
-                        if ($groupAssignments.$groupName.$categoryKey -contains $policy) {
+                        if ($groupAssignments[$groupName][$categoryKey] -contains $policy) {
                             $assignedGroups += $groupName
                         }
                     }
@@ -4197,7 +4135,7 @@ foreach ($policy in $appConfigPolicies) {
             foreach ($groupName in $groupAssignments.Keys) {
                 $totalAssignments = 0
                 foreach ($categoryKey in $categories.Values) {
-                    $totalAssignments += $groupAssignments.$groupName.$categoryKey.Count
+                    $totalAssignments += $groupAssignments[$groupName][$categoryKey].Count
                 }
                 Write-Host "$groupName has $totalAssignments total assignments" -ForegroundColor Yellow
             }
@@ -4214,7 +4152,7 @@ foreach ($policy in $appConfigPolicies) {
                         foreach ($policy in $uniquePolicies) {
                             $assignedGroups = @()
                             foreach ($groupName in $groupAssignments.Keys) {
-                                if ($groupAssignments.$groupName.$categoryKey -contains $policy) {
+                                if ($groupAssignments[$groupName][$categoryKey] -contains $policy) {
                                     $assignedGroups += $groupName
                                 }
                             }
@@ -4264,3 +4202,6 @@ foreach ($policy in $appConfigPolicies) {
         $null = $host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
     }
 } while ($selection -ne '0')
+```
+
+```
