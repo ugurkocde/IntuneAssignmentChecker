@@ -1,4 +1,6 @@
 # Function to get assignment information 5
+Add-Type -AssemblyName System.Web
+
 function Get-TenantInfo {
     try {
         $organization = Invoke-MgGraphRequest -Uri "https://graph.microsoft.com/v1.0/organization" -Method Get
@@ -469,6 +471,11 @@ function Export-HTMLReport {
                 display: none !important;
             }
         }
+
+        .report-header .header-title p {
+            margin: 5px 0 0 0;
+            opacity: 0.9;
+        }
     </style>
 </head>
 <body>
@@ -860,6 +867,7 @@ function Export-HTMLReport {
                             'Group' { 'badge-group' }
                             default { 'badge-none' }
                         }
+
                         "<tr>
                             <td>$($p.Name)</td>
                             <td><span class='badge $badgeClass'>$($p.AssignmentType)</span></td>
@@ -898,6 +906,7 @@ function Export-HTMLReport {
                     'Group' { 'badge-group' }
                     default { 'badge-none' }
                 }
+
                 "<tr>
                     <td>$($p.Name)</td>
                     <td><span class='badge $badgeClass'>$($p.AssignmentType)</span></td>
