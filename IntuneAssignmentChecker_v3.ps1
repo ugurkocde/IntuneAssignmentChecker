@@ -1,4 +1,6 @@
 # [Previous content truncated due to length limit. The content was successfully written but is too long to display in full.]
+Write-Host "🚧 PREVIEW VERSION 3.0 🚧" -ForegroundColor Magenta
+Write-Host ""
 Write-Host "📄 Changelog: " -NoNewline -ForegroundColor Cyan
 Write-Host "https://github.com/ugurkocde/IntuneAssignmentChecker/releases" -ForegroundColor White
 Write-Host ""
@@ -12,18 +14,18 @@ Write-Host ""
 # Autoupdate function
 
 # URL to the version file on GitHub
-$versionUrl = "https://raw.githubusercontent.com/ugurkocde/IntuneAssignmentChecker/main/version_v2.7.txt"
+$versionUrl = "https://raw.githubusercontent.com/ugurkocde/IntuneAssignmentChecker/main/version_v3.txt"
 
 # URL to the latest script on GitHub
-$scriptUrl = "https://raw.githubusercontent.com/ugurkocde/IntuneAssignmentChecker/main/IntuneAssignmentChecker_v2.7.ps1"
+$scriptUrl = "https://raw.githubusercontent.com/ugurkocde/IntuneAssignmentChecker/main/IntuneAssignmentChecker_v3.ps1"
 
 # Determine the script path based on whether it's run as a file or from an IDE
 if ($PSScriptRoot) {
-    $newScriptPath = Join-Path $PSScriptRoot "IntuneAssignmentChecker_v2.7.ps1"
+    $newScriptPath = Join-Path $PSScriptRoot "IntuneAssignmentChecker_v3.ps1"
 }
 else {
     $currentDirectory = Get-Location
-    $newScriptPath = Join-Path $currentDirectory "IntuneAssignmentChecker_v2.7.ps1"
+    $newScriptPath = Join-Path $currentDirectory "IntuneAssignmentChecker_v3.ps1"
 }
 
 # Flag to control auto-update behavior
@@ -205,10 +207,12 @@ function Get-IntuneAssignments {
         }
         if ($policyType) {
             "https://graph.microsoft.com/beta/deviceAppManagement/$policyType('$EntityId')/assignments"
-        } else {
+        }
+        else {
             $null
         }
-    } else {
+    }
+    else {
         "https://graph.microsoft.com/beta/deviceManagement/$EntityType('$EntityId')/assignments"
     }
     # For App Protection Policies that use $expand, the response structure is different
@@ -226,17 +230,17 @@ function Get-IntuneAssignments {
                     $assignmentReason = "All Users"
                 }
                 '#microsoft.graph.groupAssignmentTarget' {
-                                    if ($assignment.target.groupId -eq $GroupId) {
-                                        $assignmentReason = "Direct Assignment"
-                                    }
+                    if ($assignment.target.groupId -eq $GroupId) {
+                        $assignmentReason = "Direct Assignment"
+                    }
                 }
             }
 
             if ($assignmentReason) {
                 $assignments += @{
-                    Reason = $assignmentReason
+                    Reason  = $assignmentReason
                     GroupId = $assignment.target.groupId
-                    Apps = $policyDetails.apps
+                    Apps    = $policyDetails.apps
                 }
             }
         }
@@ -248,31 +252,32 @@ function Get-IntuneAssignments {
         $assignmentList = if ($EntityType -like "deviceAppManagement/*") { $assignmentResponse } else { $assignmentResponse.value }
         
         foreach ($assignment in $assignmentList) {
-        $assignmentReason = $null
+            $assignmentReason = $null
         
-        # Only process group assignments when GroupId is provided
-        if ($GroupId) {
-            if ($assignment.target.'@odata.type' -eq '#microsoft.graph.groupAssignmentTarget' -and
-                $assignment.target.groupId -eq $GroupId) {
-                $assignmentReason = "Direct Assignment"
+            # Only process group assignments when GroupId is provided
+            if ($GroupId) {
+                if ($assignment.target.'@odata.type' -eq '#microsoft.graph.groupAssignmentTarget' -and
+                    $assignment.target.groupId -eq $GroupId) {
+                    $assignmentReason = "Direct Assignment"
+                }
             }
-        } else {
-            $assignmentReason = switch ($assignment.target.'@odata.type') {
-                '#microsoft.graph.allLicensedUsersAssignmentTarget' { "All Users" }
-                '#microsoft.graph.allDevicesAssignmentTarget' { "All Devices" }
-                '#microsoft.graph.groupAssignmentTarget' { "Group Assignment" }
+            else {
+                $assignmentReason = switch ($assignment.target.'@odata.type') {
+                    '#microsoft.graph.allLicensedUsersAssignmentTarget' { "All Users" }
+                    '#microsoft.graph.allDevicesAssignmentTarget' { "All Devices" }
+                    '#microsoft.graph.groupAssignmentTarget' { "Group Assignment" }
+                }
             }
-        }
 
-        if ($assignmentReason) {
-            $assignments += @{
-                Reason = $assignmentReason
-                GroupId = $assignment.target.groupId
-                Apps = if ($isAppProtectionPolicy) { $policyDetails.apps } else { $null }
+            if ($assignmentReason) {
+                $assignments += @{
+                    Reason  = $assignmentReason
+                    GroupId = $assignment.target.groupId
+                    Apps    = if ($isAppProtectionPolicy) { $policyDetails.apps } else { $null }
+                }
             }
         }
     }
-}
 
     return $assignments
 }
@@ -295,21 +300,23 @@ function Get-IntuneEntities {
     # Handle special cases for app management endpoints
     $baseUri = if ($EntityType -like "deviceAppManagement/*") {
         "https://graph.microsoft.com/beta"
-    } else {
+    }
+    else {
         "https://graph.microsoft.com/beta/deviceManagement"
     }
     
     # Extract the actual entity type from full path if needed
     $actualEntityType = if ($EntityType -like "deviceAppManagement/*") {
         $EntityType
-    } else {
+    }
+    else {
         "$EntityType"
     }
     
     $uri = "$baseUri/$actualEntityType"
     if ($Filter) { $uri += "?`$filter=$Filter" }
-    if ($Select) { $uri += $(if($Filter){"&"}else{"?"}) + "`$select=$Select" }
-    if ($Expand) { $uri += $(if($Filter -or $Select){"&"}else{"?"}) + "`$expand=$Expand" }
+    if ($Select) { $uri += $(if ($Filter) { "&" }else { "?" }) + "`$select=$Select" }
+    if ($Expand) { $uri += $(if ($Filter -or $Select) { "&" }else { "?" }) + "`$expand=$Expand" }
 
     $response = Invoke-MgGraphRequest -Uri $uri -Method Get
     $entities = $response.value
@@ -332,16 +339,16 @@ function Get-GroupInfo {
         $groupUri = "https://graph.microsoft.com/v1.0/groups/$GroupId"
         $group = Invoke-MgGraphRequest -Uri $groupUri -Method Get
         return @{
-            Id = $group.id
+            Id          = $group.id
             DisplayName = $group.displayName
-            Success = $true
+            Success     = $true
         }
     }
     catch {
         return @{
-            Id = $GroupId
+            Id          = $GroupId
             DisplayName = "Unknown Group"
-            Success = $false
+            Success     = $false
         }
     }
 }
@@ -357,16 +364,16 @@ function Get-DeviceInfo {
     
     if ($deviceResponse.value) {
         return @{
-            Id = $deviceResponse.value[0].id
+            Id          = $deviceResponse.value[0].id
             DisplayName = $deviceResponse.value[0].displayName
-            Success = $true
+            Success     = $true
         }
     }
     
     return @{
-        Id = $null
+        Id          = $null
         DisplayName = $DeviceName
-        Success = $false
+        Success     = $false
     }
 }
 
@@ -380,16 +387,16 @@ function Get-UserInfo {
         $userUri = "https://graph.microsoft.com/v1.0/users/$UserPrincipalName"
         $user = Invoke-MgGraphRequest -Uri $userUri -Method Get
         return @{
-            Id = $user.id
+            Id                = $user.id
             UserPrincipalName = $user.userPrincipalName
-            Success = $true
+            Success           = $true
         }
     }
     catch {
         return @{
-            Id = $null
+            Id                = $null
             UserPrincipalName = $UserPrincipalName
-            Success = $false
+            Success           = $false
         }
     }
 }
@@ -410,695 +417,6 @@ function Get-GroupMemberships {
     return $response.value
 }
 
-function Export-HTMLReport {
-    param (
-        [Parameter(Mandatory = $true)]
-        [string]$FilePath
-    )
-
-    # HTML template with placeholders for $tabHeaders, $tabContent, and summary stats
-    $htmlTemplate = @"
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Intune Assignment Report</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdn.datatables.net/1.13.7/css/dataTables.bootstrap5.min.css" rel="stylesheet">
-    <link href="https://cdn.datatables.net/buttons/2.4.2/css/buttons.bootstrap5.min.css" rel="stylesheet">
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
-    <style>
-        :root {
-            --bg-color: #f5f7fa;
-            --text-color: #000;
-            --card-bg: #fff;
-            --table-bg: #fff;
-            --hover-bg: #f8f9fa;
-            --border-color: #dee2e6;
-        }
-
-        [data-theme="dark"] {
-            --bg-color: #1a1a1a;
-            --text-color: #fff;
-            --card-bg: #2d2d2d;
-            --table-bg: #2d2d2d;
-            --hover-bg: #3d3d3d;
-            --border-color: #404040;
-        }
-
-        body {
-            padding: 20px;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: var(--bg-color);
-            color: var(--text-color);
-            transition: background-color 0.3s ease, color 0.3s ease;
-        }
-        .card {
-            margin-bottom: 20px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            border-radius: 10px;
-            background-color: var(--card-bg);
-            transition: transform 0.2s, background-color 0.3s ease;
-            border-color: var(--border-color);
-        }
-        .card:hover {
-            transform: translateY(-2px);
-        }
-        .badge-all-users {
-            background-color: #28a745;
-            color: white;
-            padding: 5px 10px;
-            border-radius: 15px;
-        }
-        .badge-all-devices {
-            background-color: #17a2b8;
-            color: white;
-            padding: 5px 10px;
-            border-radius: 15px;
-        }
-        .badge-group {
-            background-color: #ffc107;
-            color: black;
-            padding: 5px 10px;
-            border-radius: 15px;
-        }
-        .badge-none {
-            background-color: #dc3545;
-            color: white;
-            padding: 5px 10px;
-            border-radius: 15px;
-        }
-        .summary-card {
-            background-color: #f8f9fa;
-            border: none;
-        }
-        .table-container {
-            margin-top: 20px;
-            background: var(--table-bg);
-            padding: 20px;
-            border-radius: 10px;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-            transition: background-color 0.3s ease;
-        }
-
-        .table {
-            color: var(--text-color) !important;
-        }
-
-        .table thead th {
-            color: var(--text-color) !important;
-        }
-
-        .table tbody tr:hover {
-            background-color: var(--hover-bg) !important;
-        }
-
-        .dataTables_info, .dataTables_length, .dataTables_filter label {
-            color: var(--text-color) !important;
-        }
-        .nav-tabs {
-            margin-bottom: 20px;
-            border-bottom: 2px solid var(--border-color);
-        }
-        .nav-tabs .nav-link {
-            border: none;
-            color: #6c757d;
-            padding: 10px 20px;
-            margin-right: 5px;
-            border-radius: 5px 5px 0 0;
-        }
-        .nav-tabs .nav-link.active {
-            color: #0d6efd;
-            border-bottom: 2px solid #0d6efd;
-            font-weight: 500;
-        }
-        .tab-content {
-            padding: 20px;
-            border: 1px solid var(--border-color);
-            border-top: none;
-            border-radius: 0 0 10px 10px;
-            background-color: var(--card-bg);
-        }
-        .chart-container {
-            margin: 20px 0;
-            padding: 15px;
-            background: white;
-            border-radius: 10px;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-        }
-        .search-box {
-            margin: 20px 0;
-            padding: 15px;
-            background: white;
-            border-radius: 10px;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-        }
-        .policy-table {
-            width: 100% !important;
-        }
-        .policy-table thead th {
-            background-color: #f8f9fa;
-            font-weight: 600;
-        }
-        .report-header {
-            background: linear-gradient(135deg, #0d6efd 0%, #0099ff 100%);
-            color: white;
-            padding: 30px;
-            border-radius: 10px;
-            margin-bottom: 30px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            animation: fadeIn 0.5s ease-in-out;
-            position: relative;
-        }
-
-        .theme-toggle {
-            position: absolute;
-            top: 20px;
-            right: 20px;
-            background: none;
-            border: none;
-            color: white;
-            font-size: 1.5rem;
-            cursor: pointer;
-            transition: transform 0.3s ease;
-        }
-
-        .theme-toggle:hover {
-            transform: scale(1.1);
-        }
-
-        @media print {
-            body {
-                background-color: white !important;
-                color: black !important;
-            }
-            .card, .table-container, .tab-content {
-                background-color: white !important;
-                color: black !important;
-                box-shadow: none !important;
-            }
-            .theme-toggle, .buttons-collection {
-                display: none !important;
-            }
-            .table {
-                color: black !important;
-            }
-            .table thead th {
-                color: black !important;
-                background-color: #f8f9fa !important;
-            }
-        }
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(-20px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        .chart-container {
-            margin: 20px 0;
-            padding: 20px;
-            background: white;
-            border-radius: 10px;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-        }
-        .search-box {
-            margin: 20px 0;
-            padding: 20px;
-            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-            border-radius: 10px;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-        }
-        .search-box input {
-            border: 2px solid #dee2e6;
-            transition: border-color 0.3s ease;
-        }
-        .search-box input:focus {
-            border-color: #0d6efd;
-            box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.25);
-        }
-        .report-header h1 {
-            margin: 0;
-            font-weight: 300;
-        }
-        .report-header p {
-            margin: 10px 0 0 0;
-            opacity: 0.9;
-        }
-        .summary-stat {
-            text-align: center;
-            padding: 20px;
-        }
-        .summary-stat h3 {
-            font-size: 2rem;
-            font-weight: 300;
-            margin: 10px 0;
-            color: #0d6efd;
-        }
-        .summary-stat p {
-            color: #6c757d;
-            margin: 0;
-        }
-    </style>
-</head>
-<body>
-    <div class="container-fluid">
-        <div class="report-header">
-            <h1>Intune Assignment Report</h1>
-            <p>Generated on $(Get-Date -Format "MMMM dd, yyyy HH:mm")</p>
-        </div>
-
-        <div class="row mb-4">
-            <div class="col-md-12">
-                <div class="card summary-card">
-                    <div class="card-body">
-                        <h5 class="card-title">Summary</h5>
-                        <div class="row" id="summary-stats">
-                            <!-- Summary stats will be inserted here -->
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div class="search-box">
-            <div class="form-group">
-                <label for="groupSearch">Search by Group Name:</label>
-                <input type="text" class="form-control" id="groupSearch" placeholder="Enter group name...">
-            </div>
-        </div>
-
-        <ul class="nav nav-tabs" id="assignmentTabs" role="tablist">
-            <!-- Tab headers will be inserted here -->
-        </ul>
-
-        <div class="tab-content" id="assignmentTabContent">
-            <!-- Tab content will be inserted here -->
-        </div>
-    </div>
-
-    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://cdn.datatables.net/1.11.5/js/jquery.dataTables.min.js"></script>
-    <script src="https://cdn.datatables.net/1.11.5/js/dataTables.bootstrap5.min.js"></script>
-    <script src="https://cdn.datatables.net/buttons/2.2.2/js/dataTables.buttons.min.js"></script>
-    <script src="https://cdn.datatables.net/buttons/2.2.2/js/buttons.bootstrap5.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.1.3/jszip.min.js"></script>
-    <script src="https://cdn.datatables.net/buttons/2.2.2/js/buttons.html5.min.js"></script>
-    <script>
-        `$(document).ready(function() {
-            // Initialize DataTables with search and sort functionality
-            const tables = `$('.policy-table').DataTable({
-                dom: 'Blfrtip',
-                buttons: [
-                    'copyHtml5',
-                    'excelHtml5',
-                    'csvHtml5'
-                ],
-                pageLength: 10,
-                lengthMenu: [[10, 25, 50, -1], [10, 25, 50, "All"]],
-                ordering: false, // Disable sorting
-                columnDefs: [
-                    {
-                        targets: '_all',
-                        orderable: false // Disable sorting for all columns
-                    }
-                ]
-            });
-
-            $('#groupSearch').on('keyup', function() {
-                const searchTerm = this.value.toLowerCase();
-                tables.search(searchTerm).draw();
-            });
-
-            // Show the first tab by default
-            const firstTab = document.querySelector('.nav-tabs .nav-link');
-            const firstPane = document.querySelector('.tab-pane');
-            if (firstTab) firstTab.classList.add('active');
-            if (firstPane) firstPane.classList.add('show', 'active');
-        });
-    </script>
-</body>
-</html>
-"@
-
-    # Initialize collections
-    $policies = @{
-        DeviceConfigs = @()
-        SettingsCatalog = @()
-        AdminTemplates = @()
-        CompliancePolicies = @()
-        AppProtectionPolicies = @()
-        AppConfigurationPolicies = @()
-        PlatformScripts = @()
-        HealthScripts = @()
-    }
-
-    # Fetch all policies
-    Write-Host "Fetching Device Configurations..." -ForegroundColor Yellow
-    $deviceConfigs = Get-IntuneEntities -EntityType "deviceConfigurations"
-    foreach ($config in $deviceConfigs) {
-        $assignments = Get-IntuneAssignments -EntityType "deviceConfigurations" -EntityId $config.id
-        $assignmentInfo = Get-AssignmentInfo -Assignments $assignments
-        $policies.DeviceConfigs += @{
-            Name = $config.displayName
-            ID = $config.id
-            Type = "Device Configuration"
-            AssignmentType = $assignmentInfo.Type
-            AssignedTo = $assignmentInfo.Target
-        }
-    }
-
-    Write-Host "Fetching Settings Catalog Policies..." -ForegroundColor Yellow
-    $settingsCatalog = Get-IntuneEntities -EntityType "configurationPolicies"
-    foreach ($policy in $settingsCatalog) {
-        $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
-        $assignmentInfo = Get-AssignmentInfo -Assignments $assignments
-        $policies.SettingsCatalog += @{
-            Name = $policy.name
-            ID = $policy.id
-            Type = "Settings Catalog"
-            AssignmentType = $assignmentInfo.Type
-            AssignedTo = $assignmentInfo.Target
-        }
-    }
-
-    Write-Host "Fetching Administrative Templates..." -ForegroundColor Yellow
-    $adminTemplates = Get-IntuneEntities -EntityType "groupPolicyConfigurations"
-    foreach ($template in $adminTemplates) {
-        $assignments = Get-IntuneAssignments -EntityType "groupPolicyConfigurations" -EntityId $template.id
-        $assignmentInfo = Get-AssignmentInfo -Assignments $assignments
-        $policies.AdminTemplates += @{
-            Name = $template.displayName
-            ID = $template.id
-            Type = "Administrative Template"
-            AssignmentType = $assignmentInfo.Type
-            AssignedTo = $assignmentInfo.Target
-        }
-    }
-
-    Write-Host "Fetching Compliance Policies..." -ForegroundColor Yellow
-    $compliancePolicies = Get-IntuneEntities -EntityType "deviceCompliancePolicies"
-    foreach ($policy in $compliancePolicies) {
-        $assignments = Get-IntuneAssignments -EntityType "deviceCompliancePolicies" -EntityId $policy.id
-        $assignmentInfo = Get-AssignmentInfo -Assignments $assignments
-        $policies.CompliancePolicies += @{
-            Name = $policy.displayName
-            ID = $policy.id
-            Type = "Compliance Policy"
-            AssignmentType = $assignmentInfo.Type
-            AssignedTo = $assignmentInfo.Target
-        }
-    }
-
-    Write-Host "Fetching App Protection Policies..." -ForegroundColor Yellow
-                $appProtectionPolicies = Get-IntuneEntities -EntityType "deviceAppManagement/managedAppPolicies"
-                foreach ($policy in $appProtectionPolicies) {
-                    $policyType = $policy.'@odata.type'
-                    $assignmentsUri = switch ($policyType) {
-                        "#microsoft.graph.androidManagedAppProtection" { "https://graph.microsoft.com/beta/deviceAppManagement/androidManagedAppProtections('$($policy.id)')/assignments" }
-                        "#microsoft.graph.iosManagedAppProtection" { "https://graph.microsoft.com/beta/deviceAppManagement/iosManagedAppProtections('$($policy.id)')/assignments" }
-                        "#microsoft.graph.windowsManagedAppProtection" { "https://graph.microsoft.com/beta/deviceAppManagement/windowsManagedAppProtections('$($policy.id)')/assignments" }
-                        default { $null }
-                    }
-
-                    if ($assignmentsUri) {
-                        try {
-                            $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
-                            $assignments = @()
-                            foreach ($assignment in $assignmentResponse.value) {
-                                $assignmentReason = $null
-                                switch ($assignment.target.'@odata.type') {
-                                    '#microsoft.graph.allLicensedUsersAssignmentTarget' { 
-                                        $assignmentReason = "All Users"
-                                    }
-                                    '#microsoft.graph.groupAssignmentTarget' {
-                                        if (!$GroupId -or $assignment.target.groupId -eq $GroupId) {
-                                            $assignmentReason = "Group Assignment"
-                                        }
-                                    }
-                                }
-
-                                if ($assignmentReason) {
-                                    $assignments += @{
-                                        Reason = $assignmentReason
-                                        GroupId = $assignment.target.groupId
-                                    }
-                                }
-                            }
-
-                            if ($assignments.Count -gt 0) {
-                                $assignmentSummary = $assignments | ForEach-Object {
-                                    if ($_.Reason -eq "Group Assignment") {
-                                        $groupInfo = Get-GroupInfo -GroupId $_.GroupId
-                                        "$($_.Reason) - $($groupInfo.DisplayName)"
-                                    }
-                                    else {
-                                        $_.Reason
-                                    }
-                                }
-                                $policy | Add-Member -NotePropertyName 'AssignmentSummary' -NotePropertyValue ($assignmentSummary -join "; ") -Force
-                                $policies.AppProtectionPolicies += @{
-                                    Name = $policy.displayName
-                                    ID = $policy.id
-                                    Type = "App Protection Policy"
-                                    AssignmentType = if ($assignmentSummary -match "All Users") { "All Users" }
-                                                   elseif ($assignmentSummary -match "Group") { "Group" }
-                                                   else { "None" }
-                                    AssignedTo = $assignmentSummary
-                                }
-                            }
-                        }
-                        catch {
-                            Write-Host "Error fetching assignments for policy $($policy.displayName): $($_.Exception.Message)" -ForegroundColor Red
-                        }
-                    }
-                }
-
-    # Get Platform Scripts
-    Write-Host "Fetching Platform Scripts..." -ForegroundColor Yellow
-    $platformScripts = Get-IntuneEntities -EntityType "deviceManagementScripts"
-    foreach ($script in $platformScripts) {
-        $assignments = Get-IntuneAssignments -EntityType "deviceManagementScripts" -EntityId $script.id
-        $assignmentInfo = Get-AssignmentInfo -Assignments $assignments
-        $policies.PlatformScripts += @{
-            Name = $script.displayName
-            ID = $script.id
-            Type = "PowerShell Script"
-            AssignmentType = $assignmentInfo.Type
-            AssignedTo = $assignmentInfo.Target
-        }
-    }
-
-    # Get Proactive Remediation Scripts
-    Write-Host "Fetching Proactive Remediation Scripts..." -ForegroundColor Yellow
-    $healthScripts = Get-IntuneEntities -EntityType "deviceHealthScripts"
-    foreach ($script in $healthScripts) {
-        $assignments = Get-IntuneAssignments -EntityType "deviceHealthScripts" -EntityId $script.id
-        $assignmentInfo = Get-AssignmentInfo -Assignments $assignments
-        $policies.HealthScripts += @{
-            Name = $script.displayName
-            ID = $script.id
-            Type = "Proactive Remediation Script"
-            AssignmentType = $assignmentInfo.Type
-            AssignedTo = $assignmentInfo.Target
-        }
-    }
-
-    # Generate summary statistics
-    $summaryStats = @{
-        TotalPolicies = 0
-        AllUsers      = 0
-        AllDevices    = 0
-        GroupAssigned = 0
-        Unassigned    = 0
-    }
-
-    $categories = @(
-        @{ Key = 'all';                   Name = 'All' },
-        @{ Key = 'DeviceConfigs';         Name = 'Device Configurations' },
-        @{ Key = 'SettingsCatalog';       Name = 'Settings Catalog' },
-        @{ Key = 'AdminTemplates';        Name = 'Administrative Templates' },
-        @{ Key = 'CompliancePolicies';    Name = 'Compliance Policies' },
-        @{ Key = 'AppProtectionPolicies'; Name = 'App Protection Policies' },
-        @{ Key = 'PlatformScripts';       Name = 'Platform Scripts' },
-        @{ Key = 'HealthScripts';         Name = 'Proactive Remediation Scripts' }
-    )
-
-    foreach($category in $categories) {
-        $items = $policies[$category.Key]
-        $summaryStats.TotalPolicies += $items.Count
-        $summaryStats.AllUsers      += ($items | Where-Object { $_.AssignmentType -eq "All Users" }).Count
-        $summaryStats.AllDevices    += ($items | Where-Object { $_.AssignmentType -eq "All Devices" }).Count
-        $summaryStats.GroupAssigned += ($items | Where-Object { $_.AssignmentType -eq "Group" }).Count
-        $summaryStats.Unassigned    += ($items | Where-Object { $_.AssignmentType -eq "None" }).Count
-    }
-
-    # Build dynamic tab headers and tab content
-    $tabHeaders = ""
-    $tabContent = ""
-
-    foreach($category in $categories) {
-        $isActive   = ($category -eq $categories[0])
-        $categoryId = $category.Key.ToLower()
-
-        $tabHeaders += @"
-<li class="nav-item" role="presentation">
-    <button class="nav-link$(if($isActive -and $category.Key -ne 'all'){ ' active' } else { '' })"
-            id="$categoryId-tab"
-            data-bs-toggle="tab"
-            data-bs-target="#$categoryId"
-            type="button"
-            role="tab"
-            aria-controls="$categoryId"
-            aria-selected="$(if($isActive -and $category.Key -ne 'all'){ 'true' } else { 'false' })">
-        $($category.Name)
-    </button>
-</li>
-"@
-
-        if($category.Key -eq 'all') {
-            $allTableRows = foreach($cat in $categories | Where-Object { $_.Key -ne 'all' }) {
-                $categoryPolicies = $policies[$cat.Key]
-                if ($categoryPolicies) {
-                    foreach($p in $categoryPolicies) {
-                        $badgeClass = switch($p.AssignmentType) {
-                            'All Users'   { 'badge-all-users' }
-                            'All Devices' { 'badge-all-devices' }
-                            'Group'       { 'badge-group' }
-                            default       { 'badge-none' }
-                        }
-                        "<tr>
-                            <td>$($p.Name)</td>
-                            <td><span class='badge $badgeClass'>$($p.AssignmentType)</span></td>
-                            <td>$($p.AssignedTo)</td>
-                        </tr>"
-                    }
-                }
-            }
-            $tabContent += @"
-<div class="tab-pane fade$(if($isActive){ ' show active' } else { '' })"
-     id="$categoryId"
-     role="tabpanel"
-     aria-labelledby="$categoryId-tab">
-    <div class="table-container">
-        <table class="table table-striped policy-table">
-            <thead>
-                <tr>
-                    <th>Name</th>
-                    <th>Assignment Type</th>
-                    <th>Assigned To</th>
-                </tr>
-            </thead>
-            <tbody>
-                $($allTableRows -join "`n")
-            </tbody>
-        </table>
-    </div>
-</div>
-"@
-        }
-        else {
-            $tableRows = foreach($p in $policies[$category.Key]) {
-                $badgeClass = switch($p.AssignmentType) {
-                    'All Users'   { 'badge-all-users' }
-                    'All Devices' { 'badge-all-devices' }
-                    'Group'       { 'badge-group' }
-                    default       { 'badge-none' }
-                }
-                "<tr>
-                    <td>$($p.Name)</td>
-                    <td><span class='badge $badgeClass'>$($p.AssignmentType)</span></td>
-                    <td>$($p.AssignedTo)</td>
-                </tr>"
-            }
-            $tabContent += @"
-<div class="tab-pane fade$(if($isActive){ ' show active' } else { '' })"
-     id="$categoryId"
-     role="tabpanel"
-     aria-labelledby="$categoryId-tab">
-    <div class="table-container">
-        <table class="table table-striped policy-table">
-            <thead>
-                <tr>
-                    <th>Name</th>
-                    <th>Assignment Type</th>
-                    <th>Assigned To</th>
-                </tr>
-            </thead>
-            <tbody>
-                $($tableRows -join "`n")
-            </tbody>
-        </table>
-    </div>
-</div>
-"@
-        }
-    }
-
-    # Summary cards
-    $summaryCards = @"
-<div class="col">
-    <div class="card text-center summary-card">
-        <div class="card-body">
-            <i class="fas fa-layer-group mb-3" style="font-size:2rem;color:#0d6efd;"></i>
-            <h5 class="card-title">Total Policies</h5>
-            <h3 class="card-text">$($summaryStats.TotalPolicies)</h3>
-            <p class="text-muted small">Total configured policies</p>
-        </div>
-    </div>
-</div>
-<div class="col">
-    <div class="card text-center summary-card">
-        <div class="card-body">
-            <i class="fas fa-users mb-3" style="font-size:2rem;color:#28a745;"></i>
-            <h5 class="card-title">All Users</h5>
-            <h3 class="card-text">$($summaryStats.AllUsers)</h3>
-            <p class="text-muted small">Assigned to all users</p>
-        </div>
-    </div>
-</div>
-<div class="col">
-    <div class="card text-center summary-card">
-        <div class="card-body">
-            <i class="fas fa-laptop mb-3" style="font-size:2rem;color:#17a2b8;"></i>
-            <h5 class="card-title">All Devices</h5>
-            <h3 class="card-text">$($summaryStats.AllDevices)</h3>
-            <p class="text-muted small">Assigned to all devices</p>
-        </div>
-    </div>
-</div>
-<div class="col">
-    <div class="card text-center summary-card">
-        <div class="card-body">
-            <i class="fas fa-object-group mb-3" style="font-size:2rem;color:#ffc107;"></i>
-            <h5 class="card-title">Group Assigned</h5>
-            <h3 class="card-text">$($summaryStats.GroupAssigned)</h3>
-            <p class="text-muted small">Assigned to specific groups</p>
-        </div>
-    </div>
-</div>
-<div class="col">
-    <div class="card text-center summary-card">
-        <div class="card-body">
-            <i class="fas fa-exclamation-triangle mb-3" style="font-size:2rem;color:#dc3545;"></i>
-            <h5 class="card-title">Unassigned</h5>
-            <h3 class="card-text">$($summaryStats.Unassigned)</h3>
-            <p class="text-muted small">Not assigned to any target</p>
-        </div>
-    </div>
-</div>
-"@
-
-    # Final HTML
-    $htmlContent = $htmlTemplate `
-        -replace '<!-- Tab headers will be inserted here -->', $tabHeaders `
-        -replace '<!-- Tab content will be inserted here -->', $tabContent `
-        -replace '<!-- Summary stats will be inserted here -->', $summaryCards
-
-    # Output file
-    $htmlContent | Out-File -FilePath $FilePath -Encoding UTF8
-    Write-Host "HTML report exported to: $FilePath" -ForegroundColor Green
-}
-
 function Get-AssignmentInfo {
     param (
         [Parameter(Mandatory = $true)]
@@ -1108,7 +426,7 @@ function Get-AssignmentInfo {
 
     if ($null -eq $Assignments -or $Assignments.Count -eq 0) {
         return @{
-            Type = "None"
+            Type   = "None"
             Target = "Not Assigned"
         }
     }
@@ -1128,7 +446,8 @@ function Get-AssignmentInfo {
             if ($assignment.GroupId) {
                 $groupInfo = Get-GroupInfo -GroupId $assignment.GroupId
                 $groupInfo.DisplayName
-            } else {
+            }
+            else {
                 "Unknown Group"
             }
         }
@@ -1136,7 +455,7 @@ function Get-AssignmentInfo {
     }
 
     return @{
-        Type = $type
+        Type   = $type
         Target = $target
     }
 }
@@ -1239,10 +558,10 @@ function Add-ExportData {
         }
         
         $null = $ExportData.Add([PSCustomObject]@{
-            Category = $Category
-            Item = "$itemName (ID: $($item.id))"
-            AssignmentReason = $reason
-        })
+                Category         = $Category
+                Item             = "$itemName (ID: $($item.id))"
+                AssignmentReason = $reason
+            })
     }
 }
 
@@ -1257,10 +576,10 @@ function Add-AppExportData {
     foreach ($app in $Apps) {
         $appName = if ($app.displayName) { $app.displayName } else { $app.name }
         $null = $ExportData.Add([PSCustomObject]@{
-            Category = $Category
-            Item = "$appName (ID: $($app.id))"
-            AssignmentReason = "$AssignmentReason - $($app.AssignmentIntent)"
-        })
+                Category         = $Category
+                Item             = "$appName (ID: $($app.id))"
+                AssignmentReason = "$AssignmentReason - $($app.AssignmentIntent)"
+            })
     }
 }
 
@@ -1348,17 +667,17 @@ do {
 
                 # Initialize collections for relevant policies
                 $relevantPolicies = @{
-                    DeviceConfigs = @()
-                    SettingsCatalog = @()
-                    AdminTemplates = @()
-                    CompliancePolicies = @()
-                    AppProtectionPolicies = @()
+                    DeviceConfigs            = @()
+                    SettingsCatalog          = @()
+                    AdminTemplates           = @()
+                    CompliancePolicies       = @()
+                    AppProtectionPolicies    = @()
                     AppConfigurationPolicies = @()
-                    AppsRequired = @()
-                    AppsAvailable = @()
-                    AppsUninstall = @()
-                    PlatformScripts = @()
-                    HealthScripts = @()
+                    AppsRequired             = @()
+                    AppsAvailable            = @()
+                    AppsUninstall            = @()
+                    PlatformScripts          = @()
+                    HealthScripts            = @()
                 }
 
                 # Get Device Configurations
@@ -1452,7 +771,7 @@ do {
 
                                 if ($assignmentReason) {
                                     $assignments += @{
-                                        Reason = $assignmentReason
+                                        Reason  = $assignmentReason
                                         GroupId = $assignment.target.groupId
                                     }
                                 }
@@ -1599,19 +918,19 @@ do {
 
                 # Add all data to export
                 Add-ExportData -ExportData $exportData -Category "User" -Items @([PSCustomObject]@{
-                    displayName = $upn
-                    id = $userInfo.Id
-                    AssignmentReason = "N/A"
-                }
+                        displayName      = $upn
+                        id               = $userInfo.Id
+                        AssignmentReason = "N/A"
+                    }
 
-                Add-ExportData -ExportData $exportData -Category "Device Configuration" -Items $relevantPolicies.DeviceConfigs -AssignmentReason { param($item) $item.AssignmentReason }
-                Add-ExportData -ExportData $exportData -Category "Settings Catalog Policy" -Items $relevantPolicies.SettingsCatalog -AssignmentReason { param($item) $item.AssignmentReason }
-                Add-ExportData -ExportData $exportData -Category "Administrative Template" -Items $relevantPolicies.AdminTemplates -AssignmentReason { param($item) $item.AssignmentReason }
-                Add-ExportData -ExportData $exportData -Category "Compliance Policy" -Items $relevantPolicies.CompliancePolicies -AssignmentReason { param($item) $item.AssignmentReason }
-                Add-ExportData -ExportData $exportData -Category "App Protection Policy" -Items $relevantPolicies.AppProtectionPolicies -AssignmentReason { param($item) $item.AssignmentSummary }
-                Add-ExportData -ExportData $exportData -Category "App Configuration Policy" -Items $relevantPolicies.AppConfigurationPolicies -AssignmentReason { param($item) $item.AssignmentReason }
-                Add-ExportData -ExportData $exportData -Category "Platform Scripts" -Items $relevantPolicies.PlatformScripts -AssignmentReason { param($item) $item.AssignmentReason }
-                Add-ExportData -ExportData $exportData -Category "Proactive Remediation Scripts" -Items $relevantPolicies.HealthScripts -AssignmentReason { param($item) $item.AssignmentReason }
+                    Add-ExportData -ExportData $exportData -Category "Device Configuration" -Items $relevantPolicies.DeviceConfigs -AssignmentReason { param($item) $item.AssignmentReason }
+                    Add-ExportData -ExportData $exportData -Category "Settings Catalog Policy" -Items $relevantPolicies.SettingsCatalog -AssignmentReason { param($item) $item.AssignmentReason }
+                    Add-ExportData -ExportData $exportData -Category "Administrative Template" -Items $relevantPolicies.AdminTemplates -AssignmentReason { param($item) $item.AssignmentReason }
+                    Add-ExportData -ExportData $exportData -Category "Compliance Policy" -Items $relevantPolicies.CompliancePolicies -AssignmentReason { param($item) $item.AssignmentReason }
+                    Add-ExportData -ExportData $exportData -Category "App Protection Policy" -Items $relevantPolicies.AppProtectionPolicies -AssignmentReason { param($item) $item.AssignmentSummary }
+                    Add-ExportData -ExportData $exportData -Category "App Configuration Policy" -Items $relevantPolicies.AppConfigurationPolicies -AssignmentReason { param($item) $item.AssignmentReason }
+                    Add-ExportData -ExportData $exportData -Category "Platform Scripts" -Items $relevantPolicies.PlatformScripts -AssignmentReason { param($item) $item.AssignmentReason }
+                    Add-ExportData -ExportData $exportData -Category "Proactive Remediation Scripts" -Items $relevantPolicies.HealthScripts -AssignmentReason { param($item) $item.AssignmentReason }
                 )
             }
 
@@ -1684,17 +1003,17 @@ do {
 
                 # Initialize collections for relevant policies
                 $relevantPolicies = @{
-                    DeviceConfigs = @()
-                    SettingsCatalog = @()
-                    AdminTemplates = @()
-                    CompliancePolicies = @()
-                    AppProtectionPolicies = @()
+                    DeviceConfigs            = @()
+                    SettingsCatalog          = @()
+                    AdminTemplates           = @()
+                    CompliancePolicies       = @()
+                    AppProtectionPolicies    = @()
                     AppConfigurationPolicies = @()
-                    AppsRequired = @()
-                    AppsAvailable = @()
-                    AppsUninstall = @()
-                    PlatformScripts = @()
-                    HealthScripts = @()
+                    AppsRequired             = @()
+                    AppsAvailable            = @()
+                    AppsUninstall            = @()
+                    PlatformScripts          = @()
+                    HealthScripts            = @()
                 }
 
                 # Get Device Configurations
@@ -1706,11 +1025,13 @@ do {
                         $assignmentReason = if ($assignments[0].Reason -eq "Group Assignment") {
                             if ($assignments[0].GroupId -eq $groupId) {
                                 "Direct Assignment"
-                            } else {
+                            }
+                            else {
                                 $groupInfo = Get-GroupInfo -GroupId $assignments[0].GroupId
                                 "$($assignments[0].Reason) - $($groupInfo.DisplayName)"
                             }
-                        } else {
+                        }
+                        else {
                             $assignments[0].Reason
                         }
                         $config | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentReason -Force
@@ -1727,11 +1048,13 @@ do {
                         $assignmentReason = if ($assignments[0].Reason -eq "Group Assignment") {
                             if ($assignments[0].GroupId -eq $groupId) {
                                 "Direct Assignment"
-                            } else {
+                            }
+                            else {
                                 $groupInfo = Get-GroupInfo -GroupId $assignments[0].GroupId
                                 "$($assignments[0].Reason) - $($groupInfo.DisplayName)"
                             }
-                        } else {
+                        }
+                        else {
                             $assignments[0].Reason
                         }
                         $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentReason -Force
@@ -1748,11 +1071,13 @@ do {
                         $assignmentReason = if ($assignments[0].Reason -eq "Group Assignment") {
                             if ($assignments[0].GroupId -eq $groupId) {
                                 "Direct Assignment"
-                            } else {
+                            }
+                            else {
                                 $groupInfo = Get-GroupInfo -GroupId $assignments[0].GroupId
                                 "$($assignments[0].Reason) - $($groupInfo.DisplayName)"
                             }
-                        } else {
+                        }
+                        else {
                             $assignments[0].Reason
                         }
                         $template | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentReason -Force
@@ -1769,11 +1094,13 @@ do {
                         $assignmentReason = if ($assignments[0].Reason -eq "Group Assignment") {
                             if ($assignments[0].GroupId -eq $groupId) {
                                 "Direct Assignment"
-                            } else {
+                            }
+                            else {
                                 $groupInfo = Get-GroupInfo -GroupId $assignments[0].GroupId
                                 "$($assignments[0].Reason) - $($groupInfo.DisplayName)"
                             }
-                        } else {
+                        }
+                        else {
                             $assignments[0].Reason
                         }
                         $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentReason -Force
@@ -1812,7 +1139,7 @@ do {
 
                                 if ($assignmentReason) {
                                     $assignments += @{
-                                        Reason = $assignmentReason
+                                        Reason  = $assignmentReason
                                         GroupId = $assignment.target.groupId
                                     }
                                 }
@@ -1838,8 +1165,8 @@ do {
                     }
                 }
 
-            # Get App Configuration Policies
-            Write-Host "Fetching App Configuration Policies..." -ForegroundColor Yellow
+                # Get App Configuration Policies
+                Write-Host "Fetching App Configuration Policies..." -ForegroundColor Yellow
                 $appConfigPolicies = Get-IntuneEntities -EntityType "deviceAppManagement/mobileAppConfigurations"
                 foreach ($policy in $appConfigPolicies) {
                     $assignments = Get-IntuneAssignments -EntityType "mobileAppConfigurations" -EntityId $policy.id -GroupId $groupId
@@ -1847,11 +1174,13 @@ do {
                         $assignmentReason = if ($assignments[0].Reason -eq "Group Assignment") {
                             if ($assignments[0].GroupId -eq $groupId) {
                                 "Direct Assignment"
-                            } else {
+                            }
+                            else {
                                 $groupInfo = Get-GroupInfo -GroupId $assignments[0].GroupId
                                 "$($assignments[0].Reason) - $($groupInfo.DisplayName)"
                             }
-                        } else {
+                        }
+                        else {
                             $assignments[0].Reason
                         }
                         $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentReason -Force
@@ -1868,11 +1197,13 @@ do {
                         $assignmentReason = if ($assignments[0].Reason -eq "Group Assignment") {
                             if ($assignments[0].GroupId -eq $groupId) {
                                 "Direct Assignment"
-                            } else {
+                            }
+                            else {
                                 $groupInfo = Get-GroupInfo -GroupId $assignments[0].GroupId
                                 "$($assignments[0].Reason) - $($groupInfo.DisplayName)"
                             }
-                        } else {
+                        }
+                        else {
                             $assignments[0].Reason
                         }
                         $script | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentReason -Force
@@ -1889,11 +1220,13 @@ do {
                         $assignmentReason = if ($assignments[0].Reason -eq "Group Assignment") {
                             if ($assignments[0].GroupId -eq $groupId) {
                                 "Direct Assignment"
-                            } else {
+                            }
+                            else {
                                 $groupInfo = Get-GroupInfo -GroupId $assignments[0].GroupId
                                 "$($assignments[0].Reason) - $($groupInfo.DisplayName)"
                             }
-                        } else {
+                        }
+                        else {
                             $assignments[0].Reason
                         }
                         $script | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentReason -Force
@@ -1977,19 +1310,19 @@ do {
 
                 # Add to export data
                 Add-ExportData -ExportData $exportData -Category "Group" -Items @([PSCustomObject]@{
-                    displayName = $groupName
-                    id = $groupId
-                    AssignmentReason = "Direct Assignment"
-                }
+                        displayName      = $groupName
+                        id               = $groupId
+                        AssignmentReason = "Direct Assignment"
+                    }
 
-                Add-ExportData -ExportData $exportData -Category "Device Configuration" -Items $relevantPolicies.DeviceConfigs -AssignmentReason { param($item) $item.AssignmentReason }
-                Add-ExportData -ExportData $exportData -Category "Settings Catalog Policy" -Items $relevantPolicies.SettingsCatalog -AssignmentReason { param($item) $item.AssignmentReason }
-                Add-ExportData -ExportData $exportData -Category "Administrative Template" -Items $relevantPolicies.AdminTemplates -AssignmentReason { param($item) $item.AssignmentReason }
-                Add-ExportData -ExportData $exportData -Category "Compliance Policy" -Items $relevantPolicies.CompliancePolicies -AssignmentReason { param($item) $item.AssignmentReason }
-                Add-ExportData -ExportData $exportData -Category "App Protection Policy" -Items $relevantPolicies.AppProtectionPolicies -AssignmentReason { param($item) $item.AssignmentSummary }
-                Add-ExportData -ExportData $exportData -Category "App Configuration Policy" -Items $relevantPolicies.AppConfigurationPolicies -AssignmentReason { param($item) $item.AssignmentReason }
-                Add-ExportData -ExportData $exportData -Category "Platform Scripts" -Items $relevantPolicies.PlatformScripts -AssignmentReason { param($item) $item.AssignmentReason }
-                Add-ExportData -ExportData $exportData -Category "Proactive Remediation Scripts" -Items $relevantPolicies.HealthScripts -AssignmentReason { param($item) $item.AssignmentReason }
+                    Add-ExportData -ExportData $exportData -Category "Device Configuration" -Items $relevantPolicies.DeviceConfigs -AssignmentReason { param($item) $item.AssignmentReason }
+                    Add-ExportData -ExportData $exportData -Category "Settings Catalog Policy" -Items $relevantPolicies.SettingsCatalog -AssignmentReason { param($item) $item.AssignmentReason }
+                    Add-ExportData -ExportData $exportData -Category "Administrative Template" -Items $relevantPolicies.AdminTemplates -AssignmentReason { param($item) $item.AssignmentReason }
+                    Add-ExportData -ExportData $exportData -Category "Compliance Policy" -Items $relevantPolicies.CompliancePolicies -AssignmentReason { param($item) $item.AssignmentReason }
+                    Add-ExportData -ExportData $exportData -Category "App Protection Policy" -Items $relevantPolicies.AppProtectionPolicies -AssignmentReason { param($item) $item.AssignmentSummary }
+                    Add-ExportData -ExportData $exportData -Category "App Configuration Policy" -Items $relevantPolicies.AppConfigurationPolicies -AssignmentReason { param($item) $item.AssignmentReason }
+                    Add-ExportData -ExportData $exportData -Category "Platform Scripts" -Items $relevantPolicies.PlatformScripts -AssignmentReason { param($item) $item.AssignmentReason }
+                    Add-ExportData -ExportData $exportData -Category "Proactive Remediation Scripts" -Items $relevantPolicies.HealthScripts -AssignmentReason { param($item) $item.AssignmentReason }
                 )
             }
 
@@ -2044,17 +1377,17 @@ do {
 
                 # Initialize collections for relevant policies
                 $relevantPolicies = @{
-                    DeviceConfigs = @()
-                    SettingsCatalog = @()
-                    AdminTemplates = @()
-                    CompliancePolicies = @()
-                    AppProtectionPolicies = @()
+                    DeviceConfigs            = @()
+                    SettingsCatalog          = @()
+                    AdminTemplates           = @()
+                    CompliancePolicies       = @()
+                    AppProtectionPolicies    = @()
                     AppConfigurationPolicies = @()
-                    AppsRequired = @()
-                    AppsAvailable = @()
-                    AppsUninstall = @()
-                    PlatformScripts = @()
-                    HealthScripts = @()
+                    AppsRequired             = @()
+                    AppsAvailable            = @()
+                    AppsUninstall            = @()
+                    PlatformScripts          = @()
+                    HealthScripts            = @()
                 }
 
                 # Get Device Configurations
@@ -2155,7 +1488,7 @@ do {
 
                                 if ($assignmentReason -and $assignmentReason -ne "All Users") {
                                     $assignments += @{
-                                        Reason = $assignmentReason
+                                        Reason  = $assignmentReason
                                         GroupId = $assignment.target.groupId
                                     }
                                 }
@@ -2184,7 +1517,7 @@ do {
                 # Get App Configuration Policies
                 Write-Host "Fetching App Configuration Policies..." -ForegroundColor Yellow
                 $appConfigPolicies = Get-IntuneEntities -EntityType "deviceAppManagement/mobileAppConfigurations"
-foreach ($policy in $appConfigPolicies) {
+                foreach ($policy in $appConfigPolicies) {
                     $assignments = Get-IntuneAssignments -EntityType "mobileAppConfigurations" -EntityId $policy.id
                     foreach ($assignment in $assignments) {
                         if ($assignment.Reason -ne "All Users" -and
@@ -2349,19 +1682,19 @@ foreach ($policy in $appConfigPolicies) {
 
                 # Add to export data
                 Add-ExportData -ExportData $exportData -Category "Device" -Items @([PSCustomObject]@{
-                    displayName = $deviceName
-                    id = $deviceInfo.Id
-                    AssignmentReason = "N/A"
-                }
+                        displayName      = $deviceName
+                        id               = $deviceInfo.Id
+                        AssignmentReason = "N/A"
+                    }
 
-                Add-ExportData -ExportData $exportData -Category "Device Configuration" -Items $relevantPolicies.DeviceConfigs -AssignmentReason { param($item) $item.AssignmentReason }
-                Add-ExportData -ExportData $exportData -Category "Settings Catalog Policy" -Items $relevantPolicies.SettingsCatalog -AssignmentReason { param($item) $item.AssignmentReason }
-                Add-ExportData -ExportData $exportData -Category "Administrative Template" -Items $relevantPolicies.AdminTemplates -AssignmentReason { param($item) $item.AssignmentReason }
-                Add-ExportData -ExportData $exportData -Category "Compliance Policy" -Items $relevantPolicies.CompliancePolicies -AssignmentReason { param($item) $item.AssignmentReason }
-                Add-ExportData -ExportData $exportData -Category "App Protection Policy" -Items $relevantPolicies.AppProtectionPolicies -AssignmentReason { param($item) $item.AssignmentSummary }
-                Add-ExportData -ExportData $exportData -Category "App Configuration Policy" -Items $relevantPolicies.AppConfigurationPolicies -AssignmentReason { param($item) $item.AssignmentReason }
-                Add-ExportData -ExportData $exportData -Category "Platform Scripts" -Items $relevantPolicies.PlatformScripts -AssignmentReason { param($item) $item.AssignmentReason }
-                Add-ExportData -ExportData $exportData -Category "Proactive Remediation Scripts" -Items $relevantPolicies.HealthScripts -AssignmentReason { param($item) $item.AssignmentReason }
+                    Add-ExportData -ExportData $exportData -Category "Device Configuration" -Items $relevantPolicies.DeviceConfigs -AssignmentReason { param($item) $item.AssignmentReason }
+                    Add-ExportData -ExportData $exportData -Category "Settings Catalog Policy" -Items $relevantPolicies.SettingsCatalog -AssignmentReason { param($item) $item.AssignmentReason }
+                    Add-ExportData -ExportData $exportData -Category "Administrative Template" -Items $relevantPolicies.AdminTemplates -AssignmentReason { param($item) $item.AssignmentReason }
+                    Add-ExportData -ExportData $exportData -Category "Compliance Policy" -Items $relevantPolicies.CompliancePolicies -AssignmentReason { param($item) $item.AssignmentReason }
+                    Add-ExportData -ExportData $exportData -Category "App Protection Policy" -Items $relevantPolicies.AppProtectionPolicies -AssignmentReason { param($item) $item.AssignmentSummary }
+                    Add-ExportData -ExportData $exportData -Category "App Configuration Policy" -Items $relevantPolicies.AppConfigurationPolicies -AssignmentReason { param($item) $item.AssignmentReason }
+                    Add-ExportData -ExportData $exportData -Category "Platform Scripts" -Items $relevantPolicies.PlatformScripts -AssignmentReason { param($item) $item.AssignmentReason }
+                    Add-ExportData -ExportData $exportData -Category "Proactive Remediation Scripts" -Items $relevantPolicies.HealthScripts -AssignmentReason { param($item) $item.AssignmentReason }
                 )
             }
 
@@ -2381,14 +1714,14 @@ foreach ($policy in $appConfigPolicies) {
 
             # Initialize collections for all policies
             $allPolicies = @{
-                DeviceConfigs = @()
-                SettingsCatalog = @()
-                AdminTemplates = @()
-                CompliancePolicies = @()
-                AppProtectionPolicies = @()
+                DeviceConfigs            = @()
+                SettingsCatalog          = @()
+                AdminTemplates           = @()
+                CompliancePolicies       = @()
+                AppProtectionPolicies    = @()
                 AppConfigurationPolicies = @()
-                PlatformScripts = @()
-                HealthScripts = @()
+                PlatformScripts          = @()
+                HealthScripts            = @()
             }
 
             # Function to process and display policy assignments
@@ -2411,7 +1744,8 @@ foreach ($policy in $appConfigPolicies) {
                     Write-Host "Policy ID: $($policy.id)" -ForegroundColor Gray
                     if ($policy.AssignmentSummary) {
                         Write-Host "Assignments: $($policy.AssignmentSummary)" -ForegroundColor Gray
-                    } else {
+                    }
+                    else {
                         Write-Host "No assignments found" -ForegroundColor Yellow
                     }
                     Write-Host ""
@@ -2625,14 +1959,14 @@ foreach ($policy in $appConfigPolicies) {
 
             # Initialize collections for policies with "All Users" assignments
             $allUsersAssignments = @{
-                DeviceConfigs = @()
-                SettingsCatalog = @()
-                AdminTemplates = @()
-                CompliancePolicies = @()
-                AppProtectionPolicies = @()
+                DeviceConfigs            = @()
+                SettingsCatalog          = @()
+                AdminTemplates           = @()
+                CompliancePolicies       = @()
+                AppProtectionPolicies    = @()
                 AppConfigurationPolicies = @()
-                PlatformScripts = @()
-                HealthScripts = @()
+                PlatformScripts          = @()
+                HealthScripts            = @()
             }
 
             # Get Device Configurations
@@ -2867,38 +2201,21 @@ foreach ($policy in $appConfigPolicies) {
                     Write-Host "Results exported to $exportPath" -ForegroundColor Green
                 }
             }
-        }
-         '7' {
-             Write-Host "Generating HTML Report..." -ForegroundColor Green
-             $defaultPath = Join-Path $env:USERPROFILE "Desktop\IntuneAssignmentReport.html"
-             $filePath = Show-SaveFileDialog -DefaultFileName "IntuneAssignmentReport.html"
-             
-             if ($filePath) {
-                 Export-HTMLReport -FilePath $filePath
-                 Write-Host "HTML report has been generated at: $filePath" -ForegroundColor Green
-                 
-                 # Ask if user wants to open the report
-                 $openReport = Read-Host "Would you like to open the report now? (y/n)"
-                 if ($openReport -eq 'y') {
-                     Start-Process $filePath
-                 }
-             }
-         }
-         
-         '6' {
-             Write-Host "Fetching all 'All Devices' assignments..." -ForegroundColor Green
+        }     
+        '6' {
+            Write-Host "Fetching all 'All Devices' assignments..." -ForegroundColor Green
             $exportData = [System.Collections.ArrayList]::new()
 
             # Initialize collections for policies with "All Devices" assignments
             $allDevicesAssignments = @{
-                DeviceConfigs = @()
-                SettingsCatalog = @()
-                AdminTemplates = @()
-                CompliancePolicies = @()
-                AppProtectionPolicies = @()
+                DeviceConfigs            = @()
+                SettingsCatalog          = @()
+                AdminTemplates           = @()
+                CompliancePolicies       = @()
+                AppProtectionPolicies    = @()
                 AppConfigurationPolicies = @()
-                PlatformScripts = @()
-                HealthScripts = @()
+                PlatformScripts          = @()
+                HealthScripts            = @()
             }
 
             # Get Device Configurations
@@ -3134,20 +2451,56 @@ foreach ($policy in $appConfigPolicies) {
                 }
             }
         }
+        '7' {
+            Write-Host "Generating HTML Report..." -ForegroundColor Green
+
+            # Download the html-export.ps1 from github and Save the script in the same directory as this script
+            $downloadurl = "https://raw.githubusercontent.com/ugurkocde/Intune/refs/heads/main/html-export.ps1"
+
+            try {
+                # Download and save the script content
+                $htmlExportScript = (Invoke-WebRequest -Uri $downloadurl -UseBasicParsing).Content
+                $scriptPath = ".\html-export.ps1"
+                Set-Content -Path $scriptPath -Value $htmlExportScript
+
+                # Import the script
+                . $scriptPath
+
+                # Generate the report
+                $filePath = Show-SaveFileDialog -DefaultFileName "IntuneAssignmentReport.html"
+                if ($filePath) {
+                    Export-HTMLReport -FilePath $filePath
+                                        
+                    # Ask if user wants to open the report
+                    $openReport = Read-Host "Would you like to open the report now? (y/n)"
+                    if ($openReport -eq 'y') {
+                        Start-Process $filePath
+                    }
+                }
+
+                # Clean up - remove the downloaded script
+                if (Test-Path $scriptPath) {
+                    Remove-Item -Path $scriptPath -Force
+                }
+            }
+            catch {
+                Write-Host "Error: Failed to download or process the HTML export script. $($_.Exception.Message)" -ForegroundColor Red
+            }
+        }
         '8' {
             Write-Host "Fetching policies without assignments..." -ForegroundColor Green
             $exportData = [System.Collections.ArrayList]::new()
 
             # Initialize collections for policies without assignments
             $unassignedPolicies = @{
-                DeviceConfigs = @()
-                SettingsCatalog = @()
-                AdminTemplates = @()
-                CompliancePolicies = @()
-                AppProtectionPolicies = @()
+                DeviceConfigs            = @()
+                SettingsCatalog          = @()
+                AdminTemplates           = @()
+                CompliancePolicies       = @()
+                AppProtectionPolicies    = @()
                 AppConfigurationPolicies = @()
-                PlatformScripts = @()
-                HealthScripts = @()
+                PlatformScripts          = @()
+                HealthScripts            = @()
             }
 
             # Get Device Configurations
@@ -3369,7 +2722,7 @@ foreach ($policy in $appConfigPolicies) {
             }
         }
        
-         '9' {
+        '9' {
             Write-Host "Checking for policies assigned to empty groups..." -ForegroundColor Green
             $exportData = [System.Collections.ArrayList]::new()
 
@@ -3393,14 +2746,14 @@ foreach ($policy in $appConfigPolicies) {
 
             # Initialize collections for policies with empty group assignments
             $emptyGroupAssignments = @{
-                DeviceConfigs = @()
-                SettingsCatalog = @()
-                AdminTemplates = @()
-                CompliancePolicies = @()
-                AppProtectionPolicies = @()
+                DeviceConfigs            = @()
+                SettingsCatalog          = @()
+                AdminTemplates           = @()
+                CompliancePolicies       = @()
+                AppProtectionPolicies    = @()
                 AppConfigurationPolicies = @()
-                PlatformScripts = @()
-                HealthScripts = @()
+                PlatformScripts          = @()
+                HealthScripts            = @()
             }
 
             # Get Device Configurations
@@ -3502,7 +2855,7 @@ foreach ($policy in $appConfigPolicies) {
 
                             if ($assignmentReason) {
                                 $assignments += @{
-                                    Reason = $assignmentReason
+                                    Reason  = $assignmentReason
                                     GroupId = $assignment.target.groupId
                                 }
                             }
@@ -3769,7 +3122,8 @@ foreach ($policy in $appConfigPolicies) {
                 foreach ($template in $adminTemplates) {
                     $templateName = if ([string]::IsNullOrWhiteSpace($template.name)) { 
                         $template.displayName 
-                    } else { 
+                    }
+                    else { 
                         $template.name 
                     }
                     
@@ -3787,7 +3141,8 @@ foreach ($policy in $appConfigPolicies) {
                     # Format assignment summary
                     $assignments = if ($template.AssignmentSummary) { 
                         $template.AssignmentSummary 
-                    } else { 
+                    }
+                    else { 
                         "No Assignments" 
                     }
                     if ($assignments.Length -gt 47) {
@@ -3823,7 +3178,7 @@ foreach ($policy in $appConfigPolicies) {
                 }
             }
         }
-         '11' {
+        '11' {
             Write-Host "Compare Group Assignments chosen" -ForegroundColor Green
 
             # Prompt for Group names or IDs
@@ -4089,7 +3444,7 @@ foreach ($policy in $appConfigPolicies) {
             Write-Host "Found $($uniquePolicies.Count) unique policies/apps/scripts across all groups`n" -ForegroundColor Yellow
 
             # Display comparison for each category
-            foreach($category in $categories.Keys) {
+            foreach ($category in $categories.Keys) {
                 $categoryKey = $categories[$category]
 
                 Write-Host "=== $category ===" -ForegroundColor Cyan
@@ -4202,6 +3557,3 @@ foreach ($policy in $appConfigPolicies) {
         $null = $host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
     }
 } while ($selection -ne '0')
-```
-
-```
