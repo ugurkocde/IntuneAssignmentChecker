@@ -2470,7 +2470,7 @@ do {
                 $filePath = Show-SaveFileDialog -DefaultFileName "IntuneAssignmentReport.html"
                 if ($filePath) {
                     Export-HTMLReport -FilePath $filePath
-                                        
+
                     # Ask if user wants to open the report
                     $openReport = Read-Host "Would you like to open the report now? (y/n)"
                     if ($openReport -eq 'y') {
@@ -2480,7 +2480,8 @@ do {
 
                 # Clean up - remove the downloaded script
                 if (Test-Path $scriptPath) {
-                    Remove-Item -Path $scriptPath -Force
+                    #Remove-Item -Path $scriptPath -Force
+                    continue
                 }
             }
             catch {
