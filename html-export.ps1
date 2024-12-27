@@ -308,6 +308,65 @@ function Export-HTMLReport {
             background-color: #0d6efd;
             color: white;
         }
+        .dataTables_wrapper .dt-buttons {
+            float: left;
+            margin-right: 20px;
+        }
+        
+        .dataTables_wrapper .dataTables_length {
+            float: left;
+            margin-right: 20px;
+            padding-top: 5px;
+        }
+        
+        .dataTables_wrapper .dataTables_filter {
+            float: right;
+            margin-left: 20px;
+        }
+        
+        .dataTables_wrapper .dt-buttons button {
+            margin-right: 8px;
+            padding: 6px 16px;
+            border-radius: 4px;
+            font-weight: 500;
+            transition: all 0.2s ease;
+            border: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .dataTables_wrapper .dt-buttons button.buttons-copy {
+            background-color: #6c757d;
+            color: white;
+        }
+
+        .dataTables_wrapper .dt-buttons button.buttons-excel {
+            background-color: #198754;
+            color: white;
+        }
+
+        .dataTables_wrapper .dt-buttons button.buttons-csv {
+            background-color: #0d6efd;
+            color: white;
+        }
+
+        .dataTables_wrapper .dt-buttons button:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            opacity: 0.9;
+        }
+
+        .dataTables_wrapper .dt-buttons button i {
+            font-size: 14px;
+        }
+
+        /* Clear the float after the controls */
+        .dataTables_wrapper::after {
+            content: "";
+            display: table;
+            clear: both;
+        }
     </style>
 </head>
 <body>
@@ -370,11 +429,23 @@ function Export-HTMLReport {
         jQuery(document).ready(function() {
             // Initialize DataTables
             var tables = jQuery('.policy-table').DataTable({
-                dom: 'Blfrtip',
+                dom: '<"row"<"col-sm-6"Bl><"col-sm-6"f>>rtip',
                 buttons: [
-                    'copyHtml5',
-                    'excelHtml5',
-                    'csvHtml5'
+                    {
+                        extend: 'copyHtml5',
+                        text: '<i class="fas fa-copy"></i> Copy',
+                        className: 'buttons-copy'
+                    },
+                    {
+                        extend: 'excelHtml5',
+                        text: '<i class="fas fa-file-excel"></i> Excel',
+                        className: 'buttons-excel'
+                    },
+                    {
+                        extend: 'csvHtml5',
+                        text: '<i class="fas fa-file-csv"></i> CSV',
+                        className: 'buttons-csv'
+                    }
                 ],
                 pageLength: 10,
                 lengthMenu: [[10, 25, 50, -1], [10, 25, 50, "All"]],
@@ -796,19 +867,14 @@ function Export-HTMLReport {
     # Insert chart container + Chart.js script
     $chartBlock = @"
 <div class='row'>
-    <div class='col-md-4'>
+    <div class='col-md-6'>
         <div class='chart-container'>
             <canvas id='policyDistributionChart'></canvas>
         </div>
     </div>
-    <div class='col-md-4'>
+    <div class='col-md-6'>
         <div class='chart-container'>
             <canvas id='policyTypesChart'></canvas>
-        </div>
-    </div>
-    <div class='col-md-4'>
-        <div class='chart-container'>
-            <canvas id='assignmentDonutChart'></canvas>
         </div>
     </div>
 </div>
@@ -884,40 +950,6 @@ function Export-HTMLReport {
                 },
                 x: {
                     ticks: { font: { size: 10 } }
-                }
-            }
-        }
-    });
-
-    // Assignment Types Donut Chart
-    var ctx3 = document.getElementById('assignmentDonutChart').getContext('2d');
-    var assignmentDonutChart = new Chart(ctx3, {
-        type: 'doughnut',
-        data: {
-            labels: ['All Users', 'All Devices', 'Group', 'None'],
-            datasets: [{
-                data: [
-                    $($summaryStats.AllUsers),
-                    $($summaryStats.AllDevices),
-                    $($summaryStats.GroupAssigned),
-                    $($summaryStats.Unassigned)
-                ],
-                backgroundColor: ['#28a745', '#17a2b8', '#ffc107', '#dc3545'],
-                hoverOffset: 4
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: true,
-            plugins: {
-                legend: {
-                    position: 'bottom',
-                    labels: { font: { size: 10 } }
-                },
-                title: {
-                    display: true,
-                    text: 'Assignment Types Overview',
-                    font: { size: 14 }
                 }
             }
         }

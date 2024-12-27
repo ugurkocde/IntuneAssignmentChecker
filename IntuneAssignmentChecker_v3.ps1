@@ -2455,27 +2455,25 @@ do {
             Write-Host "Generating HTML Report..." -ForegroundColor Green
 
             # Download the html-export.ps1 from github and Save the script in the same directory as this script
-            $downloadurl = "https://raw.githubusercontent.com/ugurkocde/Intune/refs/heads/main/html-export.ps1"
+            #$downloadurl = "https://raw.githubusercontent.com/ugurkocde/Intune/refs/heads/main/html-export.ps1"
 
             try {
                 # Download and save the script content
-                $htmlExportScript = (Invoke-WebRequest -Uri $downloadurl -UseBasicParsing).Content
+                #$htmlExportScript = (Invoke-WebRequest -Uri $downloadurl -UseBasicParsing).Content
                 $scriptPath = ".\html-export.ps1"
-                Set-Content -Path $scriptPath -Value $htmlExportScript
+                #Set-Content -Path $scriptPath -Value $htmlExportScript
 
                 # Import the script
                 . $scriptPath
 
-                # Generate the report
-                $filePath = Show-SaveFileDialog -DefaultFileName "IntuneAssignmentReport.html"
-                if ($filePath) {
-                    Export-HTMLReport -FilePath $filePath
+                # Generate the report with a fixed filename in the same directory
+                $filePath = Join-Path (Get-Location) "IntuneAssignmentReport.html"
+                Export-HTMLReport -FilePath $filePath
 
-                    # Ask if user wants to open the report
-                    $openReport = Read-Host "Would you like to open the report now? (y/n)"
-                    if ($openReport -eq 'y') {
-                        Start-Process $filePath
-                    }
+                # Ask if user wants to open the report
+                $openReport = Read-Host "Would you like to open the report now? (y/n)"
+                if ($openReport -eq 'y') {
+                    Start-Process $filePath
                 }
 
                 # Clean up - remove the downloaded script
