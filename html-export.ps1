@@ -552,6 +552,12 @@ function Export-HTMLReport {
     <script src="https://cdn.datatables.net/buttons/2.2.2/js/buttons.html5.min.js"></script>
     <script>
         jQuery(document).ready(function() {
+            // Initialize tooltips
+            var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
+            var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+                return new bootstrap.Tooltip(tooltipTriggerEl)
+            })
+            
             // Initialize DataTables
             var tables = jQuery('.policy-table').DataTable({
                 dom: '<"row"<"col-sm-6"Bl><"col-sm-6"f>>rtip',
@@ -659,6 +665,10 @@ function Export-HTMLReport {
             Type           = "Device Configuration"
             AssignmentType = $assignmentInfo.Type
             AssignedTo     = $assignmentInfo.Target
+            PlatformType   = if ($config.'@odata.type' -match 'android|ios|macos|windows') { 
+                                ($config.'@odata.type' -split '\.' | Select-Object -Last 1) -replace '(ConfigurationProfile|Configuration|DeviceConfiguration)$', ''
+            }
+            else { "Cross-Platform" }
         }
     }
 
@@ -673,6 +683,7 @@ function Export-HTMLReport {
             Type           = "Settings Catalog"
             AssignmentType = $assignmentInfo.Type
             AssignedTo     = $assignmentInfo.Target
+            PlatformType   = if ($policy.platforms) { $policy.platforms -join ', ' } else { "Cross-Platform" }
         }
     }
 
@@ -687,6 +698,7 @@ function Export-HTMLReport {
             Type           = "Administrative Template"
             AssignmentType = $assignmentInfo.Type
             AssignedTo     = $assignmentInfo.Target
+            PlatformType   = "Windows"
         }
     }
 
@@ -701,6 +713,10 @@ function Export-HTMLReport {
             Type           = "Compliance Policy"
             AssignmentType = $assignmentInfo.Type
             AssignedTo     = $assignmentInfo.Target
+            PlatformType   = if ($policy.'@odata.type' -match 'android|ios|macos|windows') {
+                                ($policy.'@odata.type' -split '\.' | Select-Object -Last 1) -replace '(ConfigurationProfile|Configuration|DeviceConfiguration)$', ''
+            }
+            else { "Cross-Platform" }
         }
     }
 
@@ -765,6 +781,12 @@ function Export-HTMLReport {
                         elseif ($assignmentSummary -match "Group") { "Group" }
                         else { "None" }
                         AssignedTo     = $assignmentSummary
+                        PlatformType   = switch ($policy.'@odata.type') {
+                            '#microsoft.graph.androidManagedAppProtection' { 'Android' }
+                            '#microsoft.graph.iosManagedAppProtection' { 'iOS' }
+                            '#microsoft.graph.windowsManagedAppProtection' { 'Windows' }
+                            default { 'Cross-Platform' }
+                        }
                     }
                 }
             }
@@ -786,6 +808,7 @@ function Export-HTMLReport {
             Type           = "PowerShell Script"
             AssignmentType = $assignmentInfo.Type
             AssignedTo     = $assignmentInfo.Target
+            PlatformType   = "Windows"
         }
     }
 
@@ -801,6 +824,7 @@ function Export-HTMLReport {
             Type           = "Proactive Remediation Script"
             AssignmentType = $assignmentInfo.Type
             AssignedTo     = $assignmentInfo.Target
+            PlatformType   = "Windows"
         }
     }
 
@@ -869,7 +893,7 @@ function Export-HTMLReport {
                         }
 
                         "<tr>
-                            <td>$($p.Name)</td>
+                            <td>$($p.Name) <i class='$(if($p.PlatformType -like '*macOS*' -or $p.PlatformType -like '*ios*'){'fab fa-apple'}elseif($p.PlatformType -like '*windows*' -or $p.PlatformType -eq 'Windows'){'fab fa-windows'}elseif($p.PlatformType -like '*linux*'){'fab fa-linux'}elseif($p.PlatformType -like '*android*'){'fab fa-android'}else{'fas fa-info-circle'}) text-info' data-bs-toggle='tooltip' title='Platform: $($p.PlatformType)'></i></td>
                             <td><span class='badge $badgeClass'>$($p.AssignmentType)</span></td>
                             <td>$($p.AssignedTo)</td>
                         </tr>"
@@ -908,7 +932,7 @@ function Export-HTMLReport {
                 }
 
                 "<tr>
-                    <td>$($p.Name)</td>
+                    <td>$($p.Name) <i class='$(if($p.PlatformType -like '*macOS*' -or $p.PlatformType -like '*ios*'){'fab fa-apple'}elseif($p.PlatformType -like '*windows*' -or $p.PlatformType -eq 'Windows'){'fab fa-windows'}elseif($p.PlatformType -like '*linux*'){'fab fa-linux'}elseif($p.PlatformType -like '*android*'){'fab fa-android'}else{'fas fa-info-circle'}) text-info' data-bs-toggle='tooltip' title='Platform: $($p.PlatformType)'></i></td>
                     <td><span class='badge $badgeClass'>$($p.AssignmentType)</span></td>
                     <td>$($p.AssignedTo)</td>
                 </tr>"
