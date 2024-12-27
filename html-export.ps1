@@ -476,6 +476,29 @@ function Export-HTMLReport {
             margin: 5px 0 0 0;
             opacity: 0.9;
         }
+
+        /* Add CSS styles for collapsible rows */
+        .collapsed-info {
+            display: none;
+            background-color: var(--hover-bg);
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 5px;
+            border-left: 3px solid #0d6efd;
+        }
+
+        .expand-button {
+            cursor: pointer;
+            padding: 5px;
+            margin-right: 10px;
+            color: #0d6efd;
+            transition: transform 0.2s;
+            display: inline-block;
+        }
+
+        .expand-button.expanded {
+            transform: rotate(90deg);
+        }
     </style>
 </head>
 <body>
@@ -558,6 +581,21 @@ function Export-HTMLReport {
                 return new bootstrap.Tooltip(tooltipTriggerEl)
             })
             
+            // Add click event handler for expand buttons
+            jQuery(document).on('click', '.expand-button', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                const row = jQuery(this).closest('td');
+                const details = row.find('.collapsed-info');
+                jQuery(this).toggleClass('expanded');
+                
+                if (details.is(':visible')) {
+                    details.slideUp(200);
+                } else {
+                    details.slideDown(200);
+                }
+            });
+            
             // Initialize DataTables
             var tables = jQuery('.policy-table').DataTable({
                 dom: '<"row"<"col-sm-6"Bl><"col-sm-6"f>>rtip',
@@ -635,6 +673,19 @@ function Export-HTMLReport {
             const firstPane = document.querySelector('.tab-pane');
             if (firstTab) firstTab.classList.add('active');
             if (firstPane) firstPane.classList.add('show', 'active');
+
+            // Add JavaScript function for toggling details
+            function toggleDetails(button) {
+                const row = button.closest('td');
+                const details = row.querySelector('.collapsed-info');
+                button.classList.toggle('expanded');
+                
+                if (details.style.display === 'none' || details.style.display === '') {
+                    details.style.display = 'block';
+                } else {
+                    details.style.display = 'none';
+                }
+            }
         });
     </script>
 </body>
@@ -660,15 +711,17 @@ function Export-HTMLReport {
         $assignments = Get-IntuneAssignments -EntityType "deviceConfigurations" -EntityId $config.id
         $assignmentInfo = Get-AssignmentInfo -Assignments $assignments
         $policies.DeviceConfigs += @{
-            Name           = $config.displayName
-            ID             = $config.id
-            Type           = "Device Configuration"
-            AssignmentType = $assignmentInfo.Type
-            AssignedTo     = $assignmentInfo.Target
-            PlatformType   = if ($config.'@odata.type' -match 'android|ios|macos|windows') { 
+            Name                 = $config.displayName
+            ID                   = $config.id
+            Type                 = "Device Configuration"
+            AssignmentType       = $assignmentInfo.Type
+            AssignedTo           = $assignmentInfo.Target
+            PlatformType         = if ($config.'@odata.type' -match 'android|ios|macos|windows') { 
                                 ($config.'@odata.type' -split '\.' | Select-Object -Last 1) -replace '(ConfigurationProfile|Configuration|DeviceConfiguration)$', ''
             }
             else { "Cross-Platform" }
+            CreatedDateTime      = $config.createdDateTime
+            LastModifiedDateTime = $config.lastModifiedDateTime
         }
     }
 
@@ -678,12 +731,14 @@ function Export-HTMLReport {
         $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
         $assignmentInfo = Get-AssignmentInfo -Assignments $assignments
         $policies.SettingsCatalog += @{
-            Name           = $policy.name
-            ID             = $policy.id
-            Type           = "Settings Catalog"
-            AssignmentType = $assignmentInfo.Type
-            AssignedTo     = $assignmentInfo.Target
-            PlatformType   = if ($policy.platforms) { $policy.platforms -join ', ' } else { "Cross-Platform" }
+            Name                 = $policy.name
+            ID                   = $policy.id
+            Type                 = "Settings Catalog"
+            AssignmentType       = $assignmentInfo.Type
+            AssignedTo           = $assignmentInfo.Target
+            PlatformType         = if ($policy.platforms) { $policy.platforms -join ', ' } else { "Cross-Platform" }
+            CreatedDateTime      = $policy.createdDateTime
+            LastModifiedDateTime = $policy.lastModifiedDateTime
         }
     }
 
@@ -693,12 +748,14 @@ function Export-HTMLReport {
         $assignments = Get-IntuneAssignments -EntityType "groupPolicyConfigurations" -EntityId $template.id
         $assignmentInfo = Get-AssignmentInfo -Assignments $assignments
         $policies.AdminTemplates += @{
-            Name           = $template.displayName
-            ID             = $template.id
-            Type           = "Administrative Template"
-            AssignmentType = $assignmentInfo.Type
-            AssignedTo     = $assignmentInfo.Target
-            PlatformType   = "Windows"
+            Name                 = $template.displayName
+            ID                   = $template.id
+            Type                 = "Administrative Template"
+            AssignmentType       = $assignmentInfo.Type
+            AssignedTo           = $assignmentInfo.Target
+            PlatformType         = "Windows"
+            CreatedDateTime      = $template.createdDateTime
+            LastModifiedDateTime = $template.lastModifiedDateTime
         }
     }
 
@@ -708,15 +765,17 @@ function Export-HTMLReport {
         $assignments = Get-IntuneAssignments -EntityType "deviceCompliancePolicies" -EntityId $policy.id
         $assignmentInfo = Get-AssignmentInfo -Assignments $assignments
         $policies.CompliancePolicies += @{
-            Name           = $policy.displayName
-            ID             = $policy.id
-            Type           = "Compliance Policy"
-            AssignmentType = $assignmentInfo.Type
-            AssignedTo     = $assignmentInfo.Target
-            PlatformType   = if ($policy.'@odata.type' -match 'android|ios|macos|windows') {
-                                ($policy.'@odata.type' -split '\.' | Select-Object -Last 1) -replace '(ConfigurationProfile|Configuration|DeviceConfiguration)$', ''
+            Name                 = $policy.displayName
+            ID                   = $policy.id
+            Type                 = "Compliance Policy"
+            AssignmentType       = $assignmentInfo.Type
+            AssignedTo           = $assignmentInfo.Target
+            PlatformType         = if ($policy.'@odata.type' -match 'android|ios|macos|windows') {
+                                     ($policy.'@odata.type' -split '\.' | Select-Object -Last 1) -replace '(ConfigurationProfile|Configuration|DeviceConfiguration)$', ''
             }
             else { "Cross-Platform" }
+            CreatedDateTime      = $policy.createdDateTime
+            LastModifiedDateTime = $policy.lastModifiedDateTime
         }
     }
 
@@ -774,19 +833,21 @@ function Export-HTMLReport {
                     }
                     $policy | Add-Member -NotePropertyName 'AssignmentSummary' -NotePropertyValue ($assignmentSummary -join "; ") -Force
                     $policies.AppProtectionPolicies += @{
-                        Name           = $policy.displayName
-                        ID             = $policy.id
-                        Type           = "App Protection Policy"
-                        AssignmentType = if ($assignmentSummary -match "All Users") { "All Users" }
+                        Name                 = $policy.displayName
+                        ID                   = $policy.id
+                        Type                 = "App Protection Policy"
+                        AssignmentType       = if ($assignmentSummary -match "All Users") { "All Users" }
                         elseif ($assignmentSummary -match "Group") { "Group" }
                         else { "None" }
-                        AssignedTo     = $assignmentSummary
-                        PlatformType   = switch ($policy.'@odata.type') {
+                        AssignedTo           = $assignmentSummary
+                        PlatformType         = switch ($policy.'@odata.type') {
                             '#microsoft.graph.androidManagedAppProtection' { 'Android' }
                             '#microsoft.graph.iosManagedAppProtection' { 'iOS' }
                             '#microsoft.graph.windowsManagedAppProtection' { 'Windows' }
                             default { 'Cross-Platform' }
                         }
+                        CreatedDateTime      = $policy.createdDateTime
+                        LastModifiedDateTime = $policy.lastModifiedDateTime
                     }
                 }
             }
@@ -803,12 +864,14 @@ function Export-HTMLReport {
         $assignments = Get-IntuneAssignments -EntityType "deviceManagementScripts" -EntityId $script.id
         $assignmentInfo = Get-AssignmentInfo -Assignments $assignments
         $policies.PlatformScripts += @{
-            Name           = $script.displayName
-            ID             = $script.id
-            Type           = "PowerShell Script"
-            AssignmentType = $assignmentInfo.Type
-            AssignedTo     = $assignmentInfo.Target
-            PlatformType   = "Windows"
+            Name                 = $script.displayName
+            ID                   = $script.id
+            Type                 = "PowerShell Script"
+            AssignmentType       = $assignmentInfo.Type
+            AssignedTo           = $assignmentInfo.Target
+            PlatformType         = "Windows"
+            CreatedDateTime      = $script.createdDateTime
+            LastModifiedDateTime = $script.lastModifiedDateTime
         }
     }
 
@@ -819,12 +882,14 @@ function Export-HTMLReport {
         $assignments = Get-IntuneAssignments -EntityType "deviceHealthScripts" -EntityId $script.id
         $assignmentInfo = Get-AssignmentInfo -Assignments $assignments
         $policies.HealthScripts += @{
-            Name           = $script.displayName
-            ID             = $script.id
-            Type           = "Proactive Remediation Script"
-            AssignmentType = $assignmentInfo.Type
-            AssignedTo     = $assignmentInfo.Target
-            PlatformType   = "Windows"
+            Name                 = $script.displayName
+            ID                   = $script.id
+            Type                 = "Proactive Remediation Script"
+            AssignmentType       = $assignmentInfo.Type
+            AssignedTo           = $assignmentInfo.Target
+            PlatformType         = "Windows"
+            CreatedDateTime      = $script.createdDateTime
+            LastModifiedDateTime = $script.lastModifiedDateTime
         }
     }
 
@@ -893,7 +958,18 @@ function Export-HTMLReport {
                         }
 
                         "<tr>
-                            <td>$($p.Name) <i class='$(if($p.PlatformType -like '*macOS*' -or $p.PlatformType -like '*ios*'){'fab fa-apple'}elseif($p.PlatformType -like '*windows*' -or $p.PlatformType -eq 'Windows'){'fab fa-windows'}elseif($p.PlatformType -like '*linux*'){'fab fa-linux'}elseif($p.PlatformType -like '*android*'){'fab fa-android'}else{'fas fa-info-circle'}) text-info' data-bs-toggle='tooltip' title='Platform: $($p.PlatformType)'></i></td>
+                            <td>
+                                <div style='display: flex; align-items: flex-start;'>
+                                    <i class='fas fa-chevron-right expand-button'></i>
+                                    <div style='flex: 1;'>
+                                        <span>$($p.Name) <i class='$(if($p.PlatformType -like '*macOS*' -or $p.PlatformType -like '*ios*'){'fab fa-apple'}elseif($p.PlatformType -like '*windows*' -or $p.PlatformType -eq 'Windows'){'fab fa-windows'}elseif($p.PlatformType -like '*linux*'){'fab fa-linux'}elseif($p.PlatformType -like '*android*'){'fab fa-android'}else{'fas fa-info-circle'}) text-info' data-bs-toggle='tooltip' title='Platform: $($p.PlatformType)'></i></span>
+                                        <div class='collapsed-info'>
+                                            <p><strong>Created:</strong> $(Get-Date $p.CreatedDateTime -Format 'yyyy-MM-dd HH:mm:ss')</p>
+                                            <p><strong>Last Modified:</strong> $(Get-Date $p.LastModifiedDateTime -Format 'yyyy-MM-dd HH:mm:ss')</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </td>
                             <td><span class='badge $badgeClass'>$($p.AssignmentType)</span></td>
                             <td>$($p.AssignedTo)</td>
                         </tr>"
@@ -932,7 +1008,18 @@ function Export-HTMLReport {
                 }
 
                 "<tr>
-                    <td>$($p.Name) <i class='$(if($p.PlatformType -like '*macOS*' -or $p.PlatformType -like '*ios*'){'fab fa-apple'}elseif($p.PlatformType -like '*windows*' -or $p.PlatformType -eq 'Windows'){'fab fa-windows'}elseif($p.PlatformType -like '*linux*'){'fab fa-linux'}elseif($p.PlatformType -like '*android*'){'fab fa-android'}else{'fas fa-info-circle'}) text-info' data-bs-toggle='tooltip' title='Platform: $($p.PlatformType)'></i></td>
+                    <td>
+                        <div style='display: flex; align-items: flex-start;'>
+                            <i class='fas fa-chevron-right expand-button'></i>
+                            <div style='flex: 1;'>
+                                <span>$($p.Name) <i class='$(if($p.PlatformType -like '*macOS*' -or $p.PlatformType -like '*ios*'){'fab fa-apple'}elseif($p.PlatformType -like '*windows*' -or $p.PlatformType -eq 'Windows'){'fab fa-windows'}elseif($p.PlatformType -like '*linux*'){'fab fa-linux'}elseif($p.PlatformType -like '*android*'){'fab fa-android'}else{'fas fa-info-circle'}) text-info' data-bs-toggle='tooltip' title='Platform: $($p.PlatformType)'></i></span>
+                                <div class='collapsed-info'>
+                                    <p><strong>Created:</strong> $(Get-Date $p.CreatedDateTime -Format 'yyyy-MM-dd HH:mm:ss')</p>
+                                    <p><strong>Last Modified:</strong> $(Get-Date $p.LastModifiedDateTime -Format 'yyyy-MM-dd HH:mm:ss')</p>
+                                </div>
+                            </div>
+                        </div>
+                    </td>
                     <td><span class='badge $badgeClass'>$($p.AssignmentType)</span></td>
                     <td>$($p.AssignedTo)</td>
                 </tr>"
