@@ -1,4 +1,24 @@
 # Function to get assignment information 5
+function Get-TenantInfo {
+    try {
+        $organization = Invoke-MgGraphRequest -Uri "https://graph.microsoft.com/v1.0/organization" -Method Get
+        $tenantInfo = $organization.value[0]
+        return @{
+            TenantId      = $tenantInfo.id
+            DefaultDomain = $tenantInfo.verifiedDomains | Where-Object { $_.isDefault } | Select-Object -ExpandProperty name
+            DisplayName   = $tenantInfo.displayName
+        }
+    }
+    catch {
+        Write-Warning "Could not fetch tenant information: $_"
+        return @{
+            TenantId      = "N/A"
+            DefaultDomain = "N/A"
+            DisplayName   = "N/A"
+        }
+    }
+}
+
 function Get-AssignmentInfo {
     param (
         [Parameter(Mandatory = $true)]
@@ -48,6 +68,9 @@ function Export-HTMLReport {
         [string]$FilePath
     )
 
+    # Get tenant information
+    $tenantInfo = Get-TenantInfo
+
     # HTML template with placeholders for $tabHeaders, $tabContent, summary stats, and chart
     $htmlTemplate = @"
 <!DOCTYPE html>
@@ -85,6 +108,7 @@ function Export-HTMLReport {
             background-color: var(--bg-color);
             color: var(--text-color);
             transition: background-color 0.3s ease, color 0.3s ease;
+            padding-bottom: 60px;
         }
         .card {
             margin-bottom: 20px;
@@ -208,6 +232,45 @@ function Export-HTMLReport {
             position: relative;
         }
 
+        .report-header .header-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .report-header .header-title {
+            flex: 1;
+        }
+
+        .report-header .tenant-info {
+            padding-left: 30px;
+            margin-left: 30px;
+            border-left: 2px solid rgba(255, 255, 255, 0.3);
+            text-align: right;
+        }
+
+        .report-header .tenant-info p {
+            margin: 5px 0;
+            font-size: 0.9rem;
+            opacity: 0.9;
+        }
+
+        .report-header .tenant-info .tenant-label {
+            font-size: 0.8rem;
+            opacity: 0.7;
+            margin-right: 8px;
+        }
+
+        .report-header h1 {
+            margin: 0;
+            font-weight: 300;
+        }
+
+        .report-header p {
+            margin: 10px 0 0 0;
+            opacity: 0.9;
+        }
+
         .theme-toggle {
             position: absolute;
             top: 20px;
@@ -263,14 +326,6 @@ function Export-HTMLReport {
         .search-box input:focus {
             border-color: #0d6efd;
             box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.25);
-        }
-        .report-header h1 {
-            margin: 0;
-            font-weight: 300;
-        }
-        .report-header p {
-            margin: 10px 0 0 0;
-            opacity: 0.9;
         }
         .summary-stat {
             text-align: center;
@@ -367,13 +422,69 @@ function Export-HTMLReport {
             display: table;
             clear: both;
         }
+
+        /* Footer Styles */
+        .footer {
+            position: fixed;
+            bottom: 0;
+            right: 0;
+            background: rgba(255, 255, 255, 0.9);
+            backdrop-filter: blur(5px);
+            padding: 10px 20px;
+            border-top-left-radius: 10px;
+            box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
+            z-index: 1000;
+            font-size: 0.9rem;
+            transition: all 0.3s ease;
+        }
+
+        .footer a {
+            color: #0d6efd;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.3s ease;
+        }
+
+        .footer a:hover {
+            color: #0056b3;
+            transform: translateY(-1px);
+        }
+
+        .footer i {
+            font-size: 1.2rem;
+        }
+
+        [data-theme="dark"] .footer {
+            background: rgba(45, 45, 45, 0.9);
+        }
+
+        [data-theme="dark"] .footer a {
+            color: #58a6ff;
+        }
+
+        @media print {
+            .footer {
+                display: none !important;
+            }
+        }
     </style>
 </head>
 <body>
     <div class="container-fluid">
         <div class="report-header">
-            <h1>Intune Assignment Report</h1>
-            <p>Generated on $(Get-Date -Format "MMMM dd, yyyy HH:mm")</p>
+            <div class="header-content">
+                <div class="header-title">
+                    <h1>Intune Assignment Report</h1>
+                    <p>Generated on $(Get-Date -Format "MMMM dd, yyyy HH:mm")</p>
+                </div>
+                <div class="tenant-info">
+                    <p><span class="tenant-label">Tenant ID:</span> $($tenantInfo.TenantId)</p>
+                    <p><span class="tenant-label">Domain:</span> $($tenantInfo.DefaultDomain)</p>
+                    <p><span class="tenant-label">Display Name:</span> $($tenantInfo.DisplayName)</p>
+                </div>
+            </div>
         </div>
 
         <div class="row mb-4">
@@ -415,6 +526,13 @@ function Export-HTMLReport {
         <div class="tab-content" id="assignmentTabContent">
             <!-- Tab content will be inserted here -->
         </div>
+    </div>
+
+    <div class="footer">
+        <a href="https://github.com/ugurkocde/IntuneAssignmentChecker" target="_blank">
+            <i class="fab fa-github"></i>
+            View on GitHub
+        </a>
     </div>
 
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
