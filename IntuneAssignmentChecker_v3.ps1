@@ -29,7 +29,7 @@ else {
 }
 
 # Flag to control auto-update behavior
-$autoUpdate = $false  # Set to $false to disable auto-update
+$autoUpdate = $true  # Set to $false to disable auto-update
 
 try {
     # Fetch the latest version number from GitHub
