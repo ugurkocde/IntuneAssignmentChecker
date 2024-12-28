@@ -34,7 +34,7 @@
 # Install from PowerShell Gallery
 Install-PSResource IntuneAssignmentChecker
 
-# Run the script
+# Open a new PowerShell 7 session to run the script with
 IntuneAssignmentChecker
 ```
 
