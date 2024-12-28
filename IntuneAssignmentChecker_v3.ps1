@@ -2501,14 +2501,14 @@ do {
         '7' {
             Write-Host "Generating HTML Report..." -ForegroundColor Green
 
-            # Download the html-export.ps1 from github and Save the script in the same directory as this script
-            #$downloadurl = "https://raw.githubusercontent.com/ugurkocde/Intune/refs/heads/main/html-export.ps1"
+            # Download the html-export.ps1 script from GitHub
+            $downloadurl = "https://raw.githubusercontent.com/ugurkocde/Intune/refs/heads/main/html-export.ps1"
 
             try {
-                # Download and save the script content
-                #$htmlExportScript = (Invoke-WebRequest -Uri $downloadurl -UseBasicParsing).Content
+                
+                $htmlExportScript = (Invoke-WebRequest -Uri $downloadurl -UseBasicParsing).Content
                 $scriptPath = ".\html-export.ps1"
-                #Set-Content -Path $scriptPath -Value $htmlExportScript
+                Set-Content -Path $scriptPath -Value $htmlExportScript
 
                 # Import the script
                 . $scriptPath
@@ -2525,7 +2525,7 @@ do {
 
                 # Clean up - remove the downloaded script
                 if (Test-Path $scriptPath) {
-                    #Remove-Item -Path $scriptPath -Force
+                    Remove-Item -Path $scriptPath -Force
                     continue
                 }
             }
