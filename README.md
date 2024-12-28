@@ -12,11 +12,10 @@
   </p>
 </div>
 
-
 ![IntuneAssignmentChecker_Header](https://github.com/user-attachments/assets/47d2231d-569f-4d22-bef5-944a4a74f7da)
 
-
 ## 📑 Table of Contents
+
 - [🚀 Quick Start](#-quick-start)
 - [✨ Features](#-features)
 - [📋 Prerequisites](#-prerequisites)
@@ -32,7 +31,7 @@
 Install-Module Microsoft.Graph.Authentication -Scope CurrentUser
 
 # Download and run the script
-.\IntuneAssignmentChecker_v2.ps1
+.\IntuneAssignmentChecker_v3.ps1
 ```
 
 ## ✨ Features
@@ -42,6 +41,7 @@ Install-Module Microsoft.Graph.Authentication -Scope CurrentUser
 - 🔐 Support for certificate-based authentication
 - 🔄 Built-in auto-update functionality
 - 📊 Detailed reporting of Configuration Profiles, Compliance Policies, and Applications
+- 📈 Interactive HTML reports with charts and filterable tables
 
 ## 🎥 Demo
 
@@ -52,11 +52,13 @@ Install-Module Microsoft.Graph.Authentication -Scope CurrentUser
 ## 📋 Prerequisites
 
 ### Required PowerShell Modules
+
 - PowerShell 7.0 or higher
 - Microsoft Graph PowerShell SDK
   - Specifically Microsoft.Graph.Authentication
 
 ### Required Permissions
+
 Your Entra ID application registration needs these permissions:
 | Permission | Type | Description |
 |------------|------|-------------|
@@ -70,9 +72,11 @@ Your Entra ID application registration needs these permissions:
 ## 🔐 Authentication Options
 
 ### Option 1: Certificate-Based Authentication (Recommended for automation)
+
 Follow these steps if you want to use certificate authentication with an app registration:
 
 1. Create an Entra ID App Registration:
+
    - Navigate to Azure Portal > Entra ID > App Registrations
    - Click "New Registration"
    - Name your application (e.g., "IntuneAssignmentChecker")
@@ -80,6 +84,7 @@ Follow these steps if you want to use certificate authentication with an app reg
    - Click "Register"
 
 2. Grant required Application permissions:
+
    - In your app registration, go to "API Permissions"
    - Click "Add a permission" > "Microsoft Graph"
    - Select "Application permissions"
@@ -87,6 +92,7 @@ Follow these steps if you want to use certificate authentication with an app reg
    - Click "Grant admin consent"
 
 3. Create and configure certificate authentication:
+
    ```powershell
    # Create self-signed certificate
    New-SelfSignedCertificate `
@@ -102,6 +108,7 @@ Follow these steps if you want to use certificate authentication with an app reg
    ```
 
 4. Upload certificate to your app registration:
+
    - In Azure Portal, go to your app registration
    - Click "Certificates & secrets"
    - Select "Certificates"
@@ -117,6 +124,7 @@ Follow these steps if you want to use certificate authentication with an app reg
    ```
 
 ### Option 2: Interactive Authentication (Simpler setup)
+
 If you prefer not to set up an app registration, you can use interactive authentication:
 
 You can just run the script without any changes. It will ask if you want to use interactive authentication where you will type "y" and press enter.
@@ -126,6 +134,7 @@ This will prompt you to sign in with your credentials when running the script. T
 ### Which Option Should I Choose?
 
 - **Choose Certificate Authentication if you**:
+
   - Need to run the script unattended
   - Want to automate the process
   - Need consistent permissions regardless of user
@@ -144,12 +153,15 @@ This will prompt you to sign in with your credentials when running the script. T
 The script provides a comprehensive menu-driven interface with the following options:
 
 ### 🎯 Assignment Checks
+
 1. **Check User(s) Assignments**
+
    - View all policies and apps assigned to specific users
    - Supports checking multiple users (comma-separated)
    - Shows direct and group-based assignments
 
 2. **Check Group(s) Assignments**
+
    - View all policies and apps assigned to specific groups
    - Supports checking multiple groups
    - Shows assignment types (Include/Exclude)
@@ -160,12 +172,15 @@ The script provides a comprehensive menu-driven interface with the following opt
    - Shows inherited assignments from device groups
 
 ### 📋 Policy Overview
+
 4. **Show All Policies and Their Assignments**
+
    - Comprehensive view of all Intune policies
    - Grouped by policy type and platform
    - Includes assignment details
 
 5. **Show All 'All Users' Assignments**
+
    - Lists policies assigned to all users
    - Includes apps and configurations
    - Helps identify broad-scope policies
@@ -176,12 +191,17 @@ The script provides a comprehensive menu-driven interface with the following opt
    - Identifies universal device policies
 
 ### ⚙️ Advanced Options
-7. **Search for Assignments by Setting Name**
-   - Search across all policy types
-   - Find specific settings or configurations
-   - Includes partial name matching
+
+7. **Generate HTML Report**
+
+   - Creates interactive HTML report
+   - Includes charts and graphs
+   - Filterable tables with search functionality
+   - Dark/Light mode toggle
+   - Export capabilities to Excel/CSV
 
 8. **Show Policies Without Assignments**
+
    - Identifies unassigned policies
    - Grouped by policy type
    - Helps clean up unused policies
@@ -192,6 +212,7 @@ The script provides a comprehensive menu-driven interface with the following opt
    - Supports CSV export of findings
 
 ### 🛠️ System Options
+
 - **Exit (0)**: Safely disconnect and close
 - **Report Bug (99)**: Opens GitHub issues page
 
