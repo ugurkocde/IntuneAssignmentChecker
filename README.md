@@ -26,6 +26,32 @@
 
 ## 🚀 Quick Start
 
+> **Important**: All commands must be run in a PowerShell 7 session. The script will not work in PowerShell 5.1 or earlier versions.
+
+### Option 1: Install from PowerShell Gallery (Recommended)
+
+```powershell
+# Install from PowerShell Gallery
+Install-PSResource IntuneAssignmentChecker
+
+# Run the script
+IntuneAssignmentChecker
+```
+
+If you encounter any issues during installation, try reinstalling:
+
+```powershell
+Install-PSResource IntuneAssignmentChecker -Reinstall
+```
+
+To update to the latest version:
+
+```powershell
+Update-PSResource IntuneAssignmentChecker
+```
+
+### Option 2: Manual Installation
+
 ```powershell
 # Install Microsoft Graph PowerShell SDK
 Install-Module Microsoft.Graph.Authentication -Scope CurrentUser
@@ -51,9 +77,15 @@ Install-Module Microsoft.Graph.Authentication -Scope CurrentUser
 
 ## 📋 Prerequisites
 
+### Required PowerShell Version
+
+- **PowerShell 7.0 or higher is required**
+  - The script will not work with PowerShell 5.1 or earlier versions
+  - You can check your PowerShell version by running: `$PSVersionTable.PSVersion`
+  - Download PowerShell 7 from: https://aka.ms/powershell-release?tag=stable
+
 ### Required PowerShell Modules
 
-- PowerShell 7.0 or higher
 - Microsoft Graph PowerShell SDK
   - Specifically Microsoft.Graph.Authentication
 
