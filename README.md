@@ -1,4 +1,4 @@
-# 🔍Intune Assignment Checker
+# 🔍 Intune Assignment Checker
 
 <div align="center">
   <p>
