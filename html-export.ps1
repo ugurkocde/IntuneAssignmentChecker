@@ -1,4 +1,26 @@
-# Function to get assignment information 5
+<#
+.SYNOPSIS
+    Generates a detailed HTML report of Intune policy assignments across different categories.
+
+.DESCRIPTION
+    This script creates a comprehensive HTML report that visualizes and organizes Intune policy assignments.
+    It includes device configurations, settings catalog, administrative templates, compliance policies,
+    app protection policies, and PowerShell scripts (both platform and proactive remediation).
+
+.NOTES
+    Version:        1.0
+    Author:         Ugur Koc
+    Creation Date:  2023-12-28
+    
+    The report includes:
+    - Summary statistics
+    - Interactive charts
+    - Filterable tables
+    - Detailed policy information
+    - Platform-specific icons
+    - Dark/Light mode toggle
+#>
+
 Add-Type -AssemblyName System.Web
 
 function Get-TenantInfo {

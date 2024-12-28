@@ -1,6 +1,53 @@
-# [Previous content truncated due to length limit. The content was successfully written but is too long to display in full.]
-Write-Host "🚧 PREVIEW VERSION 3.0 🚧" -ForegroundColor Magenta
+#Requires -Version 7.0
+#Requires -Modules Microsoft.Graph.Authentication
+
+<#
+.SYNOPSIS
+    Checks Intune policy and app assignments for users, groups, and devices.
+
+.DESCRIPTION
+    This script helps IT administrators analyze and audit Intune assignments by:
+    - Checking assignments for specific users, groups, or devices
+    - Showing all policies and their assignments
+    - Finding policies without assignments
+    - Identifying empty groups in assignments
+    - Searching for specific settings across policies
+
+.AUTHOR
+    Ugur Koc (@ugurkocde)
+    GitHub: https://github.com/ugurkocde/IntuneAssignmentChecker
+    Sponsor: https://github.com/sponsors/ugurkocde
+    Changelog: https://github.com/ugurkocde/IntuneAssignmentChecker/releases
+
+.REQUIRED PERMISSIONS
+    - User.Read.All                    (Read user profiles)
+    - Group.Read.All                   (Read group information)
+    - Device.Read.All                  (Read device information)
+    - DeviceManagementApps.Read.All    (Read app management data)
+    - DeviceManagementConfiguration.Read.All    (Read device configurations)
+    - DeviceManagementManagedDevices.Read.All   (Read device management data)
+#>
+
+################################ Prerequisites #####################################################
+
+# Fill in your App ID, Tenant ID, and Certificate Thumbprint
+$appid = '<YourAppIdHere>' # App ID of the App Registration
+$tenantid = '<YourTenantIdHere>' # Tenant ID of your EntraID
+$certThumbprint = '<YourCertificateThumbprintHere>' # Thumbprint of the certificate associated with the App Registration
+# $certName = '<YourCertificateNameHere>' # Name of the certificate associated with the App Registration
+
+####################################################################################################
+
+# Version of the local script
+$localVersion = "3.0.0"
+
+Write-Host "🔍 INTUNE ASSIGNMENT CHECKER" -ForegroundColor Cyan
+Write-Host "Made by Ugur Koc with" -NoNewline; Write-Host " ❤️  and ☕" -NoNewline
+Write-Host " | Version" -NoNewline; Write-Host " $localVersion" -ForegroundColor Yellow -NoNewline
+Write-Host " | Last updated: " -NoNewline; Write-Host "2024-12-28" -ForegroundColor Magenta
 Write-Host ""
+Write-Host "📢 Feedback & Issues: " -NoNewline -ForegroundColor Cyan
+Write-Host "https://github.com/ugurkocde/IntuneAssignmentChecker" -ForegroundColor White
 Write-Host "📄 Changelog: " -NoNewline -ForegroundColor Cyan
 Write-Host "https://github.com/ugurkocde/IntuneAssignmentChecker/releases" -ForegroundColor White
 Write-Host ""
