@@ -1,48 +1,12 @@
-<#
-.SYNOPSIS
-    Generates a detailed HTML report of Intune policy assignments across different categories.
+$context = Get-MgContext
+$environment = $context.Environment
 
-.DESCRIPTION
-    This script creates a comprehensive HTML report that visualizes and organizes Intune policy assignments.
-    It includes device configurations, settings catalog, administrative templates, compliance policies,
-    app protection policies, and PowerShell scripts (both platform and proactive remediation).
-
-.NOTES
-    Version:        1.0
-    Author:         Ugur Koc
-    Creation Date:  2023-12-28
-    
-    The report includes:
-    - Summary statistics
-    - Interactive charts
-    - Filterable tables
-    - Detailed policy information
-    - Platform-specific icons
-    - Dark/Light mode toggle
-#>
-
-Add-Type -AssemblyName System.Web
-
-function Get-TenantInfo {
-    try {
-        $organization = Invoke-MgGraphRequest -Uri "https://graph.microsoft.com/v1.0/organization" -Method Get
-        $tenantInfo = $organization.value[0]
-        return @{
-            TenantId      = $tenantInfo.id
-            DefaultDomain = $tenantInfo.verifiedDomains | Where-Object { $_.isDefault } | Select-Object -ExpandProperty name
-            DisplayName   = $tenantInfo.displayName
-        }
-    }
-    catch {
-        Write-Warning "Could not fetch tenant information: $_"
-        return @{
-            TenantId      = "N/A"
-            DefaultDomain = "N/A"
-            DisplayName   = "N/A"
-        }
-    }
+$GraphEndpoint = switch ($environment) {
+    "Global" { "https://graph.microsoft.com" }
+    "USGov" { "https://graph.microsoft.us" }
+    "USGovDoD" { "https://dod-graph.microsoft.us" }
 }
-
+# Function to get assignment information 5
 function Get-AssignmentInfo {
     param (
         [Parameter(Mandatory = $true)]
@@ -72,8 +36,7 @@ function Get-AssignmentInfo {
             if ($assignment.GroupId) {
                 $groupInfo = Get-GroupInfo -GroupId $assignment.GroupId
                 $groupInfo.DisplayName
-            }
-            else {
+            } else {
                 "Unknown Group"
             }
         }
@@ -91,9 +54,6 @@ function Export-HTMLReport {
         [Parameter(Mandatory = $true)]
         [string]$FilePath
     )
-
-    # Get tenant information
-    $tenantInfo = Get-TenantInfo
 
     # HTML template with placeholders for $tabHeaders, $tabContent, summary stats, and chart
     $htmlTemplate = @"
@@ -132,7 +92,6 @@ function Export-HTMLReport {
             background-color: var(--bg-color);
             color: var(--text-color);
             transition: background-color 0.3s ease, color 0.3s ease;
-            padding-bottom: 60px;
         }
         .card {
             margin-bottom: 20px;
@@ -256,45 +215,6 @@ function Export-HTMLReport {
             position: relative;
         }
 
-        .report-header .header-content {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .report-header .header-title {
-            flex: 1;
-        }
-
-        .report-header .tenant-info {
-            padding-left: 30px;
-            margin-left: 30px;
-            border-left: 2px solid rgba(255, 255, 255, 0.3);
-            text-align: right;
-        }
-
-        .report-header .tenant-info p {
-            margin: 5px 0;
-            font-size: 0.9rem;
-            opacity: 0.9;
-        }
-
-        .report-header .tenant-info .tenant-label {
-            font-size: 0.8rem;
-            opacity: 0.7;
-            margin-right: 8px;
-        }
-
-        .report-header h1 {
-            margin: 0;
-            font-weight: 300;
-        }
-
-        .report-header p {
-            margin: 10px 0 0 0;
-            opacity: 0.9;
-        }
-
         .theme-toggle {
             position: absolute;
             top: 20px;
@@ -351,6 +271,14 @@ function Export-HTMLReport {
             border-color: #0d6efd;
             box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.25);
         }
+        .report-header h1 {
+            margin: 0;
+            font-weight: 300;
+        }
+        .report-header p {
+            margin: 10px 0 0 0;
+            opacity: 0.9;
+        }
         .summary-stat {
             text-align: center;
             padding: 20px;
@@ -387,156 +315,13 @@ function Export-HTMLReport {
             background-color: #0d6efd;
             color: white;
         }
-        .dataTables_wrapper .dt-buttons {
-            float: left;
-            margin-right: 20px;
-        }
-        
-        .dataTables_wrapper .dataTables_length {
-            float: left;
-            margin-right: 20px;
-            padding-top: 5px;
-        }
-        
-        .dataTables_wrapper .dataTables_filter {
-            float: right;
-            margin-left: 20px;
-        }
-        
-        .dataTables_wrapper .dt-buttons button {
-            margin-right: 8px;
-            padding: 6px 16px;
-            border-radius: 4px;
-            font-weight: 500;
-            transition: all 0.2s ease;
-            border: none;
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .dataTables_wrapper .dt-buttons button.buttons-copy {
-            background-color: #6c757d;
-            color: white;
-        }
-
-        .dataTables_wrapper .dt-buttons button.buttons-excel {
-            background-color: #198754;
-            color: white;
-        }
-
-        .dataTables_wrapper .dt-buttons button.buttons-csv {
-            background-color: #0d6efd;
-            color: white;
-        }
-
-        .dataTables_wrapper .dt-buttons button:hover {
-            transform: translateY(-1px);
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            opacity: 0.9;
-        }
-
-        .dataTables_wrapper .dt-buttons button i {
-            font-size: 14px;
-        }
-
-        /* Clear the float after the controls */
-        .dataTables_wrapper::after {
-            content: "";
-            display: table;
-            clear: both;
-        }
-
-        /* Footer Styles */
-        .footer {
-            position: fixed;
-            bottom: 0;
-            right: 0;
-            background: rgba(255, 255, 255, 0.9);
-            backdrop-filter: blur(5px);
-            padding: 10px 20px;
-            border-top-left-radius: 10px;
-            box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
-            z-index: 1000;
-            font-size: 0.9rem;
-            transition: all 0.3s ease;
-        }
-
-        .footer a {
-            color: #0d6efd;
-            text-decoration: none;
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            transition: all 0.3s ease;
-        }
-
-        .footer a:hover {
-            color: #0056b3;
-            transform: translateY(-1px);
-        }
-
-        .footer i {
-            font-size: 1.2rem;
-        }
-
-        [data-theme="dark"] .footer {
-            background: rgba(45, 45, 45, 0.9);
-        }
-
-        [data-theme="dark"] .footer a {
-            color: #58a6ff;
-        }
-
-        @media print {
-            .footer {
-                display: none !important;
-            }
-        }
-
-        .report-header .header-title p {
-            margin: 5px 0 0 0;
-            opacity: 0.9;
-        }
-
-        /* Add CSS styles for collapsible rows */
-        .collapsed-info {
-            display: none;
-            background-color: var(--hover-bg);
-            padding: 15px;
-            margin: 10px 0;
-            border-radius: 5px;
-            border-left: 3px solid #0d6efd;
-        }
-
-        .expand-button {
-            cursor: pointer;
-            padding: 5px;
-            margin-right: 10px;
-            color: #0d6efd;
-            transition: transform 0.2s;
-            display: inline-block;
-        }
-
-        .expand-button.expanded {
-            transform: rotate(90deg);
-        }
     </style>
 </head>
 <body>
     <div class="container-fluid">
         <div class="report-header">
-            <div class="header-content">
-                <div class="header-title">
-                    <h1>Intune Assignment Report</h1>
-                    <p>Generated on $(Get-Date -Format "MMMM dd, yyyy HH:mm")</p>
-                </div>
-                <div class="tenant-info">
-                    <p><span class="tenant-label">Tenant ID:</span> $($tenantInfo.TenantId)</p>
-                    <p><span class="tenant-label">Domain:</span> $($tenantInfo.DefaultDomain)</p>
-                    <p><span class="tenant-label">Display Name:</span> $($tenantInfo.DisplayName)</p>
-                </div>
-            </div>
+            <h1>Intune Assignment Report</h1>
+            <p>Generated on $(Get-Date -Format "MMMM dd, yyyy HH:mm")</p>
         </div>
 
         <div class="row mb-4">
@@ -580,13 +365,6 @@ function Export-HTMLReport {
         </div>
     </div>
 
-    <div class="footer">
-        <a href="https://github.com/ugurkocde/IntuneAssignmentChecker" target="_blank">
-            <i class="fab fa-github"></i>
-            View on GitHub
-        </a>
-    </div>
-
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://cdn.datatables.net/1.11.5/js/jquery.dataTables.min.js"></script>
@@ -597,46 +375,13 @@ function Export-HTMLReport {
     <script src="https://cdn.datatables.net/buttons/2.2.2/js/buttons.html5.min.js"></script>
     <script>
         jQuery(document).ready(function() {
-            // Initialize tooltips
-            var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
-            var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
-                return new bootstrap.Tooltip(tooltipTriggerEl)
-            })
-            
-            // Add click event handler for expand buttons
-            jQuery(document).on('click', '.expand-button', function(e) {
-                e.preventDefault();
-                e.stopPropagation();
-                const row = jQuery(this).closest('td');
-                const details = row.find('.collapsed-info');
-                jQuery(this).toggleClass('expanded');
-                
-                if (details.is(':visible')) {
-                    details.slideUp(200);
-                } else {
-                    details.slideDown(200);
-                }
-            });
-            
             // Initialize DataTables
             var tables = jQuery('.policy-table').DataTable({
-                dom: '<"row"<"col-sm-6"Bl><"col-sm-6"f>>rtip',
+                dom: 'Blfrtip',
                 buttons: [
-                    {
-                        extend: 'copyHtml5',
-                        text: '<i class="fas fa-copy"></i> Copy',
-                        className: 'buttons-copy'
-                    },
-                    {
-                        extend: 'excelHtml5',
-                        text: '<i class="fas fa-file-excel"></i> Excel',
-                        className: 'buttons-excel'
-                    },
-                    {
-                        extend: 'csvHtml5',
-                        text: '<i class="fas fa-file-csv"></i> CSV',
-                        className: 'buttons-csv'
-                    }
+                    'copyHtml5',
+                    'excelHtml5',
+                    'csvHtml5'
                 ],
                 pageLength: 10,
                 lengthMenu: [[10, 25, 50, -1], [10, 25, 50, "All"]],
@@ -695,19 +440,6 @@ function Export-HTMLReport {
             const firstPane = document.querySelector('.tab-pane');
             if (firstTab) firstTab.classList.add('active');
             if (firstPane) firstPane.classList.add('show', 'active');
-
-            // Add JavaScript function for toggling details
-            function toggleDetails(button) {
-                const row = button.closest('td');
-                const details = row.querySelector('.collapsed-info');
-                button.classList.toggle('expanded');
-                
-                if (details.style.display === 'none' || details.style.display === '') {
-                    details.style.display = 'block';
-                } else {
-                    details.style.display = 'none';
-                }
-            }
         });
     </script>
 </body>
@@ -733,17 +465,11 @@ function Export-HTMLReport {
         $assignments = Get-IntuneAssignments -EntityType "deviceConfigurations" -EntityId $config.id
         $assignmentInfo = Get-AssignmentInfo -Assignments $assignments
         $policies.DeviceConfigs += @{
-            Name                 = $config.displayName
-            ID                   = $config.id
-            Type                 = "Device Configuration"
-            AssignmentType       = $assignmentInfo.Type
-            AssignedTo           = $assignmentInfo.Target
-            PlatformType         = if ($config.'@odata.type' -match 'android|ios|macos|windows') { 
-                                ($config.'@odata.type' -split '\.' | Select-Object -Last 1) -replace '(ConfigurationProfile|Configuration|DeviceConfiguration)$', ''
-            }
-            else { "Cross-Platform" }
-            CreatedDateTime      = $config.createdDateTime
-            LastModifiedDateTime = $config.lastModifiedDateTime
+            Name           = $config.displayName
+            ID             = $config.id
+            Type           = "Device Configuration"
+            AssignmentType = $assignmentInfo.Type
+            AssignedTo     = $assignmentInfo.Target
         }
     }
 
@@ -753,14 +479,11 @@ function Export-HTMLReport {
         $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
         $assignmentInfo = Get-AssignmentInfo -Assignments $assignments
         $policies.SettingsCatalog += @{
-            Name                 = $policy.name
-            ID                   = $policy.id
-            Type                 = "Settings Catalog"
-            AssignmentType       = $assignmentInfo.Type
-            AssignedTo           = $assignmentInfo.Target
-            PlatformType         = if ($policy.platforms) { $policy.platforms -join ', ' } else { "Cross-Platform" }
-            CreatedDateTime      = $policy.createdDateTime
-            LastModifiedDateTime = $policy.lastModifiedDateTime
+            Name           = $policy.name
+            ID             = $policy.id
+            Type           = "Settings Catalog"
+            AssignmentType = $assignmentInfo.Type
+            AssignedTo     = $assignmentInfo.Target
         }
     }
 
@@ -770,14 +493,11 @@ function Export-HTMLReport {
         $assignments = Get-IntuneAssignments -EntityType "groupPolicyConfigurations" -EntityId $template.id
         $assignmentInfo = Get-AssignmentInfo -Assignments $assignments
         $policies.AdminTemplates += @{
-            Name                 = $template.displayName
-            ID                   = $template.id
-            Type                 = "Administrative Template"
-            AssignmentType       = $assignmentInfo.Type
-            AssignedTo           = $assignmentInfo.Target
-            PlatformType         = "Windows"
-            CreatedDateTime      = $template.createdDateTime
-            LastModifiedDateTime = $template.lastModifiedDateTime
+            Name           = $template.displayName
+            ID             = $template.id
+            Type           = "Administrative Template"
+            AssignmentType = $assignmentInfo.Type
+            AssignedTo     = $assignmentInfo.Target
         }
     }
 
@@ -787,17 +507,11 @@ function Export-HTMLReport {
         $assignments = Get-IntuneAssignments -EntityType "deviceCompliancePolicies" -EntityId $policy.id
         $assignmentInfo = Get-AssignmentInfo -Assignments $assignments
         $policies.CompliancePolicies += @{
-            Name                 = $policy.displayName
-            ID                   = $policy.id
-            Type                 = "Compliance Policy"
-            AssignmentType       = $assignmentInfo.Type
-            AssignedTo           = $assignmentInfo.Target
-            PlatformType         = if ($policy.'@odata.type' -match 'android|ios|macos|windows') {
-                                     ($policy.'@odata.type' -split '\.' | Select-Object -Last 1) -replace '(ConfigurationProfile|Configuration|DeviceConfiguration)$', ''
-            }
-            else { "Cross-Platform" }
-            CreatedDateTime      = $policy.createdDateTime
-            LastModifiedDateTime = $policy.lastModifiedDateTime
+            Name           = $policy.displayName
+            ID             = $policy.id
+            Type           = "Compliance Policy"
+            AssignmentType = $assignmentInfo.Type
+            AssignedTo     = $assignmentInfo.Target
         }
     }
 
@@ -807,13 +521,13 @@ function Export-HTMLReport {
         $policyType = $policy.'@odata.type'
         $assignmentsUri = switch ($policyType) {
             "#microsoft.graph.androidManagedAppProtection" {
-                "https://graph.microsoft.com/beta/deviceAppManagement/androidManagedAppProtections('$($policy.id)')/assignments"
+                "$GraphEndpoint/beta/deviceAppManagement/androidManagedAppProtections('$($policy.id)')/assignments"
             }
             "#microsoft.graph.iosManagedAppProtection" {
-                "https://graph.microsoft.com/beta/deviceAppManagement/iosManagedAppProtections('$($policy.id)')/assignments"
+                "$GraphEndpoint/beta/deviceAppManagement/iosManagedAppProtections('$($policy.id)')/assignments"
             }
             "#microsoft.graph.windowsManagedAppProtection" {
-                "https://graph.microsoft.com/beta/deviceAppManagement/windowsManagedAppProtections('$($policy.id)')/assignments"
+                "$GraphEndpoint/beta/deviceAppManagement/windowsManagedAppProtections('$($policy.id)')/assignments"
             }
             default { $null }
         }
@@ -848,32 +562,22 @@ function Export-HTMLReport {
                         if ($_.Reason -eq "Group Assignment") {
                             $groupInfo = Get-GroupInfo -GroupId $_.GroupId
                             "$($_.Reason) - $($groupInfo.DisplayName)"
-                        }
-                        else {
+                        } else {
                             $_.Reason
                         }
                     }
                     $policy | Add-Member -NotePropertyName 'AssignmentSummary' -NotePropertyValue ($assignmentSummary -join "; ") -Force
                     $policies.AppProtectionPolicies += @{
-                        Name                 = $policy.displayName
-                        ID                   = $policy.id
-                        Type                 = "App Protection Policy"
-                        AssignmentType       = if ($assignmentSummary -match "All Users") { "All Users" }
+                        Name           = $policy.displayName
+                        ID             = $policy.id
+                        Type           = "App Protection Policy"
+                        AssignmentType = if ($assignmentSummary -match "All Users") { "All Users" }
                         elseif ($assignmentSummary -match "Group") { "Group" }
                         else { "None" }
-                        AssignedTo           = $assignmentSummary
-                        PlatformType         = switch ($policy.'@odata.type') {
-                            '#microsoft.graph.androidManagedAppProtection' { 'Android' }
-                            '#microsoft.graph.iosManagedAppProtection' { 'iOS' }
-                            '#microsoft.graph.windowsManagedAppProtection' { 'Windows' }
-                            default { 'Cross-Platform' }
-                        }
-                        CreatedDateTime      = $policy.createdDateTime
-                        LastModifiedDateTime = $policy.lastModifiedDateTime
+                        AssignedTo     = $assignmentSummary
                     }
                 }
-            }
-            catch {
+            } catch {
                 Write-Host "Error fetching assignments for policy $($policy.displayName): $($_.Exception.Message)" -ForegroundColor Red
             }
         }
@@ -886,14 +590,11 @@ function Export-HTMLReport {
         $assignments = Get-IntuneAssignments -EntityType "deviceManagementScripts" -EntityId $script.id
         $assignmentInfo = Get-AssignmentInfo -Assignments $assignments
         $policies.PlatformScripts += @{
-            Name                 = $script.displayName
-            ID                   = $script.id
-            Type                 = "PowerShell Script"
-            AssignmentType       = $assignmentInfo.Type
-            AssignedTo           = $assignmentInfo.Target
-            PlatformType         = "Windows"
-            CreatedDateTime      = $script.createdDateTime
-            LastModifiedDateTime = $script.lastModifiedDateTime
+            Name           = $script.displayName
+            ID             = $script.id
+            Type           = "PowerShell Script"
+            AssignmentType = $assignmentInfo.Type
+            AssignedTo     = $assignmentInfo.Target
         }
     }
 
@@ -904,14 +605,11 @@ function Export-HTMLReport {
         $assignments = Get-IntuneAssignments -EntityType "deviceHealthScripts" -EntityId $script.id
         $assignmentInfo = Get-AssignmentInfo -Assignments $assignments
         $policies.HealthScripts += @{
-            Name                 = $script.displayName
-            ID                   = $script.id
-            Type                 = "Proactive Remediation Script"
-            AssignmentType       = $assignmentInfo.Type
-            AssignedTo           = $assignmentInfo.Target
-            PlatformType         = "Windows"
-            CreatedDateTime      = $script.createdDateTime
-            LastModifiedDateTime = $script.lastModifiedDateTime
+            Name           = $script.displayName
+            ID             = $script.id
+            Type           = "Proactive Remediation Script"
+            AssignmentType = $assignmentInfo.Type
+            AssignedTo     = $assignmentInfo.Target
         }
     }
 
@@ -978,20 +676,8 @@ function Export-HTMLReport {
                             'Group' { 'badge-group' }
                             default { 'badge-none' }
                         }
-
                         "<tr>
-                            <td>
-                                <div style='display: flex; align-items: flex-start;'>
-                                    <i class='fas fa-chevron-right expand-button'></i>
-                                    <div style='flex: 1;'>
-                                        <span>$($p.Name) <i class='$(if($p.PlatformType -like '*macOS*' -or $p.PlatformType -like '*ios*'){'fab fa-apple'}elseif($p.PlatformType -like '*windows*' -or $p.PlatformType -eq 'Windows'){'fab fa-windows'}elseif($p.PlatformType -like '*linux*'){'fab fa-linux'}elseif($p.PlatformType -like '*android*'){'fab fa-android'}else{'fas fa-info-circle'}) text-info' data-bs-toggle='tooltip' title='Platform: $($p.PlatformType)'></i></span>
-                                        <div class='collapsed-info'>
-                                            <p><strong>Created:</strong> $(Get-Date $p.CreatedDateTime -Format 'yyyy-MM-dd HH:mm:ss')</p>
-                                            <p><strong>Last Modified:</strong> $(Get-Date $p.LastModifiedDateTime -Format 'yyyy-MM-dd HH:mm:ss')</p>
-                                        </div>
-                                    </div>
-                                </div>
-                            </td>
+                            <td>$($p.Name)</td>
                             <td><span class='badge $badgeClass'>$($p.AssignmentType)</span></td>
                             <td>$($p.AssignedTo)</td>
                         </tr>"
@@ -1019,8 +705,7 @@ function Export-HTMLReport {
     </div>
 </div>
 "@
-        }
-        else {
+        } else {
             $tableRows = foreach ($p in $policies[$category.Key]) {
                 $badgeClass = switch ($p.AssignmentType) {
                     'All Users' { 'badge-all-users' }
@@ -1028,20 +713,8 @@ function Export-HTMLReport {
                     'Group' { 'badge-group' }
                     default { 'badge-none' }
                 }
-
                 "<tr>
-                    <td>
-                        <div style='display: flex; align-items: flex-start;'>
-                            <i class='fas fa-chevron-right expand-button'></i>
-                            <div style='flex: 1;'>
-                                <span>$($p.Name) <i class='$(if($p.PlatformType -like '*macOS*' -or $p.PlatformType -like '*ios*'){'fab fa-apple'}elseif($p.PlatformType -like '*windows*' -or $p.PlatformType -eq 'Windows'){'fab fa-windows'}elseif($p.PlatformType -like '*linux*'){'fab fa-linux'}elseif($p.PlatformType -like '*android*'){'fab fa-android'}else{'fas fa-info-circle'}) text-info' data-bs-toggle='tooltip' title='Platform: $($p.PlatformType)'></i></span>
-                                <div class='collapsed-info'>
-                                    <p><strong>Created:</strong> $(Get-Date $p.CreatedDateTime -Format 'yyyy-MM-dd HH:mm:ss')</p>
-                                    <p><strong>Last Modified:</strong> $(Get-Date $p.LastModifiedDateTime -Format 'yyyy-MM-dd HH:mm:ss')</p>
-                                </div>
-                            </div>
-                        </div>
-                    </td>
+                    <td>$($p.Name)</td>
                     <td><span class='badge $badgeClass'>$($p.AssignmentType)</span></td>
                     <td>$($p.AssignedTo)</td>
                 </tr>"
@@ -1228,4 +901,5 @@ function Export-HTMLReport {
     $htmlContent | Out-File -FilePath $FilePath -Encoding UTF8
     Write-Host "HTML report exported to: $FilePath" -ForegroundColor Green
 }
+
 
