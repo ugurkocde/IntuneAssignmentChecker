@@ -31,6 +31,7 @@
 ################################ Prerequisites #####################################################
 
 # Fill in your App ID, Tenant ID, and Certificate Thumbprint
+$environment = "Global"  #   USGovDoD, Global, USGov
 $appid = '<YourAppIdHere>' # App ID of the App Registration
 $tenantid = '<YourTenantIdHere>' # Tenant ID of your EntraID
 $certThumbprint = '<YourCertificateThumbprintHere>' # Thumbprint of the certificate associated with the App Registration
@@ -69,8 +70,7 @@ $scriptUrl = "https://raw.githubusercontent.com/ugurkocde/IntuneAssignmentChecke
 # Determine the script path based on whether it's run as a file or from an IDE
 if ($PSScriptRoot) {
     $newScriptPath = Join-Path $PSScriptRoot "IntuneAssignmentChecker_v3.ps1"
-}
-else {
+} else {
     $currentDirectory = Get-Location
     $newScriptPath = Join-Path $currentDirectory "IntuneAssignmentChecker_v3.ps1"
 }
@@ -95,29 +95,32 @@ try {
                 Invoke-WebRequest -Uri $scriptUrl -OutFile $newScriptPath
                 Write-Host "The latest version has been downloaded to $newScriptPath" -ForegroundColor Yellow
                 Write-Host "Please restart the script to use the updated version." -ForegroundColor Yellow
-            }
-            catch {
+            } catch {
                 Write-Host "An error occurred while downloading the latest version. Please download it manually from: https://github.com/ugurkocde/IntuneAssignmentChecker" -ForegroundColor Red
             }
-        }
-        else {
+        } else {
             Write-Host "Auto-update is disabled. Get the latest version at:" -ForegroundColor Yellow
             Write-Host "https://github.com/ugurkocde/IntuneAssignmentChecker" -ForegroundColor Cyan
             Write-Host "" 
         }
-    }
-    elseif ($local -gt $latest) {
+    } elseif ($local -gt $latest) {
         Write-Host "Note: You are running a pre-release version ($localVersion)" -ForegroundColor Magenta
         Write-Host ""
     }
-}
-catch {
+} catch {
     Write-Host "Unable to check for updates. Continue with current version..." -ForegroundColor Gray
 }
 
 ####################################################################################################
 
 # Do not change the following code
+
+# Define the Graph endpoint based on the environment
+$GraphEndpoint = switch ($environment) {
+    "Global" { "https://graph.microsoft.com" }
+    "USGov" { "https://graph.microsoft.us" }
+    "USGovDoD" { "https://dod-graph.microsoft.us" }
+}
 
 # Connect to Microsoft Graph using certificate-based authentication
 try {
@@ -157,17 +160,15 @@ try {
         $manualConnection = Read-Host "Would you like to attempt a manual interactive connection? (y/n)"
         if ($manualConnection -eq 'y') {
             # Manual connection using interactive login
-            write-host "Attempting manual interactive connection (you need privileges to consent permissions)..." -ForegroundColor Yellow
+            Write-Host "Attempting manual interactive connection (you need privileges to consent permissions)..." -ForegroundColor Yellow
             $permissionsList = ($requiredPermissions | ForEach-Object { $_.Permission }) -join ', '
-            $connectionResult = Connect-MgGraph -Scopes $permissionsList -NoWelcome -ErrorAction Stop
-        }
-        else {
+            $connectionResult = Connect-MgGraph -Scopes $permissionsList -Environment $environment -NoWelcome -ErrorAction Stop
+        } else {
             Write-Host "Script execution cancelled by user." -ForegroundColor Red
             exit
         }
-    }
-    else {
-        $connectionResult = Connect-MgGraph -ClientId $appid -TenantId $tenantid -CertificateThumbprint $certThumbprint -NoWelcome -ErrorAction Stop
+    } else {
+        $connectionResult = Connect-MgGraph -ClientId $appid -TenantId $tenantid -CertificateThumbprint $certThumbprint -Environment $environment -NoWelcome -ErrorAction Stop
     }
     Write-Host "Successfully connected to Microsoft Graph" -ForegroundColor Green
 
@@ -187,8 +188,7 @@ try {
         if ($hasPermission) {
             Write-Host "  [✓] $permission" -ForegroundColor Green
             Write-Host "      Reason: $reason" -ForegroundColor Gray
-        }
-        else {
+        } else {
             Write-Host "  [✗] $permission" -ForegroundColor Red
             Write-Host "      Reason: $reason" -ForegroundColor Gray
             $missingPermissions += $permission
@@ -198,8 +198,7 @@ try {
     if ($missingPermissions.Count -eq 0) {
         Write-Host "All required permissions are present." -ForegroundColor Green
         Write-Host ""
-    }
-    else {
+    } else {
         Write-Host "WARNING: The following permissions are missing:" -ForegroundColor Red
         $missingPermissions | ForEach-Object { 
             $missingPermission = $_
@@ -216,8 +215,7 @@ try {
             exit
         }
     }
-}
-catch {
+} catch {
     Write-Host "Failed to connect to Microsoft Graph. Error: $_" -ForegroundColor Red
     
     # Additional error handling for certificate issues
@@ -244,7 +242,7 @@ function Get-IntuneAssignments {
     # Handle special cases for App Protection Policies
     $assignmentsUri = if ($EntityType -eq "deviceAppManagement/managedAppPolicies") {
         # For App Protection Policies, we need to determine the specific policy type first
-        $policyUri = "https://graph.microsoft.com/beta/deviceAppManagement/managedAppPolicies/$EntityId"
+        $policyUri = "$GraphEndpoint/beta/deviceAppManagement/managedAppPolicies/$EntityId"
         $policy = Invoke-MgGraphRequest -Uri $policyUri -Method Get
         $policyType = switch ($policy.'@odata.type') {
             "#microsoft.graph.androidManagedAppProtection" { "androidManagedAppProtections" }
@@ -253,14 +251,12 @@ function Get-IntuneAssignments {
             default { return $null }
         }
         if ($policyType) {
-            "https://graph.microsoft.com/beta/deviceAppManagement/$policyType('$EntityId')/assignments"
-        }
-        else {
+            "$GraphEndpoint/beta/deviceAppManagement/$policyType('$EntityId')/assignments"
+        } else {
             $null
         }
-    }
-    else {
-        "https://graph.microsoft.com/beta/deviceManagement/$EntityType('$EntityId')/assignments"
+    } else {
+        "$GraphEndpoint/beta/deviceManagement/$EntityType('$EntityId')/assignments"
     }
     # For App Protection Policies that use $expand, the response structure is different
     $isAppProtectionPolicy = $EntityType -like "deviceAppManagement/*" -and ($EntityType -like "*ManagedAppProtections")
@@ -291,8 +287,7 @@ function Get-IntuneAssignments {
                 }
             }
         }
-    }
-    else {
+    } else {
         $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
         $assignments = @()
 
@@ -307,8 +302,7 @@ function Get-IntuneAssignments {
                     $assignment.target.groupId -eq $GroupId) {
                     $assignmentReason = "Direct Assignment"
                 }
-            }
-            else {
+            } else {
                 $assignmentReason = switch ($assignment.target.'@odata.type') {
                     '#microsoft.graph.allLicensedUsersAssignmentTarget' { "All Users" }
                     '#microsoft.graph.allDevicesAssignmentTarget' { "All Devices" }
@@ -346,17 +340,15 @@ function Get-IntuneEntities {
 
     # Handle special cases for app management endpoints
     $baseUri = if ($EntityType -like "deviceAppManagement/*") {
-        "https://graph.microsoft.com/beta"
-    }
-    else {
-        "https://graph.microsoft.com/beta/deviceManagement"
+        "$GraphEndpoint/beta"
+    } else {
+        "$GraphEndpoint/beta/deviceManagement"
     }
     
     # Extract the actual entity type from full path if needed
     $actualEntityType = if ($EntityType -like "deviceAppManagement/*") {
         $EntityType
-    }
-    else {
+    } else {
         "$EntityType"
     }
     
@@ -383,15 +375,14 @@ function Get-GroupInfo {
     )
 
     try {
-        $groupUri = "https://graph.microsoft.com/v1.0/groups/$GroupId"
+        $groupUri = "$GraphEndpoint/v1.0/groups/$GroupId"
         $group = Invoke-MgGraphRequest -Uri $groupUri -Method Get
         return @{
             Id          = $group.id
             DisplayName = $group.displayName
             Success     = $true
         }
-    }
-    catch {
+    } catch {
         return @{
             Id          = $GroupId
             DisplayName = "Unknown Group"
@@ -406,7 +397,7 @@ function Get-DeviceInfo {
         [string]$DeviceName
     )
 
-    $deviceUri = "https://graph.microsoft.com/v1.0/devices?`$filter=displayName eq '$DeviceName'"
+    $deviceUri = "$GraphEndpoint/v1.0/devices?`$filter=displayName eq '$DeviceName'"
     $deviceResponse = Invoke-MgGraphRequest -Uri $deviceUri -Method Get
     
     if ($deviceResponse.value) {
@@ -431,15 +422,14 @@ function Get-UserInfo {
     )
 
     try {
-        $userUri = "https://graph.microsoft.com/v1.0/users/$UserPrincipalName"
+        $userUri = "$GraphEndpoint/v1.0/users/$UserPrincipalName"
         $user = Invoke-MgGraphRequest -Uri $userUri -Method Get
         return @{
             Id                = $user.id
             UserPrincipalName = $user.userPrincipalName
             Success           = $true
         }
-    }
-    catch {
+    } catch {
         return @{
             Id                = $null
             UserPrincipalName = $UserPrincipalName
@@ -458,7 +448,7 @@ function Get-GroupMemberships {
         [string]$ObjectType
     )
 
-    $uri = "https://graph.microsoft.com/v1.0/$($ObjectType.ToLower())s/$ObjectId/transitiveMemberOf?`$select=id,displayName"
+    $uri = "$GraphEndpoint/v1.0/$($ObjectType.ToLower())s/$ObjectId/transitiveMemberOf?`$select=id,displayName"
     $response = Invoke-MgGraphRequest -Uri $uri -Method Get
     
     return $response.value
@@ -493,8 +483,7 @@ function Get-AssignmentInfo {
             if ($assignment.GroupId) {
                 $groupInfo = Get-GroupInfo -GroupId $assignment.GroupId
                 $groupInfo.DisplayName
-            }
-            else {
+            } else {
                 "Unknown Group"
             }
         }
@@ -543,16 +532,14 @@ function Export-PolicyData {
                 try {
                     Install-Module -Name ImportExcel -Force -Scope CurrentUser
                     Write-Host "ImportExcel module installed successfully." -ForegroundColor Green
-                }
-                catch {
+                } catch {
                     Write-Host "Failed to install ImportExcel module. Falling back to CSV export." -ForegroundColor Red
                     $FilePath = [System.IO.Path]::ChangeExtension($FilePath, '.csv')
                     $ExportData | Export-Csv -Path $FilePath -NoTypeInformation
                     Write-Host "Results exported to $FilePath" -ForegroundColor Green
                     return
                 }
-            }
-            else {
+            } else {
                 Write-Host "Falling back to CSV export." -ForegroundColor Yellow
                 $FilePath = [System.IO.Path]::ChangeExtension($FilePath, '.csv')
                 $ExportData | Export-Csv -Path $FilePath -NoTypeInformation
@@ -564,15 +551,13 @@ function Export-PolicyData {
         try {
             $ExportData | Export-Excel -Path $FilePath -AutoSize -AutoFilter -WorksheetName "Intune Assignments" -TableName "IntuneAssignments"
             Write-Host "Results exported to $FilePath" -ForegroundColor Green
-        }
-        catch {
+        } catch {
             Write-Host "Failed to export to Excel. Falling back to CSV export." -ForegroundColor Red
             $FilePath = [System.IO.Path]::ChangeExtension($FilePath, '.csv')
             $ExportData | Export-Csv -Path $FilePath -NoTypeInformation
             Write-Host "Results exported to $FilePath" -ForegroundColor Green
         }
-    }
-    else {
+    } else {
         $ExportData | Export-Csv -Path $FilePath -NoTypeInformation
         Write-Host "Results exported to $FilePath" -ForegroundColor Green
     }
@@ -593,14 +578,11 @@ function Add-ExportData {
         # Handle different types of assignment reason input
         $reason = if ($AssignmentReason -is [scriptblock]) {
             & $AssignmentReason $item
-        }
-        elseif ($item.AssignmentReason) {
+        } elseif ($item.AssignmentReason) {
             $item.AssignmentReason
-        }
-        elseif ($item.AssignmentSummary) {
+        } elseif ($item.AssignmentSummary) {
             $item.AssignmentSummary
-        }
-        else {
+        } else {
             $AssignmentReason
         }
         
@@ -703,8 +685,7 @@ do {
                 try {
                     $groupMemberships = Get-GroupMemberships -ObjectId $userInfo.Id -ObjectType "User"
                     Write-Host "User Group Memberships: $($groupMemberships.displayName -join ', ')" -ForegroundColor Green
-                }
-                catch {
+                } catch {
                     Write-Host "Error fetching group memberships for user: $upn" -ForegroundColor Red
                     Write-Host "Error details: $($_.Exception.Message)" -ForegroundColor Red
                     continue
@@ -793,9 +774,9 @@ do {
                 foreach ($policy in $appProtectionPolicies) {
                     $policyType = $policy.'@odata.type'
                     $assignmentsUri = switch ($policyType) {
-                        "#microsoft.graph.androidManagedAppProtection" { "https://graph.microsoft.com/beta/deviceAppManagement/androidManagedAppProtections('$($policy.id)')/assignments" }
-                        "#microsoft.graph.iosManagedAppProtection" { "https://graph.microsoft.com/beta/deviceAppManagement/iosManagedAppProtections('$($policy.id)')/assignments" }
-                        "#microsoft.graph.windowsManagedAppProtection" { "https://graph.microsoft.com/beta/deviceAppManagement/windowsManagedAppProtections('$($policy.id)')/assignments" }
+                        "#microsoft.graph.androidManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/androidManagedAppProtections('$($policy.id)')/assignments" }
+                        "#microsoft.graph.iosManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/iosManagedAppProtections('$($policy.id)')/assignments" }
+                        "#microsoft.graph.windowsManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/windowsManagedAppProtections('$($policy.id)')/assignments" }
                         default { $null }
                     }
 
@@ -829,16 +810,14 @@ do {
                                     if ($_.Reason -eq "Group Assignment") {
                                         $groupInfo = Get-GroupInfo -GroupId $_.GroupId
                                         "$($_.Reason) - $($groupInfo.DisplayName)"
-                                    }
-                                    else {
+                                    } else {
                                         $_.Reason
                                     }
                                 }
                                 $policy | Add-Member -NotePropertyName 'AssignmentSummary' -NotePropertyValue ($assignmentSummary -join "; ") -Force
                                 $relevantPolicies.AppProtectionPolicies += $policy
                             }
-                        }
-                        catch {
+                        } catch {
                             Write-Host "Error fetching assignments for policy $($policy.displayName): $($_.Exception.Message)" -ForegroundColor Red
                         }
                     }
@@ -1023,17 +1002,15 @@ do {
                     }
                     $groupId = $groupInfo.Id
                     $groupName = $groupInfo.DisplayName
-                }
-                else {
+                } else {
                     # Try to find group by display name
-                    $groupUri = "https://graph.microsoft.com/v1.0/groups?`$filter=displayName eq '$input'"
+                    $groupUri = "$GraphEndpoint/v1.0/groups?`$filter=displayName eq '$input'"
                     $groupResponse = Invoke-MgGraphRequest -Uri $groupUri -Method Get
 
                     if ($groupResponse.value.Count -eq 0) {
                         Write-Host "No group found with name: $input" -ForegroundColor Red
                         continue
-                    }
-                    elseif ($groupResponse.value.Count -gt 1) {
+                    } elseif ($groupResponse.value.Count -gt 1) {
                         Write-Host "Multiple groups found with name: $input. Please use the Object ID instead:" -ForegroundColor Red
                         foreach ($group in $groupResponse.value) {
                             Write-Host "  - $($group.displayName) (ID: $($group.id))" -ForegroundColor Yellow
@@ -1072,13 +1049,11 @@ do {
                         $assignmentReason = if ($assignments[0].Reason -eq "Group Assignment") {
                             if ($assignments[0].GroupId -eq $groupId) {
                                 "Direct Assignment"
-                            }
-                            else {
+                            } else {
                                 $groupInfo = Get-GroupInfo -GroupId $assignments[0].GroupId
                                 "$($assignments[0].Reason) - $($groupInfo.DisplayName)"
                             }
-                        }
-                        else {
+                        } else {
                             $assignments[0].Reason
                         }
                         $config | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentReason -Force
@@ -1095,13 +1070,11 @@ do {
                         $assignmentReason = if ($assignments[0].Reason -eq "Group Assignment") {
                             if ($assignments[0].GroupId -eq $groupId) {
                                 "Direct Assignment"
-                            }
-                            else {
+                            } else {
                                 $groupInfo = Get-GroupInfo -GroupId $assignments[0].GroupId
                                 "$($assignments[0].Reason) - $($groupInfo.DisplayName)"
                             }
-                        }
-                        else {
+                        } else {
                             $assignments[0].Reason
                         }
                         $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentReason -Force
@@ -1118,13 +1091,11 @@ do {
                         $assignmentReason = if ($assignments[0].Reason -eq "Group Assignment") {
                             if ($assignments[0].GroupId -eq $groupId) {
                                 "Direct Assignment"
-                            }
-                            else {
+                            } else {
                                 $groupInfo = Get-GroupInfo -GroupId $assignments[0].GroupId
                                 "$($assignments[0].Reason) - $($groupInfo.DisplayName)"
                             }
-                        }
-                        else {
+                        } else {
                             $assignments[0].Reason
                         }
                         $template | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentReason -Force
@@ -1141,13 +1112,11 @@ do {
                         $assignmentReason = if ($assignments[0].Reason -eq "Group Assignment") {
                             if ($assignments[0].GroupId -eq $groupId) {
                                 "Direct Assignment"
-                            }
-                            else {
+                            } else {
                                 $groupInfo = Get-GroupInfo -GroupId $assignments[0].GroupId
                                 "$($assignments[0].Reason) - $($groupInfo.DisplayName)"
                             }
-                        }
-                        else {
+                        } else {
                             $assignments[0].Reason
                         }
                         $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentReason -Force
@@ -1161,9 +1130,9 @@ do {
                 foreach ($policy in $appProtectionPolicies) {
                     $policyType = $policy.'@odata.type'
                     $assignmentsUri = switch ($policyType) {
-                        "#microsoft.graph.androidManagedAppProtection" { "https://graph.microsoft.com/beta/deviceAppManagement/androidManagedAppProtections('$($policy.id)')/assignments" }
-                        "#microsoft.graph.iosManagedAppProtection" { "https://graph.microsoft.com/beta/deviceAppManagement/iosManagedAppProtections('$($policy.id)')/assignments" }
-                        "#microsoft.graph.windowsManagedAppProtection" { "https://graph.microsoft.com/beta/deviceAppManagement/windowsManagedAppProtections('$($policy.id)')/assignments" }
+                        "#microsoft.graph.androidManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/androidManagedAppProtections('$($policy.id)')/assignments" }
+                        "#microsoft.graph.iosManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/iosManagedAppProtections('$($policy.id)')/assignments" }
+                        "#microsoft.graph.windowsManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/windowsManagedAppProtections('$($policy.id)')/assignments" }
                         default { $null }
                     }
 
@@ -1197,16 +1166,14 @@ do {
                                     if ($_.Reason -eq "Group Assignment") {
                                         $groupInfo = Get-GroupInfo -GroupId $_.GroupId
                                         "$($_.Reason) - $($groupInfo.DisplayName)"
-                                    }
-                                    else {
+                                    } else {
                                         $_.Reason
                                     }
                                 }
                                 $policy | Add-Member -NotePropertyName 'AssignmentSummary' -NotePropertyValue ($assignmentSummary -join "; ") -Force
                                 $relevantPolicies.AppProtectionPolicies += $policy
                             }
-                        }
-                        catch {
+                        } catch {
                             Write-Host "Error fetching assignments for policy $($policy.displayName): $($_.Exception.Message)" -ForegroundColor Red
                         }
                     }
@@ -1221,13 +1188,11 @@ do {
                         $assignmentReason = if ($assignments[0].Reason -eq "Group Assignment") {
                             if ($assignments[0].GroupId -eq $groupId) {
                                 "Direct Assignment"
-                            }
-                            else {
+                            } else {
                                 $groupInfo = Get-GroupInfo -GroupId $assignments[0].GroupId
                                 "$($assignments[0].Reason) - $($groupInfo.DisplayName)"
                             }
-                        }
-                        else {
+                        } else {
                             $assignments[0].Reason
                         }
                         $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentReason -Force
@@ -1244,13 +1209,11 @@ do {
                         $assignmentReason = if ($assignments[0].Reason -eq "Group Assignment") {
                             if ($assignments[0].GroupId -eq $groupId) {
                                 "Direct Assignment"
-                            }
-                            else {
+                            } else {
                                 $groupInfo = Get-GroupInfo -GroupId $assignments[0].GroupId
                                 "$($assignments[0].Reason) - $($groupInfo.DisplayName)"
                             }
-                        }
-                        else {
+                        } else {
                             $assignments[0].Reason
                         }
                         $script | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentReason -Force
@@ -1267,13 +1230,11 @@ do {
                         $assignmentReason = if ($assignments[0].Reason -eq "Group Assignment") {
                             if ($assignments[0].GroupId -eq $groupId) {
                                 "Direct Assignment"
-                            }
-                            else {
+                            } else {
                                 $groupInfo = Get-GroupInfo -GroupId $assignments[0].GroupId
                                 "$($assignments[0].Reason) - $($groupInfo.DisplayName)"
                             }
-                        }
-                        else {
+                        } else {
                             $assignments[0].Reason
                         }
                         $script | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentReason -Force
@@ -1413,8 +1374,7 @@ do {
                 try {
                     $groupMemberships = Get-GroupMemberships -ObjectId $deviceInfo.Id -ObjectType "Device"
                     Write-Host "Device Group Memberships: $($groupMemberships.displayName -join ', ')" -ForegroundColor Green
-                }
-                catch {
+                } catch {
                     Write-Host "Error fetching group memberships for device: $deviceName" -ForegroundColor Red
                     Write-Host "Error details: $($_.Exception.Message)" -ForegroundColor Red
                     continue
@@ -1507,9 +1467,9 @@ do {
                 foreach ($policy in $appProtectionPolicies) {
                     $policyType = $policy.'@odata.type'
                     $assignmentsUri = switch ($policyType) {
-                        "#microsoft.graph.androidManagedAppProtection" { "https://graph.microsoft.com/beta/deviceAppManagement/androidManagedAppProtections('$($policy.id)')/assignments" }
-                        "#microsoft.graph.iosManagedAppProtection" { "https://graph.microsoft.com/beta/deviceAppManagement/iosManagedAppProtections('$($policy.id)')/assignments" }
-                        "#microsoft.graph.windowsManagedAppProtection" { "https://graph.microsoft.com/beta/deviceAppManagement/windowsManagedAppProtections('$($policy.id)')/assignments" }
+                        "#microsoft.graph.androidManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/androidManagedAppProtections('$($policy.id)')/assignments" }
+                        "#microsoft.graph.iosManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/iosManagedAppProtections('$($policy.id)')/assignments" }
+                        "#microsoft.graph.windowsManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/windowsManagedAppProtections('$($policy.id)')/assignments" }
                         default { $null }
                     }
 
@@ -1546,16 +1506,14 @@ do {
                                     if ($_.Reason -eq "Group Assignment") {
                                         $groupInfo = Get-GroupInfo -GroupId $_.GroupId
                                         "$($_.Reason) - $($groupInfo.DisplayName)"
-                                    }
-                                    else {
+                                    } else {
                                         $_.Reason
                                     }
                                 }
                                 $policy | Add-Member -NotePropertyName 'AssignmentSummary' -NotePropertyValue ($assignmentSummary -join "; ") -Force
                                 $relevantPolicies.AppProtectionPolicies += $policy
                             }
-                        }
-                        catch {
+                        } catch {
                             Write-Host "Error fetching assignments for policy $($policy.displayName): $($_.Exception.Message)" -ForegroundColor Red
                         }
                     }
@@ -1791,8 +1749,7 @@ do {
                     Write-Host "Policy ID: $($policy.id)" -ForegroundColor Gray
                     if ($policy.AssignmentSummary) {
                         Write-Host "Assignments: $($policy.AssignmentSummary)" -ForegroundColor Gray
-                    }
-                    else {
+                    } else {
                         Write-Host "No assignments found" -ForegroundColor Yellow
                     }
                     Write-Host ""
@@ -1808,8 +1765,7 @@ do {
                     if ($_.Reason -eq "Group Assignment") {
                         $groupInfo = Get-GroupInfo -GroupId $_.GroupId
                         "$($_.Reason) - $($groupInfo.DisplayName)"
-                    }
-                    else {
+                    } else {
                         $_.Reason
                     }
                 }
@@ -1826,8 +1782,7 @@ do {
                     if ($_.Reason -eq "Group Assignment") {
                         $groupInfo = Get-GroupInfo -GroupId $_.GroupId
                         "$($_.Reason) - $($groupInfo.DisplayName)"
-                    }
-                    else {
+                    } else {
                         $_.Reason
                     }
                 }
@@ -1844,8 +1799,7 @@ do {
                     if ($_.Reason -eq "Group Assignment") {
                         $groupInfo = Get-GroupInfo -GroupId $_.GroupId
                         "$($_.Reason) - $($groupInfo.DisplayName)"
-                    }
-                    else {
+                    } else {
                         $_.Reason
                     }
                 }
@@ -1862,8 +1816,7 @@ do {
                     if ($_.Reason -eq "Group Assignment") {
                         $groupInfo = Get-GroupInfo -GroupId $_.GroupId
                         "$($_.Reason) - $($groupInfo.DisplayName)"
-                    }
-                    else {
+                    } else {
                         $_.Reason
                     }
                 }
@@ -1877,9 +1830,9 @@ do {
             foreach ($policy in $appProtectionPolicies) {
                 $policyType = $policy.'@odata.type'
                 $assignmentsUri = switch ($policyType) {
-                    "#microsoft.graph.androidManagedAppProtection" { "https://graph.microsoft.com/beta/deviceAppManagement/androidManagedAppProtections('$($policy.id)')/assignments" }
-                    "#microsoft.graph.iosManagedAppProtection" { "https://graph.microsoft.com/beta/deviceAppManagement/iosManagedAppProtections('$($policy.id)')/assignments" }
-                    "#microsoft.graph.windowsManagedAppProtection" { "https://graph.microsoft.com/beta/deviceAppManagement/windowsManagedAppProtections('$($policy.id)')/assignments" }
+                    "#microsoft.graph.androidManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/androidManagedAppProtections('$($policy.id)')/assignments" }
+                    "#microsoft.graph.iosManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/iosManagedAppProtections('$($policy.id)')/assignments" }
+                    "#microsoft.graph.windowsManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/windowsManagedAppProtections('$($policy.id)')/assignments" }
                     default { $null }
                 }
 
@@ -1909,8 +1862,7 @@ do {
                             $policy | Add-Member -NotePropertyName 'AssignmentSummary' -NotePropertyValue ($assignments -join "; ") -Force
                             $allPolicies.AppProtectionPolicies += $policy
                         }
-                    }
-                    catch {
+                    } catch {
                         Write-Host "Error fetching assignments for policy $($policy.displayName): $($_.Exception.Message)" -ForegroundColor Red
                     }
                 }
@@ -1925,8 +1877,7 @@ do {
                     if ($_.Reason -eq "Group Assignment") {
                         $groupInfo = Get-GroupInfo -GroupId $_.GroupId
                         "$($_.Reason) - $($groupInfo.DisplayName)"
-                    }
-                    else {
+                    } else {
                         $_.Reason
                     }
                 }
@@ -1943,8 +1894,7 @@ do {
                     if ($_.Reason -eq "Group Assignment") {
                         $groupInfo = Get-GroupInfo -GroupId $_.GroupId
                         "$($_.Reason) - $($groupInfo.DisplayName)"
-                    }
-                    else {
+                    } else {
                         $_.Reason
                     }
                 }
@@ -1961,8 +1911,7 @@ do {
                     if ($_.Reason -eq "Group Assignment") {
                         $groupInfo = Get-GroupInfo -GroupId $_.GroupId
                         "$($_.Reason) - $($groupInfo.DisplayName)"
-                    }
-                    else {
+                    } else {
                         $_.Reason
                     }
                 }
@@ -2066,9 +2015,9 @@ do {
             foreach ($policy in $appProtectionPolicies) {
                 $policyType = $policy.'@odata.type'
                 $assignmentsUri = switch ($policyType) {
-                    "#microsoft.graph.androidManagedAppProtection" { "https://graph.microsoft.com/beta/deviceAppManagement/androidManagedAppProtections('$($policy.id)')/assignments" }
-                    "#microsoft.graph.iosManagedAppProtection" { "https://graph.microsoft.com/beta/deviceAppManagement/iosManagedAppProtections('$($policy.id)')/assignments" }
-                    "#microsoft.graph.windowsManagedAppProtection" { "https://graph.microsoft.com/beta/deviceAppManagement/windowsManagedAppProtections('$($policy.id)')/assignments" }
+                    "#microsoft.graph.androidManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/androidManagedAppProtections('$($policy.id)')/assignments" }
+                    "#microsoft.graph.iosManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/iosManagedAppProtections('$($policy.id)')/assignments" }
+                    "#microsoft.graph.windowsManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/windowsManagedAppProtections('$($policy.id)')/assignments" }
                     default { $null }
                 }
 
@@ -2086,8 +2035,7 @@ do {
                             $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Users" -Force
                             $allUsersAssignments.AppProtectionPolicies += $policy
                         }
-                    }
-                    catch {
+                    } catch {
                         Write-Host "Error fetching assignments for policy $($policy.displayName): $($_.Exception.Message)" -ForegroundColor Red
                     }
                 }
@@ -2133,8 +2081,7 @@ do {
             Write-Host "`n------- Device Configurations -------" -ForegroundColor Cyan
             if ($allUsersAssignments.DeviceConfigs.Count -eq 0) {
                 Write-Host "No Device Configurations assigned to All Users" -ForegroundColor Gray
-            }
-            else {
+            } else {
                 foreach ($config in $allUsersAssignments.DeviceConfigs) {
                     $configName = if ([string]::IsNullOrWhiteSpace($config.name)) { $config.displayName } else { $config.name }
                     Write-Host "Device Configuration Name: $configName, Configuration ID: $($config.id)" -ForegroundColor White
@@ -2146,8 +2093,7 @@ do {
             Write-Host "`n------- Settings Catalog Policies -------" -ForegroundColor Cyan
             if ($allUsersAssignments.SettingsCatalog.Count -eq 0) {
                 Write-Host "No Settings Catalog Policies assigned to All Users" -ForegroundColor Gray
-            }
-            else {
+            } else {
                 foreach ($policy in $allUsersAssignments.SettingsCatalog) {
                     $policyName = if ([string]::IsNullOrWhiteSpace($policy.name)) { $policy.displayName } else { $policy.name }
                     Write-Host "Settings Catalog Policy Name: $policyName, Policy ID: $($policy.id)" -ForegroundColor White
@@ -2159,8 +2105,7 @@ do {
             Write-Host "`n------- Administrative Templates -------" -ForegroundColor Cyan
             if ($allUsersAssignments.AdminTemplates.Count -eq 0) {
                 Write-Host "No Administrative Templates assigned to All Users" -ForegroundColor Gray
-            }
-            else {
+            } else {
                 foreach ($template in $allUsersAssignments.AdminTemplates) {
                     $templateName = if ([string]::IsNullOrWhiteSpace($template.name)) { $template.displayName } else { $template.name }
                     Write-Host "Administrative Template Name: $templateName, Template ID: $($template.id)" -ForegroundColor White
@@ -2172,8 +2117,7 @@ do {
             Write-Host "`n------- Compliance Policies -------" -ForegroundColor Cyan
             if ($allUsersAssignments.CompliancePolicies.Count -eq 0) {
                 Write-Host "No Compliance Policies assigned to All Users" -ForegroundColor Gray
-            }
-            else {
+            } else {
                 foreach ($policy in $allUsersAssignments.CompliancePolicies) {
                     $policyName = if ([string]::IsNullOrWhiteSpace($policy.name)) { $policy.displayName } else { $policy.name }
                     Write-Host "Compliance Policy Name: $policyName, Policy ID: $($policy.id)" -ForegroundColor White
@@ -2185,8 +2129,7 @@ do {
             Write-Host "`n------- App Protection Policies -------" -ForegroundColor Cyan
             if ($allUsersAssignments.AppProtectionPolicies.Count -eq 0) {
                 Write-Host "No App Protection Policies assigned to All Users" -ForegroundColor Gray
-            }
-            else {
+            } else {
                 foreach ($policy in $allUsersAssignments.AppProtectionPolicies) {
                     $policyName = $policy.displayName
                     $policyType = switch ($policy.'@odata.type') {
@@ -2204,8 +2147,7 @@ do {
             Write-Host "`n------- App Configuration Policies -------" -ForegroundColor Cyan
             if ($allUsersAssignments.AppConfigurationPolicies.Count -eq 0) {
                 Write-Host "No App Configuration Policies assigned to All Users" -ForegroundColor Gray
-            }
-            else {
+            } else {
                 foreach ($policy in $allUsersAssignments.AppConfigurationPolicies) {
                     $policyName = if ([string]::IsNullOrWhiteSpace($policy.name)) { $policy.displayName } else { $policy.name }
                     Write-Host "App Configuration Policy Name: $policyName, Policy ID: $($policy.id)" -ForegroundColor White
@@ -2217,8 +2159,7 @@ do {
             Write-Host "`n------- Platform Scripts -------" -ForegroundColor Cyan
             if ($allUsersAssignments.PlatformScripts.Count -eq 0) {
                 Write-Host "No Platform Scripts assigned to All Users" -ForegroundColor Gray
-            }
-            else {
+            } else {
                 foreach ($script in $allUsersAssignments.PlatformScripts) {
                     $scriptName = if ([string]::IsNullOrWhiteSpace($script.name)) { $script.displayName } else { $script.name }
                     Write-Host "Script Name: $scriptName, Script ID: $($script.id)" -ForegroundColor White
@@ -2230,8 +2171,7 @@ do {
             Write-Host "`n------- Proactive Remediation Scripts -------" -ForegroundColor Cyan
             if ($allUsersAssignments.HealthScripts.Count -eq 0) {
                 Write-Host "No Proactive Remediation Scripts assigned to All Users" -ForegroundColor Gray
-            }
-            else {
+            } else {
                 foreach ($script in $allUsersAssignments.HealthScripts) {
                     $scriptName = if ([string]::IsNullOrWhiteSpace($script.name)) { $script.displayName } else { $script.name }
                     Write-Host "Script Name: $scriptName, Script ID: $($script.id)" -ForegroundColor White
@@ -2315,9 +2255,9 @@ do {
             foreach ($policy in $appProtectionPolicies) {
                 $policyType = $policy.'@odata.type'
                 $assignmentsUri = switch ($policyType) {
-                    "#microsoft.graph.androidManagedAppProtection" { "https://graph.microsoft.com/beta/deviceAppManagement/androidManagedAppProtections('$($policy.id)')/assignments" }
-                    "#microsoft.graph.iosManagedAppProtection" { "https://graph.microsoft.com/beta/deviceAppManagement/iosManagedAppProtections('$($policy.id)')/assignments" }
-                    "#microsoft.graph.windowsManagedAppProtection" { "https://graph.microsoft.com/beta/deviceAppManagement/windowsManagedAppProtections('$($policy.id)')/assignments" }
+                    "#microsoft.graph.androidManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/androidManagedAppProtections('$($policy.id)')/assignments" }
+                    "#microsoft.graph.iosManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/iosManagedAppProtections('$($policy.id)')/assignments" }
+                    "#microsoft.graph.windowsManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/windowsManagedAppProtections('$($policy.id)')/assignments" }
                     default { $null }
                 }
 
@@ -2335,8 +2275,7 @@ do {
                             $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Devices" -Force
                             $allDevicesAssignments.AppProtectionPolicies += $policy
                         }
-                    }
-                    catch {
+                    } catch {
                         Write-Host "Error fetching assignments for policy $($policy.displayName): $($_.Exception.Message)" -ForegroundColor Red
                     }
                 }
@@ -2382,8 +2321,7 @@ do {
             Write-Host "`n------- Device Configurations -------" -ForegroundColor Cyan
             if ($allDevicesAssignments.DeviceConfigs.Count -eq 0) {
                 Write-Host "No Device Configurations assigned to All Devices" -ForegroundColor Gray
-            }
-            else {
+            } else {
                 foreach ($config in $allDevicesAssignments.DeviceConfigs) {
                     $configName = if ([string]::IsNullOrWhiteSpace($config.name)) { $config.displayName } else { $config.name }
                     Write-Host "Device Configuration Name: $configName, Configuration ID: $($config.id)" -ForegroundColor White
@@ -2395,8 +2333,7 @@ do {
             Write-Host "`n------- Settings Catalog Policies -------" -ForegroundColor Cyan
             if ($allDevicesAssignments.SettingsCatalog.Count -eq 0) {
                 Write-Host "No Settings Catalog Policies assigned to All Devices" -ForegroundColor Gray
-            }
-            else {
+            } else {
                 foreach ($policy in $allDevicesAssignments.SettingsCatalog) {
                     $policyName = if ([string]::IsNullOrWhiteSpace($policy.name)) { $policy.displayName } else { $policy.name }
                     Write-Host "Settings Catalog Policy Name: $policyName, Policy ID: $($policy.id)" -ForegroundColor White
@@ -2408,8 +2345,7 @@ do {
             Write-Host "`n------- Administrative Templates -------" -ForegroundColor Cyan
             if ($allDevicesAssignments.AdminTemplates.Count -eq 0) {
                 Write-Host "No Administrative Templates assigned to All Devices" -ForegroundColor Gray
-            }
-            else {
+            } else {
                 foreach ($template in $allDevicesAssignments.AdminTemplates) {
                     $templateName = if ([string]::IsNullOrWhiteSpace($template.name)) { $template.displayName } else { $template.name }
                     Write-Host "Administrative Template Name: $templateName, Template ID: $($template.id)" -ForegroundColor White
@@ -2421,8 +2357,7 @@ do {
             Write-Host "`n------- Compliance Policies -------" -ForegroundColor Cyan
             if ($allDevicesAssignments.CompliancePolicies.Count -eq 0) {
                 Write-Host "No Compliance Policies assigned to All Devices" -ForegroundColor Gray
-            }
-            else {
+            } else {
                 foreach ($policy in $allDevicesAssignments.CompliancePolicies) {
                     $policyName = if ([string]::IsNullOrWhiteSpace($policy.name)) { $policy.displayName } else { $policy.name }
                     Write-Host "Compliance Policy Name: $policyName, Policy ID: $($policy.id)" -ForegroundColor White
@@ -2434,8 +2369,7 @@ do {
             Write-Host "`n------- App Protection Policies -------" -ForegroundColor Cyan
             if ($allDevicesAssignments.AppProtectionPolicies.Count -eq 0) {
                 Write-Host "No App Protection Policies assigned to All Devices" -ForegroundColor Gray
-            }
-            else {
+            } else {
                 foreach ($policy in $allDevicesAssignments.AppProtectionPolicies) {
                     $policyName = $policy.displayName
                     $policyType = switch ($policy.'@odata.type') {
@@ -2453,8 +2387,7 @@ do {
             Write-Host "`n------- App Configuration Policies -------" -ForegroundColor Cyan
             if ($allDevicesAssignments.AppConfigurationPolicies.Count -eq 0) {
                 Write-Host "No App Configuration Policies assigned to All Devices" -ForegroundColor Gray
-            }
-            else {
+            } else {
                 foreach ($policy in $allDevicesAssignments.AppConfigurationPolicies) {
                     $policyName = if ([string]::IsNullOrWhiteSpace($policy.name)) { $policy.displayName } else { $policy.name }
                     Write-Host "App Configuration Policy Name: $policyName, Policy ID: $($policy.id)" -ForegroundColor White
@@ -2466,8 +2399,7 @@ do {
             Write-Host "`n------- Platform Scripts -------" -ForegroundColor Cyan
             if ($allDevicesAssignments.PlatformScripts.Count -eq 0) {
                 Write-Host "No Platform Scripts assigned to All Devices" -ForegroundColor Gray
-            }
-            else {
+            } else {
                 foreach ($script in $allDevicesAssignments.PlatformScripts) {
                     $scriptName = if ([string]::IsNullOrWhiteSpace($script.name)) { $script.displayName } else { $script.name }
                     Write-Host "Script Name: $scriptName, Script ID: $($script.id)" -ForegroundColor White
@@ -2479,8 +2411,7 @@ do {
             Write-Host "`n------- Proactive Remediation Scripts -------" -ForegroundColor Cyan
             if ($allDevicesAssignments.HealthScripts.Count -eq 0) {
                 Write-Host "No Proactive Remediation Scripts assigned to All Devices" -ForegroundColor Gray
-            }
-            else {
+            } else {
                 foreach ($script in $allDevicesAssignments.HealthScripts) {
                     $scriptName = if ([string]::IsNullOrWhiteSpace($script.name)) { $script.displayName } else { $script.name }
                     Write-Host "Script Name: $scriptName, Script ID: $($script.id)" -ForegroundColor White
@@ -2508,7 +2439,8 @@ do {
                 
                 $htmlExportScript = (Invoke-WebRequest -Uri $downloadurl -UseBasicParsing).Content
                 $scriptPath = ".\html-export.ps1"
-                Set-Content -Path $scriptPath -Value $htmlExportScript
+                # Skipping downloading the script and using the local updated copy
+                # Set-Content -Path $scriptPath -Value $htmlExportScript
 
                 # Import the script
                 . $scriptPath
@@ -2524,12 +2456,12 @@ do {
                 }
 
                 # Clean up - remove the downloaded script
-                if (Test-Path $scriptPath) {
-                    Remove-Item -Path $scriptPath -Force
-                    continue
-                }
-            }
-            catch {
+                # Commented out for now
+                # if (Test-Path $scriptPath) {
+                #     Remove-Item -Path $scriptPath -Force
+                #     continue
+                # }
+            } catch {
                 Write-Host "Error: Failed to download or process the HTML export script. $($_.Exception.Message)" -ForegroundColor Red
             }
         }
@@ -2595,9 +2527,9 @@ do {
             foreach ($policy in $appProtectionPolicies) {
                 $policyType = $policy.'@odata.type'
                 $assignmentsUri = switch ($policyType) {
-                    "#microsoft.graph.androidManagedAppProtection" { "https://graph.microsoft.com/beta/deviceAppManagement/androidManagedAppProtections('$($policy.id)')/assignments" }
-                    "#microsoft.graph.iosManagedAppProtection" { "https://graph.microsoft.com/beta/deviceAppManagement/iosManagedAppProtections('$($policy.id)')/assignments" }
-                    "#microsoft.graph.windowsManagedAppProtection" { "https://graph.microsoft.com/beta/deviceAppManagement/windowsManagedAppProtections('$($policy.id)')/assignments" }
+                    "#microsoft.graph.androidManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/androidManagedAppProtections('$($policy.id)')/assignments" }
+                    "#microsoft.graph.iosManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/iosManagedAppProtections('$($policy.id)')/assignments" }
+                    "#microsoft.graph.windowsManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/windowsManagedAppProtections('$($policy.id)')/assignments" }
                     default { $null }
                 }
 
@@ -2607,8 +2539,7 @@ do {
                         if ($assignmentResponse.value.Count -eq 0) {
                             $unassignedPolicies.AppProtectionPolicies += $policy
                         }
-                    }
-                    catch {
+                    } catch {
                         Write-Host "Error fetching assignments for policy $($policy.displayName): $($_.Exception.Message)" -ForegroundColor Red
                     }
                 }
@@ -2651,8 +2582,7 @@ do {
             Write-Host "`n------- Device Configurations -------" -ForegroundColor Cyan
             if ($unassignedPolicies.DeviceConfigs.Count -eq 0) {
                 Write-Host "No unassigned Device Configurations found" -ForegroundColor Gray
-            }
-            else {
+            } else {
                 foreach ($config in $unassignedPolicies.DeviceConfigs) {
                     $configName = if ([string]::IsNullOrWhiteSpace($config.name)) { $config.displayName } else { $config.name }
                     Write-Host "Device Configuration Name: $configName, Configuration ID: $($config.id)" -ForegroundColor White
@@ -2664,8 +2594,7 @@ do {
             Write-Host "`n------- Settings Catalog Policies -------" -ForegroundColor Cyan
             if ($unassignedPolicies.SettingsCatalog.Count -eq 0) {
                 Write-Host "No unassigned Settings Catalog Policies found" -ForegroundColor Gray
-            }
-            else {
+            } else {
                 foreach ($policy in $unassignedPolicies.SettingsCatalog) {
                     $policyName = if ([string]::IsNullOrWhiteSpace($policy.name)) { $policy.displayName } else { $policy.name }
                     Write-Host "Settings Catalog Policy Name: $policyName, Policy ID: $($policy.id)" -ForegroundColor White
@@ -2677,8 +2606,7 @@ do {
             Write-Host "`n------- Administrative Templates -------" -ForegroundColor Cyan
             if ($unassignedPolicies.AdminTemplates.Count -eq 0) {
                 Write-Host "No unassigned Administrative Templates found" -ForegroundColor Gray
-            }
-            else {
+            } else {
                 foreach ($template in $unassignedPolicies.AdminTemplates) {
                     $templateName = if ([string]::IsNullOrWhiteSpace($template.name)) { $template.displayName } else { $template.name }
                     Write-Host "Administrative Template Name: $templateName, Template ID: $($template.id)" -ForegroundColor White
@@ -2690,8 +2618,7 @@ do {
             Write-Host "`n------- Compliance Policies -------" -ForegroundColor Cyan
             if ($unassignedPolicies.CompliancePolicies.Count -eq 0) {
                 Write-Host "No unassigned Compliance Policies found" -ForegroundColor Gray
-            }
-            else {
+            } else {
                 foreach ($policy in $unassignedPolicies.CompliancePolicies) {
                     $policyName = if ([string]::IsNullOrWhiteSpace($policy.name)) { $policy.displayName } else { $policy.name }
                     Write-Host "Compliance Policy Name: $policyName, Policy ID: $($policy.id)" -ForegroundColor White
@@ -2703,8 +2630,7 @@ do {
             Write-Host "`n------- App Protection Policies -------" -ForegroundColor Cyan
             if ($unassignedPolicies.AppProtectionPolicies.Count -eq 0) {
                 Write-Host "No unassigned App Protection Policies found" -ForegroundColor Gray
-            }
-            else {
+            } else {
                 foreach ($policy in $unassignedPolicies.AppProtectionPolicies) {
                     $policyName = $policy.displayName
                     $policyType = switch ($policy.'@odata.type') {
@@ -2722,8 +2648,7 @@ do {
             Write-Host "`n------- App Configuration Policies -------" -ForegroundColor Cyan
             if ($unassignedPolicies.AppConfigurationPolicies.Count -eq 0) {
                 Write-Host "No unassigned App Configuration Policies found" -ForegroundColor Gray
-            }
-            else {
+            } else {
                 foreach ($policy in $unassignedPolicies.AppConfigurationPolicies) {
                     $policyName = if ([string]::IsNullOrWhiteSpace($policy.name)) { $policy.displayName } else { $policy.name }
                     Write-Host "App Configuration Policy Name: $policyName, Policy ID: $($policy.id)" -ForegroundColor White
@@ -2735,8 +2660,7 @@ do {
             Write-Host "`n------- Platform Scripts -------" -ForegroundColor Cyan
             if ($unassignedPolicies.PlatformScripts.Count -eq 0) {
                 Write-Host "No unassigned Platform Scripts found" -ForegroundColor Gray
-            }
-            else {
+            } else {
                 foreach ($script in $unassignedPolicies.PlatformScripts) {
                     $scriptName = if ([string]::IsNullOrWhiteSpace($script.name)) { $script.displayName } else { $script.name }
                     Write-Host "Script Name: $scriptName, Script ID: $($script.id)" -ForegroundColor White
@@ -2748,8 +2672,7 @@ do {
             Write-Host "`n------- Proactive Remediation Scripts -------" -ForegroundColor Cyan
             if ($unassignedPolicies.HealthScripts.Count -eq 0) {
                 Write-Host "No unassigned Proactive Remediation Scripts found" -ForegroundColor Gray
-            }
-            else {
+            } else {
                 foreach ($script in $unassignedPolicies.HealthScripts) {
                     $scriptName = if ([string]::IsNullOrWhiteSpace($script.name)) { $script.displayName } else { $script.name }
                     Write-Host "Script Name: $scriptName, Script ID: $($script.id)" -ForegroundColor White
@@ -2780,11 +2703,10 @@ do {
                 )
 
                 try {
-                    $membersUri = "https://graph.microsoft.com/v1.0/groups/$GroupId/members?`$filter=id&`$top=1"
+                    $membersUri = "$GraphEndpoint/v1.0/groups/$GroupId/members?`$filter=id&`$top=1"
                     $response = Invoke-MgGraphRequest -Uri $membersUri -Method Get
                     return $response.value.Count -eq 0
-                }
-                catch {
+                } catch {
                     Write-Host "Error checking members for group $GroupId : $($_.Exception.Message)" -ForegroundColor Red
                     return $false
                 }
@@ -2876,9 +2798,9 @@ do {
             foreach ($policy in $appProtectionPolicies) {
                 $policyType = $policy.'@odata.type'
                 $assignmentsUri = switch ($policyType) {
-                    "#microsoft.graph.androidManagedAppProtection" { "https://graph.microsoft.com/beta/deviceAppManagement/androidManagedAppProtections('$($policy.id)')/assignments" }
-                    "#microsoft.graph.iosManagedAppProtection" { "https://graph.microsoft.com/beta/deviceAppManagement/iosManagedAppProtections('$($policy.id)')/assignments" }
-                    "#microsoft.graph.windowsManagedAppProtection" { "https://graph.microsoft.com/beta/deviceAppManagement/windowsManagedAppProtections('$($policy.id)')/assignments" }
+                    "#microsoft.graph.androidManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/androidManagedAppProtections('$($policy.id)')/assignments" }
+                    "#microsoft.graph.iosManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/iosManagedAppProtections('$($policy.id)')/assignments" }
+                    "#microsoft.graph.windowsManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/windowsManagedAppProtections('$($policy.id)')/assignments" }
                     default { $null }
                 }
 
@@ -2912,16 +2834,14 @@ do {
                                 if ($_.Reason -eq "Group Assignment") {
                                     $groupInfo = Get-GroupInfo -GroupId $_.GroupId
                                     "$($_.Reason) - $($groupInfo.DisplayName)"
-                                }
-                                else {
+                                } else {
                                     $_.Reason
                                 }
                             }
                             $policy | Add-Member -NotePropertyName 'AssignmentSummary' -NotePropertyValue ($assignmentSummary -join "; ") -Force
                             $emptyGroupAssignments.AppProtectionPolicies += $policy
                         }
-                    }
-                    catch {
+                    } catch {
                         Write-Host "Error fetching assignments for policy $($policy.displayName): $($_.Exception.Message)" -ForegroundColor Red
                     }
                 }
@@ -2985,8 +2905,7 @@ do {
             Write-Host "`n------- Device Configurations -------" -ForegroundColor Cyan
             if ($emptyGroupAssignments.DeviceConfigs.Count -eq 0) {
                 Write-Host "No Device Configurations assigned to empty groups" -ForegroundColor Gray
-            }
-            else {
+            } else {
                 foreach ($config in $emptyGroupAssignments.DeviceConfigs) {
                     $configName = if ([string]::IsNullOrWhiteSpace($config.name)) { $config.displayName } else { $config.name }
                     Write-Host "Device Configuration Name: $configName" -ForegroundColor White
@@ -3001,8 +2920,7 @@ do {
             Write-Host "`n------- Settings Catalog Policies -------" -ForegroundColor Cyan
             if ($emptyGroupAssignments.SettingsCatalog.Count -eq 0) {
                 Write-Host "No Settings Catalog Policies assigned to empty groups" -ForegroundColor Gray
-            }
-            else {
+            } else {
                 foreach ($policy in $emptyGroupAssignments.SettingsCatalog) {
                     $policyName = if ([string]::IsNullOrWhiteSpace($policy.name)) { $policy.displayName } else { $policy.name }
                     Write-Host "Settings Catalog Policy Name: $policyName" -ForegroundColor White
@@ -3017,8 +2935,7 @@ do {
             Write-Host "`n------- Administrative Templates -------" -ForegroundColor Cyan
             if ($emptyGroupAssignments.AdminTemplates.Count -eq 0) {
                 Write-Host "No Administrative Templates assigned to empty groups" -ForegroundColor Gray
-            }
-            else {
+            } else {
                 foreach ($template in $emptyGroupAssignments.AdminTemplates) {
                     $templateName = if ([string]::IsNullOrWhiteSpace($template.name)) { $template.displayName } else { $template.name }
                     Write-Host "Administrative Template Name: $templateName" -ForegroundColor White
@@ -3033,8 +2950,7 @@ do {
             Write-Host "`n------- Compliance Policies -------" -ForegroundColor Cyan
             if ($emptyGroupAssignments.CompliancePolicies.Count -eq 0) {
                 Write-Host "No Compliance Policies assigned to empty groups" -ForegroundColor Gray
-            }
-            else {
+            } else {
                 foreach ($policy in $emptyGroupAssignments.CompliancePolicies) {
                     $policyName = if ([string]::IsNullOrWhiteSpace($policy.name)) { $policy.displayName } else { $policy.name }
                     Write-Host "Compliance Policy Name: $policyName" -ForegroundColor White
@@ -3049,8 +2965,7 @@ do {
             Write-Host "`n------- App Protection Policies -------" -ForegroundColor Cyan
             if ($emptyGroupAssignments.AppProtectionPolicies.Count -eq 0) {
                 Write-Host "No App Protection Policies assigned to empty groups" -ForegroundColor Gray
-            }
-            else {
+            } else {
                 foreach ($policy in $emptyGroupAssignments.AppProtectionPolicies) {
                     $policyName = $policy.displayName
                     $policyType = switch ($policy.'@odata.type') {
@@ -3071,8 +2986,7 @@ do {
             Write-Host "`n------- App Configuration Policies -------" -ForegroundColor Cyan
             if ($emptyGroupAssignments.AppConfigurationPolicies.Count -eq 0) {
                 Write-Host "No App Configuration Policies assigned to empty groups" -ForegroundColor Gray
-            }
-            else {
+            } else {
                 foreach ($policy in $emptyGroupAssignments.AppConfigurationPolicies) {
                     $policyName = if ([string]::IsNullOrWhiteSpace($policy.name)) { $policy.displayName } else { $policy.name }
                     Write-Host "App Configuration Policy Name: $policyName" -ForegroundColor White
@@ -3087,8 +3001,7 @@ do {
             Write-Host "`n------- Platform Scripts -------" -ForegroundColor Cyan
             if ($emptyGroupAssignments.PlatformScripts.Count -eq 0) {
                 Write-Host "No Platform Scripts assigned to empty groups" -ForegroundColor Gray
-            }
-            else {
+            } else {
                 foreach ($script in $emptyGroupAssignments.PlatformScripts) {
                     $scriptName = if ([string]::IsNullOrWhiteSpace($script.name)) { $script.displayName } else { $script.name }
                     Write-Host "Script Name: $scriptName" -ForegroundColor White
@@ -3103,8 +3016,7 @@ do {
             Write-Host "`n------- Proactive Remediation Scripts -------" -ForegroundColor Cyan
             if ($emptyGroupAssignments.HealthScripts.Count -eq 0) {
                 Write-Host "No Proactive Remediation Scripts assigned to empty groups" -ForegroundColor Gray
-            }
-            else {
+            } else {
                 foreach ($script in $emptyGroupAssignments.HealthScripts) {
                     $scriptName = if ([string]::IsNullOrWhiteSpace($script.name)) { $script.displayName } else { $script.name }
                     Write-Host "Script Name: $scriptName" -ForegroundColor White
@@ -3137,8 +3049,7 @@ do {
             
             if ($adminTemplates.Count -eq 0) {
                 Write-Host "No Administrative Templates found" -ForegroundColor Gray
-            }
-            else {
+            } else {
                 # Process each template and its assignments
                 foreach ($template in $adminTemplates) {
                     $assignments = Get-IntuneAssignments -EntityType "groupPolicyConfigurations" -EntityId $template.id
@@ -3146,8 +3057,7 @@ do {
                         if ($_.Reason -eq "Group Assignment") {
                             $groupInfo = Get-GroupInfo -GroupId $_.GroupId
                             "$($_.Reason) - $($groupInfo.DisplayName)"
-                        }
-                        else {
+                        } else {
                             $_.Reason
                         }
                     }
@@ -3168,8 +3078,7 @@ do {
                 foreach ($template in $adminTemplates) {
                     $templateName = if ([string]::IsNullOrWhiteSpace($template.name)) { 
                         $template.displayName 
-                    }
-                    else { 
+                    } else { 
                         $template.name 
                     }
                     
@@ -3187,8 +3096,7 @@ do {
                     # Format assignment summary
                     $assignments = if ($template.AssignmentSummary) { 
                         $template.AssignmentSummary 
-                    }
-                    else { 
+                    } else { 
                         "No Assignments" 
                     }
                     if ($assignments.Length -gt 47) {
@@ -3254,7 +3162,7 @@ do {
                 if ($input -match '^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$') {
                     try {
                         # Get group info from Graph API
-                        $groupUri = "https://graph.microsoft.com/v1.0/groups/$input"
+                        $groupUri = "$GraphEndpoint/v1.0/groups/$input"
                         $groupResponse = Invoke-MgGraphRequest -Uri $groupUri -Method Get
                         $groupId = $groupResponse.id
                         $groupName = $groupResponse.displayName
@@ -3274,22 +3182,19 @@ do {
                         }
                 
                         Write-Host "Found group by ID: $groupName" -ForegroundColor Green
-                    }
-                    catch {
+                    } catch {
                         Write-Host "No group found with ID: $input" -ForegroundColor Red
                         continue
                     }
-                }
-                else {
+                } else {
                     # Try to find group by display name
-                    $groupUri = "https://graph.microsoft.com/v1.0/groups?`$filter=displayName eq '$input'"
+                    $groupUri = "$GraphEndpoint/v1.0/groups?`$filter=displayName eq '$input'"
                     $groupResponse = Invoke-MgGraphRequest -Uri $groupUri -Method Get
 
                     if ($groupResponse.value.Count -eq 0) {
                         Write-Host "No group found with name: $input" -ForegroundColor Red
                         continue
-                    }
-                    elseif ($groupResponse.value.Count -gt 1) {
+                    } elseif ($groupResponse.value.Count -gt 1) {
                         Write-Host "Multiple groups found with name: $input. Please use the Object ID instead:" -ForegroundColor Red
                         foreach ($group in $groupResponse.value) {
                             Write-Host "  - $($group.displayName) (ID: $($group.id))" -ForegroundColor Yellow
@@ -3318,7 +3223,7 @@ do {
                 }
 
                 # Process Device Configurations
-                $deviceConfigsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceConfigurations"
+                $deviceConfigsUri = "$GraphEndpoint/beta/deviceManagement/deviceConfigurations"
                 $deviceConfigsResponse = Invoke-MgGraphRequest -Uri $deviceConfigsUri -Method Get
                 $allDeviceConfigs = $deviceConfigsResponse.value
                 while ($deviceConfigsResponse.'@odata.nextLink') {
@@ -3331,7 +3236,7 @@ do {
                     $currentDeviceConfig++
                     Write-Host "`rFetching Device Configuration $currentDeviceConfig of $totalDeviceConfigs" -NoNewline
                     $configId = $config.id
-                    $assignmentsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceConfigurations('$configId')/assignments"
+                    $assignmentsUri = "$GraphEndpoint/beta/deviceManagement/deviceConfigurations('$configId')/assignments"
                     $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
             
                     if ($assignmentResponse.value | Where-Object { $_.target.groupId -eq $groupId }) {
@@ -3343,12 +3248,12 @@ do {
                 Write-Host ""  # Move to the next line after the loop
 
                 # Process Settings Catalog
-                $settingsCatalogUri = "https://graph.microsoft.com/beta/deviceManagement/configurationPolicies"
+                $settingsCatalogUri = "$GraphEndpoint/beta/deviceManagement/configurationPolicies"
                 $settingsCatalogResponse = Invoke-MgGraphRequest -Uri $settingsCatalogUri -Method Get
 
                 foreach ($policy in $settingsCatalogResponse.value) {
                     $policyId = $policy.id
-                    $assignmentsUri = "https://graph.microsoft.com/beta/deviceManagement/configurationPolicies('$policyId')/assignments"
+                    $assignmentsUri = "$GraphEndpoint/beta/deviceManagement/configurationPolicies('$policyId')/assignments"
                     $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
 
                     if ($assignmentResponse.value | Where-Object { $_.target.groupId -eq $groupId }) {
@@ -3357,12 +3262,12 @@ do {
                 }
 
                 # Process Administrative Templates
-                $adminTemplatesUri = "https://graph.microsoft.com/beta/deviceManagement/groupPolicyConfigurations"
+                $adminTemplatesUri = "$GraphEndpoint/beta/deviceManagement/groupPolicyConfigurations"
                 $adminTemplatesResponse = Invoke-MgGraphRequest -Uri $adminTemplatesUri -Method Get
 
                 foreach ($template in $adminTemplatesResponse.value) {
                     $templateId = $template.id
-                    $assignmentsUri = "https://graph.microsoft.com/beta/deviceManagement/groupPolicyConfigurations('$templateId')/assignments"
+                    $assignmentsUri = "$GraphEndpoint/beta/deviceManagement/groupPolicyConfigurations('$templateId')/assignments"
                     $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
 
                     if ($assignmentResponse.value | Where-Object { $_.target.groupId -eq $groupId }) {
@@ -3371,12 +3276,12 @@ do {
                 }
 
                 # Process Compliance Policies
-                $complianceUri = "https://graph.microsoft.com/beta/deviceManagement/deviceCompliancePolicies"
+                $complianceUri = "$GraphEndpoint/beta/deviceManagement/deviceCompliancePolicies"
                 $complianceResponse = Invoke-MgGraphRequest -Uri $complianceUri -Method Get
 
                 foreach ($policy in $complianceResponse.value) {
                     $policyId = $policy.id
-                    $assignmentsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceCompliancePolicies('$policyId')/assignments"
+                    $assignmentsUri = "$GraphEndpoint/beta/deviceManagement/deviceCompliancePolicies('$policyId')/assignments"
                     $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
 
                     if ($assignmentResponse.value | Where-Object { $_.target.groupId -eq $groupId }) {
@@ -3385,7 +3290,7 @@ do {
                 }
 
                 # Process Apps
-                $appUri = "https://graph.microsoft.com/beta/deviceAppManagement/mobileApps?`$filter=isAssigned eq true"
+                $appUri = "$GraphEndpoint/beta/deviceAppManagement/mobileApps?`$filter=isAssigned eq true"
                 $appResponse = Invoke-MgGraphRequest -Uri $appUri -Method Get
 
                 foreach ($app in $appResponse.value) {
@@ -3395,7 +3300,7 @@ do {
                     }
 
                     $appId = $app.id
-                    $assignmentsUri = "https://graph.microsoft.com/beta/deviceAppManagement/mobileApps('$appId')/assignments"
+                    $assignmentsUri = "$GraphEndpoint/beta/deviceAppManagement/mobileApps('$appId')/assignments"
                     $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
 
                     foreach ($assignment in $assignmentResponse.value) {
@@ -3410,12 +3315,12 @@ do {
                 }
 
                 # Process Platform Scripts (PowerShell)
-                $scriptsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceManagementScripts"
+                $scriptsUri = "$GraphEndpoint/beta/deviceManagement/deviceManagementScripts"
                 $scriptsResponse = Invoke-MgGraphRequest -Uri $scriptsUri -Method Get
                 # For PowerShell scripts, we need to check the script type
                 foreach ($script in $scriptsResponse.value) {
                     $scriptId = $script.id
-                    $assignmentsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceManagementScripts('$scriptId')/assignments"
+                    $assignmentsUri = "$GraphEndpoint/beta/deviceManagement/deviceManagementScripts('$scriptId')/assignments"
                     $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
 
                     if ($assignmentResponse.value | Where-Object { $_.target.groupId -eq $groupId }) {
@@ -3425,12 +3330,12 @@ do {
                 }
 
                 # Process Shell Scripts (macOS)
-                $shellScriptsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceShellScripts"
+                $shellScriptsUri = "$GraphEndpoint/beta/deviceManagement/deviceShellScripts"
                 $shellScriptsResponse = Invoke-MgGraphRequest -Uri $shellScriptsUri -Method Get
                 # For Shell scripts, we need to check the script type
                 foreach ($script in $shellScriptsResponse.value) {
                     $scriptId = $script.id
-                    $assignmentsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceShellScripts('$scriptId')/groupAssignments"
+                    $assignmentsUri = "$GraphEndpoint/beta/deviceManagement/deviceShellScripts('$scriptId')/groupAssignments"
                     $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
 
                     if ($assignmentResponse.value | Where-Object { $_.targetGroupId -eq $groupId }) {
@@ -3440,11 +3345,11 @@ do {
                 }
 
                 # Fetch and process Proactive Remediation Scripts (deviceHealthScripts)
-                $healthScriptsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceHealthScripts"
+                $healthScriptsUri = "$GraphEndpoint/beta/deviceManagement/deviceHealthScripts"
                 $healthScriptsResponse = Invoke-MgGraphRequest -Uri $healthScriptsUri -Method Get
                 foreach ($script in $healthScriptsResponse.value) {
                     $scriptId = $script.id
-                    $assignmentsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceHealthScripts('$scriptId')/assignments"
+                    $assignmentsUri = "$GraphEndpoint/beta/deviceManagement/deviceHealthScripts('$scriptId')/assignments"
                     $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
 
                     if ($assignmentResponse.value | Where-Object { $_.target.'@odata.type' -eq '#microsoft.graph.groupAssignmentTarget' -and $_.target.groupId -eq $groupId }) {
