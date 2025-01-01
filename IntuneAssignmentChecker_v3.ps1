@@ -31,7 +31,7 @@
 ################################ Prerequisites #####################################################
 
 # Fill in your App ID, Tenant ID, and Certificate Thumbprint
-$environment = "Global"  #   USGovDoD, Global, USGov
+
 $appid = '<YourAppIdHere>' # App ID of the App Registration
 $tenantid = '<YourTenantIdHere>' # Tenant ID of your EntraID
 $certThumbprint = '<YourCertificateThumbprintHere>' # Thumbprint of the certificate associated with the App Registration
@@ -115,11 +115,52 @@ try {
 
 # Do not change the following code
 
-# Define the Graph endpoint based on the environment
-$GraphEndpoint = switch ($environment) {
-    "Global" { "https://graph.microsoft.com" }
-    "USGov" { "https://graph.microsoft.us" }
-    "USGovDoD" { "https://dod-graph.microsoft.us" }
+# Ask user to select the Intune environment
+function Set-Environment {
+    do {
+        if ([string]::IsNullOrWhiteSpace($GraphEndpoint)) {
+            Write-Host "Select Intune Tenant Environment:" -ForegroundColor Cyan
+            Write-Host "  [1] Global" -ForegroundColor White
+            Write-Host "  [2] USGov" -ForegroundColor White
+            Write-Host "  [3] USGovDoD" -ForegroundColor White
+            Write-Host ""
+            Write-Host "  [0] Exit" -ForegroundColor White
+            Write-Host ""
+            Write-Host "Select an option: " -ForegroundColor Yellow -NoNewline
+
+            $selection = Read-Host
+
+            switch ($selection) {
+ 
+                '1' {
+                    $GraphEndpoint = "https://graph.microsoft.com"
+                    Write-Host "Environment set to Global" -ForegroundColor Green
+                    return "Global"
+                }
+                '2' {
+                    $GraphEndpoint = "https://graph.microsoft.us"
+                    Write-Host "Environment set to USGov" -ForegroundColor Green
+                    return "USGov"
+                }
+                '3' {
+                    $GraphEndpoint = "https://dod-graph.microsoft.us"
+                    Write-Host "Environment set to USGovDoD" -ForegroundColor Green
+                    return "USGovDoD"
+                }
+                '0' {
+                    Write-Host "Thank you for using IntuneAssignmentChecker! 👋" -ForegroundColor Green
+                    Write-Host "If you found this tool helpful, please consider:" -ForegroundColor Cyan
+                    Write-Host "- Starring the repository: https://github.com/ugurkocde/IntuneAssignmentChecker" -ForegroundColor White
+                    Write-Host "- Supporting the project: https://github.com/sponsors/ugurkocde" -ForegroundColor White
+                    Write-Host ""
+                    exit
+                }
+                default {
+                    Write-Host "Invalid choice, please select 1,2,3, or 0" -ForegroundColor Red
+                }
+            }
+        }
+    } while ($selection -ne '0')
 }
 
 # Connect to Microsoft Graph using certificate-based authentication
@@ -162,12 +203,14 @@ try {
             # Manual connection using interactive login
             Write-Host "Attempting manual interactive connection (you need privileges to consent permissions)..." -ForegroundColor Yellow
             $permissionsList = ($requiredPermissions | ForEach-Object { $_.Permission }) -join ', '
+            $environment = Set-Environment
             $connectionResult = Connect-MgGraph -Scopes $permissionsList -Environment $environment -NoWelcome -ErrorAction Stop
         } else {
             Write-Host "Script execution cancelled by user." -ForegroundColor Red
             exit
         }
     } else {
+        $environment = Set-Environment
         $connectionResult = Connect-MgGraph -ClientId $appid -TenantId $tenantid -CertificateThumbprint $certThumbprint -Environment $environment -NoWelcome -ErrorAction Stop
     }
     Write-Host "Successfully connected to Microsoft Graph" -ForegroundColor Green
