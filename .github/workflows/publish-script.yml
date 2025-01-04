@@ -43,9 +43,9 @@ jobs:
           #>
 
           "@
-          $scriptContent + ($content -join "`n") | Set-Content temp_script.ps1
+          $scriptContent + ($content -join "`n") | Set-Content IntuneAssignmentChecker.ps1
 
-      - name: Publish to PowerShell Gallery
+      - name: Verify PowerShell Gallery Access
         shell: pwsh
         env:
           NUGET_API_KEY: ${{ secrets.NUGET_KEY }}
@@ -54,14 +54,33 @@ jobs:
           try {
               # Register PSGallery if not already registered
               if (-not (Get-PSRepository -Name "PSGallery" -ErrorAction SilentlyContinue)) {
-                  Register-PSRepository -Default
+                  Register-PSRepository -Default -Verbose
               }
               
               # Set PSGallery as trusted
-              Set-PSRepository -Name "PSGallery" -InstallationPolicy Trusted
+              Set-PSRepository -Name "PSGallery" -InstallationPolicy Trusted -Verbose
               
-              # Publish the script
-              Publish-Script -Path temp_script.ps1 -NuGetApiKey $env:NUGET_API_KEY -Verbose
+              # Test API key by getting package info
+              $headers = @{
+                  'X-NuGet-ApiKey' = $env:NUGET_API_KEY
+              }
+              $response = Invoke-WebRequest -Uri 'https://www.powershellgallery.com/api/v2/package' -Headers $headers -Method Head -UseBasicParsing -Verbose
+              Write-Host "API Key validation successful"
+          }
+          catch {
+              Write-Error "Failed to verify PowerShell Gallery access: $_"
+              exit 1
+          }
+
+      - name: Publish to PowerShell Gallery
+        shell: pwsh
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_KEY }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          try {
+              # Publish the script with the original name
+              Publish-Script -Path IntuneAssignmentChecker.ps1 -NuGetApiKey $env:NUGET_API_KEY -Verbose
           }
           catch {
               Write-Error "Failed to publish script: $_"
