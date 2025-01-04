@@ -32,7 +32,7 @@ jobs:
           #>
 
           "@
-          $scriptContent + ($content -join "`n") | Set-Content IntuneAssignmentChecker.ps1
+          $scriptContent + ($content -join "`n`n") | Set-Content IntuneAssignmentChecker.ps1
 
       - name: Publish to PowerShell Gallery
         shell: pwsh
