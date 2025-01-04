@@ -1303,23 +1303,19 @@ do {
                     $allApps += $appResponse.value
                 }
                 $totalApps = $allApps.Count
-                $currentApp = 0
 
                 foreach ($app in $allApps) {
                     # Filter out irrelevant apps
-                    if ($app.isFeatured -or $app.isBuiltIn -or $app.publisher -eq "Microsoft Corporation") {
+                    if ($app.isFeatured -or $app.isBuiltIn) {
                         continue
                     }
 
-                    $currentApp++
-                    Write-Host "`rFetching Application $currentApp of $totalApps" -NoNewline
                     $appId = $app.id
                     $assignmentsUri = "https://graph.microsoft.com/beta/deviceAppManagement/mobileApps('$appId')/assignments"
                     $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
 
                     foreach ($assignment in $assignmentResponse.value) {
-                        if ($assignment.target.'@odata.type' -eq '#microsoft.graph.allLicensedUsersAssignmentTarget' -or 
-                            ($assignment.target.'@odata.type' -eq '#microsoft.graph.groupAssignmentTarget' -and $groupMemberships.id -contains $assignment.target.groupId)) {
+                        if ($assignment.target.'@odata.type' -eq '#microsoft.graph.groupAssignmentTarget' -and $groupMemberships.id -contains $assignment.GroupId) {
                             switch ($assignment.intent) {
                                 "required" { $relevantPolicies.AppsRequired += $app; break }
                                 "available" { $relevantPolicies.AppsAvailable += $app; break }
@@ -1329,9 +1325,6 @@ do {
                         }
                     }
                 }
-                Write-Host "`rFetching Application $totalApps of $totalApps" -NoNewline
-                Start-Sleep -Milliseconds 100
-                Write-Host ""  # Move to the next line after the loop
 
                 # Get Platform Scripts
                 Write-Host "Fetching Platform Scripts..." -ForegroundColor Yellow
@@ -1364,9 +1357,6 @@ do {
                     }
                 }
 
-                # Display results
-                Write-Host "`nAssignments for Device: $deviceName" -ForegroundColor Green
-
                 # Function to format and display policy table
                 function Format-PolicyTable {
                     param (
@@ -1387,7 +1377,7 @@ do {
                     Write-Host "$headerSeparator" -ForegroundColor Cyan
                     
                     # Create table header with custom formatting
-                    $headerFormat = "{0,-50} {1,-40} {2,-30}" -f "Policy Name", "ID", "Assignment"
+                    $headerFormat = "{0,-50} {1,-40}" -f "Policy Name", "ID"
                     $tableSeparator = "-" * 120
                     
                     Write-Host $headerFormat -ForegroundColor Yellow
@@ -1409,14 +1399,8 @@ do {
                             $id = $id.Substring(0, 34) + "..."
                         }
                         
-                        # Format assignment reason
-                        $assignment = if ($policy.AssignmentReason) { $policy.AssignmentReason } else { "No Assignment" }
-                        if ($assignment.Length -gt 27) {
-                            $assignment = $assignment.Substring(0, 24) + "..."
-                        }
-                        
                         # Output formatted row
-                        $rowFormat = "{0,-50} {1,-40} {2,-30}" -f $name, $id, $assignment
+                        $rowFormat = "{0,-50} {1,-40}" -f $name, $id, $assignment
                         Write-Host $rowFormat -ForegroundColor White
                     }
                     
@@ -1480,6 +1464,24 @@ do {
                 Format-PolicyTable -Title "Proactive Remediation Scripts" -Policies $relevantPolicies.HealthScripts -GetName {
                     param($script)
                     if ([string]::IsNullOrWhiteSpace($script.name)) { $script.displayName } else { $script.name }
+                }
+
+                # Display Required Apps
+                Format-PolicyTable -Title "Required Apps" -Policies $relevantPolicies.AppsRequired -GetName {
+                    param($app)
+                    $app.displayName
+                }
+
+                # Display Available Apps
+                Format-PolicyTable -Title "Available Apps" -Policies $relevantPolicies.AppsAvailable -GetName {
+                    param($app)
+                    $app.displayName
+                }
+
+                # Display Uninstall Apps
+                Format-PolicyTable -Title "Uninstall Apps" -Policies $relevantPolicies.AppsUninstall -GetName {
+                    param($app)
+                    $app.displayName
                 }
 
                 # Add to export data
@@ -1747,7 +1749,6 @@ do {
                     $allApps += $appResponse.value
                 }
                 $totalApps = $allApps.Count
-                $currentApp = 0
 
                 foreach ($app in $allApps) {
                     # Filter out irrelevant apps
@@ -1755,8 +1756,6 @@ do {
                         continue
                     }
 
-                    $currentApp++
-                    Write-Host "`rFetching Application $currentApp of $totalApps" -NoNewline
                     $appId = $app.id
                     $assignmentsUri = "https://graph.microsoft.com/beta/deviceAppManagement/mobileApps('$appId')/assignments"
                     $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
