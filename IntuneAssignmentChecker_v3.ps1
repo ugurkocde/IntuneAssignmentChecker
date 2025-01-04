@@ -1510,6 +1510,378 @@ do {
                 }
             }
         }
+         '3' {
+            Write-Host "Device selection chosen" -ForegroundColor Green
+
+            # Prompt for one or more Device Names
+            Write-Host "Please enter Device Name(s), separated by commas (,): " -ForegroundColor Cyan
+            $deviceInput = Read-Host
+
+            if ([string]::IsNullOrWhiteSpace($deviceInput)) {
+                Write-Host "No device name provided. Please try again." -ForegroundColor Red
+                continue
+            }
+
+            $deviceNames = $deviceInput -split ',' | ForEach-Object { $_.Trim() }
+            $exportData = [System.Collections.ArrayList]::new()
+
+            foreach ($deviceName in $deviceNames) {
+                Write-Host "`nProcessing device: $deviceName" -ForegroundColor Yellow
+
+                # Get Device Info
+                $deviceInfo = Get-DeviceInfo -DeviceName $deviceName
+                if (-not $deviceInfo.Success) {
+                    Write-Host "Device not found: $deviceName" -ForegroundColor Red
+                    Write-Host "Please verify the device name is correct." -ForegroundColor Yellow
+                    continue
+                }
+
+                # Get Device Group Memberships
+                try {
+                    $groupMemberships = Get-GroupMemberships -ObjectId $deviceInfo.Id -ObjectType "Device"
+                    Write-Host "Device Group Memberships: $($groupMemberships.displayName -join ', ')" -ForegroundColor Green
+                }
+                catch {
+                    Write-Host "Error fetching group memberships for device: $deviceName" -ForegroundColor Red
+                    Write-Host "Error details: $($_.Exception.Message)" -ForegroundColor Red
+                    continue
+                }
+
+                Write-Host "Fetching Intune Profiles and Applications for the device ... (this takes a few seconds)" -ForegroundColor Yellow
+
+                # Initialize collections for relevant policies
+                $relevantPolicies = @{
+                    DeviceConfigs            = @()
+                    SettingsCatalog          = @()
+                    AdminTemplates           = @()
+                    CompliancePolicies       = @()
+                    AppProtectionPolicies    = @()
+                    AppConfigurationPolicies = @()
+                    AppsRequired             = @()
+                    AppsAvailable            = @()
+                    AppsUninstall            = @()
+                    PlatformScripts          = @()
+                    HealthScripts            = @()
+                }
+
+                # Get Device Configurations
+                Write-Host "Fetching Device Configurations..." -ForegroundColor Yellow
+                $deviceConfigs = Get-IntuneEntities -EntityType "deviceConfigurations"
+                foreach ($config in $deviceConfigs) {
+                    $assignments = Get-IntuneAssignments -EntityType "deviceConfigurations" -EntityId $config.id
+                    foreach ($assignment in $assignments) {
+                        if ($assignment.Reason -ne "All Users" -and
+                            ($assignment.Reason -eq "All Devices" -or
+                             ($assignment.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignment.GroupId))) {
+                            $config | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignment.Reason -Force
+                            $relevantPolicies.DeviceConfigs += $config
+                            break
+                        }
+                    }
+                }
+
+                # Get Settings Catalog Policies
+                Write-Host "Fetching Settings Catalog Policies..." -ForegroundColor Yellow
+                $settingsCatalog = Get-IntuneEntities -EntityType "configurationPolicies"
+                foreach ($policy in $settingsCatalog) {
+                    $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
+                    foreach ($assignment in $assignments) {
+                        if ($assignment.Reason -ne "All Users" -and
+                            ($assignment.Reason -eq "All Devices" -or
+                             ($assignment.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignment.GroupId))) {
+                            $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignment.Reason -Force
+                            $relevantPolicies.SettingsCatalog += $policy
+                            break
+                        }
+                    }
+                }
+
+                # Get Administrative Templates
+                Write-Host "Fetching Administrative Templates..." -ForegroundColor Yellow
+                $adminTemplates = Get-IntuneEntities -EntityType "groupPolicyConfigurations"
+                foreach ($template in $adminTemplates) {
+                    $assignments = Get-IntuneAssignments -EntityType "groupPolicyConfigurations" -EntityId $template.id
+                    foreach ($assignment in $assignments) {
+                        if ($assignment.Reason -ne "All Users" -and
+                            ($assignment.Reason -eq "All Devices" -or
+                             ($assignment.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignment.GroupId))) {
+                            $template | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignment.Reason -Force
+                            $relevantPolicies.AdminTemplates += $template
+                            break
+                        }
+                    }
+                }
+
+                # Get Compliance Policies
+                Write-Host "Fetching Compliance Policies..." -ForegroundColor Yellow
+                $compliancePolicies = Get-IntuneEntities -EntityType "deviceCompliancePolicies"
+                foreach ($policy in $compliancePolicies) {
+                    $assignments = Get-IntuneAssignments -EntityType "deviceCompliancePolicies" -EntityId $policy.id
+                    foreach ($assignment in $assignments) {
+                        if ($assignment.Reason -ne "All Users" -and
+                            ($assignment.Reason -eq "All Devices" -or
+                             ($assignment.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignment.GroupId))) {
+                            $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignment.Reason -Force
+                            $relevantPolicies.CompliancePolicies += $policy
+                            break
+                        }
+                    }
+                }
+
+                # Get App Protection Policies
+                Write-Host "Fetching App Protection Policies..." -ForegroundColor Yellow
+                $appProtectionPolicies = Get-IntuneEntities -EntityType "deviceAppManagement/managedAppPolicies"
+                foreach ($policy in $appProtectionPolicies) {
+                    $policyType = $policy.'@odata.type'
+                    $assignmentsUri = switch ($policyType) {
+                        "#microsoft.graph.androidManagedAppProtection" { "https://graph.microsoft.com/beta/deviceAppManagement/androidManagedAppProtections('$($policy.id)')/assignments" }
+                        "#microsoft.graph.iosManagedAppProtection" { "https://graph.microsoft.com/beta/deviceAppManagement/iosManagedAppProtections('$($policy.id)')/assignments" }
+                        "#microsoft.graph.windowsManagedAppProtection" { "https://graph.microsoft.com/beta/deviceAppManagement/windowsManagedAppProtections('$($policy.id)')/assignments" }
+                        default { $null }
+                    }
+
+                    if ($assignmentsUri) {
+                        try {
+                            $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
+                            $assignments = @()
+                            foreach ($assignment in $assignmentResponse.value) {
+                                $assignmentReason = $null
+                                switch ($assignment.target.'@odata.type') {
+                                    '#microsoft.graph.allLicensedUsersAssignmentTarget' { 
+                                        $assignmentReason = "All Users"
+                                    }
+                                    '#microsoft.graph.allDevicesAssignmentTarget' { 
+                                        $assignmentReason = "All Devices"
+                                    }
+                                    '#microsoft.graph.groupAssignmentTarget' {
+                                        if ($groupMemberships.id -contains $assignment.target.groupId) {
+                                            $assignmentReason = "Group Assignment"
+                                        }
+                                    }
+                                }
+
+                                if ($assignmentReason -and $assignmentReason -ne "All Users") {
+                                    $assignments += @{
+                                        Reason  = $assignmentReason
+                                        GroupId = $assignment.target.groupId
+                                    }
+                                }
+                            }
+
+                            if ($assignments.Count -gt 0) {
+                                $assignmentSummary = $assignments | Where-Object { $_.Reason -ne "All Users" } | ForEach-Object {
+                                    if ($_.Reason -eq "Group Assignment") {
+                                        $groupInfo = Get-GroupInfo -GroupId $_.GroupId
+                                        "$($_.Reason) - $($groupInfo.DisplayName)"
+                                    }
+                                    else {
+                                        $_.Reason
+                                    }
+                                }
+                                $policy | Add-Member -NotePropertyName 'AssignmentSummary' -NotePropertyValue ($assignmentSummary -join "; ") -Force
+                                $relevantPolicies.AppProtectionPolicies += $policy
+                            }
+                        }
+                        catch {
+                            Write-Host "Error fetching assignments for policy $($policy.displayName): $($_.Exception.Message)" -ForegroundColor Red
+                        }
+                    }
+                }
+
+                # Get App Configuration Policies
+                Write-Host "Fetching App Configuration Policies..." -ForegroundColor Yellow
+                $appConfigPolicies = Get-IntuneEntities -EntityType "deviceAppManagement/mobileAppConfigurations"
+                foreach ($policy in $appConfigPolicies) {
+                    $assignments = Get-IntuneAssignments -EntityType "mobileAppConfigurations" -EntityId $policy.id
+                    foreach ($assignment in $assignments) {
+                        if ($assignment.Reason -ne "All Users" -and
+                            ($assignment.Reason -eq "All Devices" -or
+                             ($assignment.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignment.GroupId))) {
+                            $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignment.Reason -Force
+                            $relevantPolicies.AppConfigurationPolicies += $policy
+                            break
+                        }
+                    }
+                }
+
+                # Get Platform Scripts
+                Write-Host "Fetching Platform Scripts..." -ForegroundColor Yellow
+                $platformScripts = Get-IntuneEntities -EntityType "deviceManagementScripts"
+                foreach ($script in $platformScripts) {
+                    $assignments = Get-IntuneAssignments -EntityType "deviceManagementScripts" -EntityId $script.id
+                    foreach ($assignment in $assignments) {
+                        if ($assignment.Reason -ne "All Users" -and
+                            ($assignment.Reason -eq "All Devices" -or
+                             ($assignment.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignment.GroupId))) {
+                            $script | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignment.Reason -Force
+                            $relevantPolicies.PlatformScripts += $script
+                            break
+                        }
+                    }
+                }
+
+                # Get Proactive Remediation Scripts
+                Write-Host "Fetching Proactive Remediation Scripts..." -ForegroundColor Yellow
+                $healthScripts = Get-IntuneEntities -EntityType "deviceHealthScripts"
+                foreach ($script in $healthScripts) {
+                    $assignments = Get-IntuneAssignments -EntityType "deviceHealthScripts" -EntityId $script.id
+                    foreach ($assignment in $assignments) {
+                        if ($assignment.Reason -ne "All Users" -and
+                            ($assignment.Reason -eq "All Devices" -or
+                             ($assignment.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignment.GroupId))) {
+                            $script | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignment.Reason -Force
+                            $relevantPolicies.HealthScripts += $script
+                            break
+                        }
+                    }
+                }
+
+                # Display results
+                Write-Host "`nAssignments for Device: $deviceName" -ForegroundColor Green
+
+                # Function to format and display policy table
+                function Format-PolicyTable {
+                    param (
+                        [string]$Title,
+                        [object[]]$Policies,
+                        [scriptblock]$GetName,
+                        [scriptblock]$GetExtra = { param($p) "" }
+                    )
+
+                    if ($Policies.Count -eq 0) {
+                        return
+                    }
+
+                    # Create prominent section header
+                    $headerSeparator = "-" * ($Title.Length + 16)  # 16 accounts for the added spaces and dashes
+                    Write-Host "`n$headerSeparator" -ForegroundColor Cyan
+                    Write-Host "------- $Title -------" -ForegroundColor Cyan
+                    Write-Host "$headerSeparator" -ForegroundColor Cyan
+                    
+                    # Create table header with custom formatting
+                    $headerFormat = "{0,-50} {1,-40} {2,-30}" -f "Policy Name", "ID", "Assignment"
+                    $tableSeparator = "-" * 120
+                    
+                    Write-Host $headerFormat -ForegroundColor Yellow
+                    Write-Host $separator -ForegroundColor Gray
+                    
+                    # Display each policy in table format
+                    foreach ($policy in $Policies) {
+                        $name = & $GetName $policy
+                        $extra = & $GetExtra $policy
+                        
+                        # Truncate long names and add ellipsis
+                        if ($name.Length -gt 47) {
+                            $name = $name.Substring(0, 44) + "..."
+                        }
+                        
+                        # Format ID
+                        $id = $policy.id
+                        if ($id.Length -gt 37) {
+                            $id = $id.Substring(0, 34) + "..."
+                        }
+                        
+                        # Format assignment reason
+                        $assignment = if ($policy.AssignmentReason) { $policy.AssignmentReason } else { "No Assignment" }
+                        if ($assignment.Length -gt 27) {
+                            $assignment = $assignment.Substring(0, 24) + "..."
+                        }
+                        
+                        # Output formatted row
+                        $rowFormat = "{0,-50} {1,-40} {2,-30}" -f $name, $id, $assignment
+                        Write-Host $rowFormat -ForegroundColor White
+                    }
+                    
+                    Write-Host $separator -ForegroundColor Gray
+                }
+
+                # Display Device Configurations
+                Format-PolicyTable -Title "Device Configurations" -Policies $relevantPolicies.DeviceConfigs -GetName {
+                    param($config)
+                    if ([string]::IsNullOrWhiteSpace($config.name)) { $config.displayName } else { $config.name }
+                }
+
+                # Display Settings Catalog Policies
+                Format-PolicyTable -Title "Settings Catalog Policies" -Policies $relevantPolicies.SettingsCatalog -GetName {
+                    param($policy)
+                    if ([string]::IsNullOrWhiteSpace($policy.name)) { $policy.displayName } else { $policy.name }
+                }
+
+                # Display Administrative Templates
+                Format-PolicyTable -Title "Administrative Templates" -Policies $relevantPolicies.AdminTemplates -GetName {
+                    param($template)
+                    if ([string]::IsNullOrWhiteSpace($template.name)) { $template.displayName } else { $template.name }
+                }
+
+                # Display Compliance Policies
+                Format-PolicyTable -Title "Compliance Policies" -Policies $relevantPolicies.CompliancePolicies -GetName {
+                    param($policy)
+                    if ([string]::IsNullOrWhiteSpace($policy.name)) { $policy.displayName } else { $policy.name }
+                }
+
+                # Display App Protection Policies
+                Format-PolicyTable -Title "App Protection Policies" -Policies $relevantPolicies.AppProtectionPolicies -GetName {
+                    param($policy)
+                    $policy.displayName
+                } -GetExtra {
+                    param($policy)
+                    @{
+                        Label = 'Platform'
+                        Value = switch ($policy.'@odata.type') {
+                            "#microsoft.graph.androidManagedAppProtection" { "Android" }
+                            "#microsoft.graph.iosManagedAppProtection" { "iOS" }
+                            "#microsoft.graph.windowsManagedAppProtection" { "Windows" }
+                            default { "Unknown" }
+                        }
+                    }
+                }
+
+                # Display App Configuration Policies
+                Format-PolicyTable -Title "App Configuration Policies" -Policies $relevantPolicies.AppConfigurationPolicies -GetName {
+                    param($policy)
+                    if ([string]::IsNullOrWhiteSpace($policy.name)) { $policy.displayName } else { $policy.name }
+                }
+
+                # Display Platform Scripts
+                Format-PolicyTable -Title "Platform Scripts" -Policies $relevantPolicies.PlatformScripts -GetName {
+                    param($script)
+                    if ([string]::IsNullOrWhiteSpace($script.name)) { $script.displayName } else { $script.name }
+                }
+
+                # Display Proactive Remediation Scripts
+                Format-PolicyTable -Title "Proactive Remediation Scripts" -Policies $relevantPolicies.HealthScripts -GetName {
+                    param($script)
+                    if ([string]::IsNullOrWhiteSpace($script.name)) { $script.displayName } else { $script.name }
+                }
+
+                # Add to export data
+                Add-ExportData -ExportData $exportData -Category "Device" -Items @([PSCustomObject]@{
+                        displayName      = $deviceName
+                        id               = $deviceInfo.Id
+                        AssignmentReason = "N/A"
+                    }
+
+                    Add-ExportData -ExportData $exportData -Category "Device Configuration" -Items $relevantPolicies.DeviceConfigs -AssignmentReason { param($item) $item.AssignmentReason }
+                    Add-ExportData -ExportData $exportData -Category "Settings Catalog Policy" -Items $relevantPolicies.SettingsCatalog -AssignmentReason { param($item) $item.AssignmentReason }
+                    Add-ExportData -ExportData $exportData -Category "Administrative Template" -Items $relevantPolicies.AdminTemplates -AssignmentReason { param($item) $item.AssignmentReason }
+                    Add-ExportData -ExportData $exportData -Category "Compliance Policy" -Items $relevantPolicies.CompliancePolicies -AssignmentReason { param($item) $item.AssignmentReason }
+                    Add-ExportData -ExportData $exportData -Category "App Protection Policy" -Items $relevantPolicies.AppProtectionPolicies -AssignmentReason { param($item) $item.AssignmentSummary }
+                    Add-ExportData -ExportData $exportData -Category "App Configuration Policy" -Items $relevantPolicies.AppConfigurationPolicies -AssignmentReason { param($item) $item.AssignmentReason }
+                    Add-ExportData -ExportData $exportData -Category "Platform Scripts" -Items $relevantPolicies.PlatformScripts -AssignmentReason { param($item) $item.AssignmentReason }
+                    Add-ExportData -ExportData $exportData -Category "Proactive Remediation Scripts" -Items $relevantPolicies.HealthScripts -AssignmentReason { param($item) $item.AssignmentReason }
+                )
+            }
+
+            # Offer to export results
+            $export = Read-Host "`nWould you like to export the results to CSV? (y/n)"
+            if ($export -eq 'y') {
+                $exportPath = Show-SaveFileDialog -DefaultFileName "IntuneDeviceAssignments.csv"
+                if ($exportPath) {
+                    $exportData | Export-Csv -Path $exportPath -NoTypeInformation
+                    Write-Host "Results exported to $exportPath" -ForegroundColor Green
+                }
+            }
+        }
         '4' {
             Write-Host "Fetching all policies and their assignments..." -ForegroundColor Green
             $exportData = [System.Collections.ArrayList]::new()
