@@ -2850,7 +2850,7 @@ do {
             Write-Host "Generating HTML Report..." -ForegroundColor Green
 
             # Download the html-export.ps1 script from GitHub
-            $downloadurl = "https://raw.githubusercontent.com/ugurkocde/Intune/refs/heads/main/html-export.ps1"
+            $downloadurl = "https://raw.githubusercontent.com/ugurkocde/IntuneAssignmentChecker/refs/heads/main/html-export.ps1"
 
             try {
                 
