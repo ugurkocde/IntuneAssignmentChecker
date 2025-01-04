@@ -1751,7 +1751,7 @@ do {
 
                 foreach ($app in $allApps) {
                     # Filter out irrelevant apps
-                    if ($app.isFeatured -or $app.isBuiltIn -or $app.publisher -eq "Microsoft Corporation") {
+                    if ($app.isFeatured -or $app.isBuiltIn) {
                         continue
                     }
 
@@ -1762,11 +1762,23 @@ do {
                     $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
 
                     foreach ($assignment in $assignmentResponse.value) {
-                        if ($assignment.target.'@odata.type' -eq '#microsoft.graph.groupAssignmentTarget' -and $assignment.target.groupId -eq $groupId) {
+                        $assignmentReason = $null
+                        if ($assignment.target.'@odata.type' -eq '#microsoft.graph.allDevicesAssignmentTarget') {
+                            $assignmentReason = "All Devices"
+                        }
+                        elseif ($assignment.target.'@odata.type' -eq '#microsoft.graph.groupAssignmentTarget' -and
+                               $groupMemberships.id -contains $assignment.target.groupId) {
+                            $groupInfo = Get-GroupInfo -GroupId $assignment.target.groupId
+                            $assignmentReason = "Group Assignment - $($groupInfo.DisplayName)"
+                        }
+
+                        if ($assignmentReason) {
+                            $appWithReason = $app.PSObject.Copy()
+                            $appWithReason | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentReason -Force
                             switch ($assignment.intent) {
-                                "required" { $groupRelevantAppsRequired += $app; break }
-                                "available" { $groupRelevantAppsAvailable += $app; break }
-                                "uninstall" { $groupRelevantAppsUninstall += $app; break }
+                                "required" { $relevantPolicies.AppsRequired += $appWithReason; break }
+                                "available" { $relevantPolicies.AppsAvailable += $appWithReason; break }
+                                "uninstall" { $relevantPolicies.AppsUninstall += $appWithReason; break }
                             }
                             break
                         }
