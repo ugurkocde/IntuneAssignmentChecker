@@ -1736,6 +1736,43 @@ do {
                     }
                 }
 
+                # Get Applications
+                Write-Host "Fetching Applications..." -ForegroundColor Yellow
+                # Fetch Applications
+                $appUri = "https://graph.microsoft.com/beta/deviceAppManagement/mobileApps?`$filter=isAssigned eq true"
+                $appResponse = Invoke-MgGraphRequest -Uri $appUri -Method Get
+                $allApps = $appResponse.value
+                while ($appResponse.'@odata.nextLink') {
+                    $appResponse = Invoke-MgGraphRequest -Uri $appResponse.'@odata.nextLink' -Method Get
+                    $allApps += $appResponse.value
+                }
+                $totalApps = $allApps.Count
+                $currentApp = 0
+
+                foreach ($app in $allApps) {
+                    # Filter out irrelevant apps
+                    if ($app.isFeatured -or $app.isBuiltIn -or $app.publisher -eq "Microsoft Corporation") {
+                        continue
+                    }
+
+                    $currentApp++
+                    Write-Host "`rFetching Application $currentApp of $totalApps" -NoNewline
+                    $appId = $app.id
+                    $assignmentsUri = "https://graph.microsoft.com/beta/deviceAppManagement/mobileApps('$appId')/assignments"
+                    $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
+
+                    foreach ($assignment in $assignmentResponse.value) {
+                        if ($assignment.target.'@odata.type' -eq '#microsoft.graph.groupAssignmentTarget' -and $assignment.target.groupId -eq $groupId) {
+                            switch ($assignment.intent) {
+                                "required" { $groupRelevantAppsRequired += $app; break }
+                                "available" { $groupRelevantAppsAvailable += $app; break }
+                                "uninstall" { $groupRelevantAppsUninstall += $app; break }
+                            }
+                            break
+                        }
+                    }
+                }
+
                 # Display results
                 Write-Host "`nAssignments for Device: $deviceName" -ForegroundColor Green
 
@@ -1852,6 +1889,24 @@ do {
                 Format-PolicyTable -Title "Proactive Remediation Scripts" -Policies $relevantPolicies.HealthScripts -GetName {
                     param($script)
                     if ([string]::IsNullOrWhiteSpace($script.name)) { $script.displayName } else { $script.name }
+                }
+
+                # Display Required Apps
+                Format-PolicyTable -Title "Required Apps" -Policies $relevantPolicies.AppsRequired -GetName {
+                    param($app)
+                    $app.displayName
+                }
+
+                # Display Available Apps
+                Format-PolicyTable -Title "Available Apps" -Policies $relevantPolicies.AppsAvailable -GetName {
+                    param($app)
+                    $app.displayName
+                }
+
+                # Display Uninstall Apps
+                Format-PolicyTable -Title "Uninstall Apps" -Policies $relevantPolicies.AppsUninstall -GetName {
+                    param($app)
+                    $app.displayName
                 }
 
                 # Add to export data
