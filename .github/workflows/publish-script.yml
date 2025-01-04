@@ -2,36 +2,25 @@ name: Publish PowerShell Script
 
 on:
   workflow_dispatch:
-  push:
-    paths:
-      - "version_v3.txt"
-      - "IntuneAssignmentChecker_v3.ps1"
-    branches:
-      - main
 
 jobs:
-  publish-script:
+  test-and-publish:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
-      - name: Read Version
-        id: version
+      - name: Prepare script for publishing
         shell: pwsh
         run: |
           $version = Get-Content version_v3.txt
-          echo "VERSION=$version" >> $env:GITHUB_ENV
-
-      - name: Create Temporary Script
-        shell: pwsh
-        run: |
           $content = Get-Content IntuneAssignmentChecker_v3.ps1
           $scriptContent = @"
           #Requires -Version 7.0
           #Requires -Modules Microsoft.Graph.Authentication
 
           <#PSScriptInfo
-          .VERSION $env:VERSION
+          .VERSION $version
           .GUID c6e25ec6-5787-45ef-95af-8abeb8a17daf
           .AUTHOR ugurk
           .PROJECTURI https://github.com/ugurkocde/IntuneAssignmentChecker
@@ -45,44 +34,8 @@ jobs:
           "@
           $scriptContent + ($content -join "`n") | Set-Content IntuneAssignmentChecker.ps1
 
-      - name: Verify PowerShell Gallery Access
-        shell: pwsh
-        env:
-          NUGET_API_KEY: ${{ secrets.NUGET_KEY }}
-        run: |
-          $ErrorActionPreference = 'Stop'
-          try {
-              # Register PSGallery if not already registered
-              if (-not (Get-PSRepository -Name "PSGallery" -ErrorAction SilentlyContinue)) {
-                  Register-PSRepository -Default -Verbose
-              }
-              
-              # Set PSGallery as trusted
-              Set-PSRepository -Name "PSGallery" -InstallationPolicy Trusted -Verbose
-              
-              # Test API key by getting package info
-              $headers = @{
-                  'X-NuGet-ApiKey' = $env:NUGET_API_KEY
-              }
-              $response = Invoke-WebRequest -Uri 'https://www.powershellgallery.com/api/v2/package' -Headers $headers -Method Head -UseBasicParsing -Verbose
-              Write-Host "API Key validation successful"
-          }
-          catch {
-              Write-Error "Failed to verify PowerShell Gallery access: $_"
-              exit 1
-          }
-
       - name: Publish to PowerShell Gallery
         shell: pwsh
-        env:
-          NUGET_API_KEY: ${{ secrets.NUGET_KEY }}
         run: |
-          $ErrorActionPreference = 'Stop'
-          try {
-              # Publish the script with the original name
-              Publish-Script -Path IntuneAssignmentChecker.ps1 -NuGetApiKey $env:NUGET_API_KEY -Verbose
-          }
-          catch {
-              Write-Error "Failed to publish script: $_"
-              exit 1
-          }
+          $env:PSGalleryApiKey = "${{ secrets.NUGET_KEY }}"
+          Publish-Script -Path ./IntuneAssignmentChecker.ps1 -Repository PSGallery -NuGetApiKey $env:PSGalleryApiKey -Verbose
