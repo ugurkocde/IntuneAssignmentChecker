@@ -3128,7 +3128,7 @@ do {
                 )
 
                 try {
-                    $membersUri = "https://graph.microsoft.com/v1.0/groups/$GroupId/members?`$filter=id&`$top=1"
+                    $membersUri = "https://graph.microsoft.com/v1.0/groups/$GroupId/members?`$select=id"
                     $response = Invoke-MgGraphRequest -Uri $membersUri -Method Get
                     return $response.value.Count -eq 0
                 }
