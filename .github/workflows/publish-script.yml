@@ -48,6 +48,22 @@ jobs:
       - name: Publish to PowerShell Gallery
         shell: pwsh
         env:
-          NUGET_KEY: ${{ secrets.NUGET_KEY }}
+          NUGET_API_KEY: ${{ secrets.NUGET_KEY }}
         run: |
-          Publish-Script -Path temp_script.ps1 -NuGetApiKey $env:NUGET_KEY
+          $ErrorActionPreference = 'Stop'
+          try {
+              # Register PSGallery if not already registered
+              if (-not (Get-PSRepository -Name "PSGallery" -ErrorAction SilentlyContinue)) {
+                  Register-PSRepository -Default
+              }
+              
+              # Set PSGallery as trusted
+              Set-PSRepository -Name "PSGallery" -InstallationPolicy Trusted
+              
+              # Publish the script
+              Publish-Script -Path temp_script.ps1 -NuGetApiKey $env:NUGET_API_KEY -Verbose
+          }
+          catch {
+              Write-Error "Failed to publish script: $_"
+              exit 1
+          }
