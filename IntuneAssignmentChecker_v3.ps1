@@ -61,7 +61,7 @@ Write-Host ""
 # Autoupdate function
 
 # URL to the version file on GitHub
-$versionUrl = "https://raw.githubusercontent.com/ugurkocde/IntuneAssignmentChecker/main/version_v3.txt"
+$versionUrl = "https://raw.githubusercontent.com/ugurkocde/IntuneAssignmentChecker/refs/heads/main/version_v3.txt"
 
 # URL to the latest script on GitHub
 $scriptUrl = "https://raw.githubusercontent.com/ugurkocde/IntuneAssignmentChecker/main/IntuneAssignmentChecker_v3.ps1"
