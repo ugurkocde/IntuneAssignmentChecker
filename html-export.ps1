@@ -8,9 +8,9 @@
     app protection policies, and PowerShell scripts (both platform and proactive remediation).
 
 .NOTES
-    Version:        1.0
+    Version:        1.1
     Author:         Ugur Koc
-    Creation Date:  2023-12-28
+    Creation Date:  01/03/2025
     
     The report includes:
     - Summary statistics
@@ -19,6 +19,9 @@
     - Detailed policy information
     - Platform-specific icons
     - Dark/Light mode toggle
+
+    Changelog:
+    - Added Applications to the report
 #>
 
 Add-Type -AssemblyName System.Web
@@ -722,6 +725,9 @@ function Export-HTMLReport {
         CompliancePolicies       = @()
         AppProtectionPolicies    = @()
         AppConfigurationPolicies = @()
+        AppsRequired             = @()
+        AppsAvailable            = @()
+        AppsUninstall            = @()
         PlatformScripts          = @()
         HealthScripts            = @()
     }
@@ -915,6 +921,48 @@ function Export-HTMLReport {
         }
     }
 
+    # Get Applications
+    Write-Host "Fetching Applications..." -ForegroundColor Yellow
+    $appUri = "https://graph.microsoft.com/beta/deviceAppManagement/mobileApps?`$filter=isAssigned eq true"
+    $appResponse = Invoke-MgGraphRequest -Uri $appUri -Method Get
+    $allApps = $appResponse.value
+    while ($appResponse.'@odata.nextLink') {
+        $appResponse = Invoke-MgGraphRequest -Uri $appResponse.'@odata.nextLink' -Method Get
+        $allApps += $appResponse.value
+    }
+
+    foreach ($app in $allApps) {
+        # Skip built-in and Microsoft apps
+        if ($app.isFeatured -or $app.isBuiltIn) {
+            continue
+        }
+
+        $assignments = Get-IntuneAssignments -EntityType "deviceAppManagement/mobileApps" -EntityId $app.id
+        foreach ($assignment in $assignments) {
+            $assignmentInfo = Get-AssignmentInfo -Assignments @($assignment)
+            $appInfo = @{
+                Name                 = $app.displayName
+                ID                   = $app.id
+                Type                 = "Application"
+                AssignmentType       = $assignmentInfo.Type
+                AssignedTo           = $assignmentInfo.Target
+                PlatformType         = if ($app.'@odata.type' -match 'android|ios|macos|windows') {
+                                        ($app.'@odata.type' -split '\.' | Select-Object -Last 1) -replace '(MobileLobApp|StoreApp|App)$', ''
+                }
+                else { "Cross-Platform" }
+                CreatedDateTime      = $app.createdDateTime
+                LastModifiedDateTime = $app.lastModifiedDateTime
+                Intent               = $assignment.Intent
+            }
+
+            switch ($assignment.Intent) {
+                "required" { $policies.AppsRequired += $appInfo }
+                "available" { $policies.AppsAvailable += $appInfo }
+                "uninstall" { $policies.AppsUninstall += $appInfo }
+            }
+        }
+    }
+
     # Generate summary statistics
     $summaryStats = @{
         TotalPolicies = 0
@@ -931,6 +979,9 @@ function Export-HTMLReport {
         @{ Key = 'AdminTemplates'; Name = 'Administrative Templates' },
         @{ Key = 'CompliancePolicies'; Name = 'Compliance Policies' },
         @{ Key = 'AppProtectionPolicies'; Name = 'App Protection Policies' },
+        @{ Key = 'AppsRequired'; Name = 'Required Applications' },
+        @{ Key = 'AppsAvailable'; Name = 'Available Applications' },
+        @{ Key = 'AppsUninstall'; Name = 'Uninstall Applications' },
         @{ Key = 'PlatformScripts'; Name = 'Platform Scripts' },
         @{ Key = 'HealthScripts'; Name = 'Proactive Remediation Scripts' }
     )
