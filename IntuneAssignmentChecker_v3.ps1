@@ -2327,9 +2327,9 @@ do {
                         $appWithReason = $app.PSObject.Copy()
                         $appWithReason | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Users" -Force
                         switch ($assignment.intent) {
-                            "required" { $relevantPolicies.AppsRequired += $appWithReason; break }
-                            "available" { $relevantPolicies.AppsAvailable += $appWithReason; break }
-                            "uninstall" { $relevantPolicies.AppsUninstall += $appWithReason; break }
+                            "required" { $allUsersAssignments.RequiredApps += $appWithReason; break }
+                            "available" { $allUsersAssignments.AvailableApps += $appWithReason; break }
+                            "uninstall" { $allUsersAssignments.UninstallApps += $appWithReason; break }
                         }
                         break
                     }
@@ -2473,11 +2473,11 @@ do {
 
             # Display Required Apps
             Write-Host "`n------- Required Apps -------" -ForegroundColor Cyan
-            if ($relevantPolicies.AppsRequired.Count -eq 0) {
+            if ($allUsersAssignments.RequiredApps.Count -eq 0) {
                 Write-Host "No Required Apps assigned to All Users" -ForegroundColor Gray
             }
             else {
-                foreach ($app in $relevantPolicies.AppsRequired) {
+                foreach ($app in $allUsersAssignments.RequiredApps) {
                     $appName = $app.displayName
                     Write-Host "App Name: $appName, App ID: $($app.id)" -ForegroundColor White
                     Add-ExportData -ExportData $exportData -Category "Required Apps" -Items @($app) -AssignmentReason "All Users"
@@ -2486,11 +2486,11 @@ do {
 
             # Display Available Apps
             Write-Host "`n------- Available Apps -------" -ForegroundColor Cyan
-            if ($relevantPolicies.AppsAvailable.Count -eq 0) {
+            if ($allUsersAssignments.AvailableApps.Count -eq 0) {
                 Write-Host "No Available Apps assigned to All Users" -ForegroundColor Gray
             }
             else {
-                foreach ($app in $relevantPolicies.AppsAvailable) {
+                foreach ($app in $allUsersAssignments.AvailableApps) {
                     $appName = $app.displayName
                     Write-Host "App Name: $appName, App ID: $($app.id)" -ForegroundColor White
                     Add-ExportData -ExportData $exportData -Category "Available Apps" -Items @($app) -AssignmentReason "All Users"
@@ -2499,11 +2499,11 @@ do {
 
             # Display Uninstall Apps
             Write-Host "`n------- Uninstall Apps -------" -ForegroundColor Cyan
-            if ($relevantPolicies.AppsUninstall.Count -eq 0) {
+            if ($allUsersAssignments.UninstallApps.Count -eq 0) {
                 Write-Host "No Uninstall Apps assigned to All Users" -ForegroundColor Gray
             }
             else {
-                foreach ($app in $relevantPolicies.AppsUninstall) {
+                foreach ($app in $allUsersAssignments.UninstallApps) {
                     $appName = $app.displayName
                     Write-Host "App Name: $appName, App ID: $($app.id)" -ForegroundColor White
                     Add-ExportData -ExportData $exportData -Category "Uninstall Apps" -Items @($app) -AssignmentReason "All Users"
@@ -2534,6 +2534,9 @@ do {
                 AppConfigurationPolicies = @()
                 PlatformScripts          = @()
                 HealthScripts            = @()
+                RequiredApps             = @()
+                AvailableApps            = @()
+                UninstallApps            = @()
             }
 
             # Get Device Configurations
@@ -2621,6 +2624,41 @@ do {
                 if ($assignments | Where-Object { $_.Reason -eq "All Devices" }) {
                     $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Devices" -Force
                     $allDevicesAssignments.AppConfigurationPolicies += $policy
+                }
+            }
+
+            # Get Applications
+            Write-Host "Fetching Applications..." -ForegroundColor Yellow
+            $appUri = "https://graph.microsoft.com/beta/deviceAppManagement/mobileApps?`$filter=isAssigned eq true"
+            $appResponse = Invoke-MgGraphRequest -Uri $appUri -Method Get
+            $allApps = $appResponse.value
+            while ($appResponse.'@odata.nextLink') {
+                $appResponse = Invoke-MgGraphRequest -Uri $appResponse.'@odata.nextLink' -Method Get
+                $allApps += $appResponse.value
+            }
+            $totalApps = $allApps.Count
+
+            foreach ($app in $allApps) {
+                # Filter out irrelevant apps
+                if ($app.isFeatured -or $app.isBuiltIn) {
+                    continue
+                }
+
+                $appId = $app.id
+                $assignmentsUri = "https://graph.microsoft.com/beta/deviceAppManagement/mobileApps('$appId')/assignments"
+                $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
+
+                foreach ($assignment in $assignmentResponse.value) {
+                    if ($assignment.target.'@odata.type' -eq '#microsoft.graph.allDevicesAssignmentTarget') {
+                        $appWithReason = $app.PSObject.Copy()
+                        $appWithReason | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Devices" -Force
+                        switch ($assignment.intent) {
+                            "required" { $allDevicesAssignments.RequiredApps += $appWithReason; break }
+                            "available" { $allDevicesAssignments.AvailableApps += $appWithReason; break }
+                            "uninstall" { $allDevicesAssignments.UninstallApps += $appWithReason; break }
+                        }
+                        break
+                    }
                 }
             }
 
@@ -2756,6 +2794,45 @@ do {
                     $scriptName = if ([string]::IsNullOrWhiteSpace($script.name)) { $script.displayName } else { $script.name }
                     Write-Host "Script Name: $scriptName, Script ID: $($script.id)" -ForegroundColor White
                     Add-ExportData -ExportData $exportData -Category "Proactive Remediation Scripts" -Items @($script) -AssignmentReason "All Devices"
+                }
+            }
+
+            # Display Required Apps
+            Write-Host "`n------- Required Apps -------" -ForegroundColor Cyan
+            if ($allDevicesAssignments.RequiredApps.Count -eq 0) {
+                Write-Host "No Required Apps assigned to All Devices" -ForegroundColor Gray
+            }
+            else {
+                foreach ($app in $allDevicesAssignments.RequiredApps) {
+                    $appName = $app.displayName
+                    Write-Host "App Name: $appName, App ID: $($app.id)" -ForegroundColor White
+                    Add-ExportData -ExportData $exportData -Category "Required Apps" -Items @($app) -AssignmentReason "All Devices"
+                }
+            }
+
+            # Display Available Apps
+            Write-Host "`n------- Available Apps -------" -ForegroundColor Cyan
+            if ($allDevicesAssignments.AvailableApps.Count -eq 0) {
+                Write-Host "No Available Apps assigned to All Devices" -ForegroundColor Gray
+            }
+            else {
+                foreach ($app in $allDevicesAssignments.AvailableApps) {
+                    $appName = $app.displayName
+                    Write-Host "App Name: $appName, App ID: $($app.id)" -ForegroundColor White
+                    Add-ExportData -ExportData $exportData -Category "Available Apps" -Items @($app) -AssignmentReason "All Devices"
+                }
+            }
+
+            # Display Uninstall Apps
+            Write-Host "`n------- Uninstall Apps -------" -ForegroundColor Cyan
+            if ($allDevicesAssignments.UninstallApps.Count -eq 0) {
+                Write-Host "No Uninstall Apps assigned to All Devices" -ForegroundColor Gray
+            }
+            else {
+                foreach ($app in $allDevicesAssignments.UninstallApps) {
+                    $appName = $app.displayName
+                    Write-Host "App Name: $appName, App ID: $($app.id)" -ForegroundColor White
+                    Add-ExportData -ExportData $exportData -Category "Uninstall Apps" -Items @($app) -AssignmentReason "All Devices"
                 }
             }
 
@@ -3661,7 +3738,7 @@ do {
 
                 foreach ($app in $appResponse.value) {
                     # Skip built-in and Microsoft apps
-                    if ($app.isFeatured -or $app.isBuiltIn -or $app.publisher -eq "Microsoft Corporation") {
+                    if ($app.isFeatured -or $app.isBuiltIn) {
                         continue
                     }
 
