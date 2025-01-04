@@ -449,6 +449,9 @@ function Export-HTMLReport {
         AppConfigurationPolicies = @()
         PlatformScripts          = @()
         HealthScripts            = @()
+        RequiredApps             = @()
+        AvailableApps            = @()
+        UninstallApps            = @()
     }
 
     # Fetch all policies
@@ -608,6 +611,53 @@ function Export-HTMLReport {
         }
     }
 
+    # Get Apps
+    Write-Host "Fetching Applications..." -ForegroundColor Yellow
+    $appUri = "https://graph.microsoft.com/beta/deviceAppManagement/mobileApps?`$filter=isAssigned eq true"
+    $appResponse = Invoke-MgGraphRequest -Uri $appUri -Method Get
+    $allApps = $appResponse.value
+    while ($appResponse.'@odata.nextLink') {
+        $appResponse = Invoke-MgGraphRequest -Uri $appResponse.'@odata.nextLink' -Method Get
+        $allApps += $appResponse.value
+    }
+
+    foreach ($app in $allApps) {
+        # Skip built-in and Microsoft apps
+        if ($app.isFeatured -or $app.isBuiltIn) {
+            continue
+        }
+
+        $appId = $app.id
+        $assignmentsUri = "https://graph.microsoft.com/beta/deviceAppManagement/mobileApps('$appId')/assignments"
+        $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
+
+        foreach ($assignment in $assignmentResponse.value) {
+            $assignmentInfo = Get-AssignmentInfo -Assignments @(@{
+                    Reason  = switch ($assignment.target.'@odata.type') {
+                        '#microsoft.graph.allLicensedUsersAssignmentTarget' { "All Users" }
+                        '#microsoft.graph.allDevicesAssignmentTarget' { "All Devices" }
+                        '#microsoft.graph.groupAssignmentTarget' { "Group Assignment" }
+                        default { "None" }
+                    }
+                    GroupId = $assignment.target.groupId
+                })
+
+            $appInfo = @{
+                Name           = $app.displayName
+                ID             = $app.id
+                Type           = "Application"
+                AssignmentType = $assignmentInfo.Type
+                AssignedTo     = $assignmentInfo.Target
+            }
+
+            switch ($assignment.intent) {
+                "required" { $policies.RequiredApps += $appInfo }
+                "available" { $policies.AvailableApps += $appInfo }
+                "uninstall" { $policies.UninstallApps += $appInfo }
+            }
+        }
+    }
+
     # Generate summary statistics
     $summaryStats = @{
         TotalPolicies = 0
@@ -624,6 +674,9 @@ function Export-HTMLReport {
         @{ Key = 'AdminTemplates'; Name = 'Administrative Templates' },
         @{ Key = 'CompliancePolicies'; Name = 'Compliance Policies' },
         @{ Key = 'AppProtectionPolicies'; Name = 'App Protection Policies' },
+        @{ Key = 'RequiredApps'; Name = 'Required Applications' },
+        @{ Key = 'AvailableApps'; Name = 'Available Applications' },
+        @{ Key = 'UninstallApps'; Name = 'Uninstall Applications' },
         @{ Key = 'PlatformScripts'; Name = 'Platform Scripts' },
         @{ Key = 'HealthScripts'; Name = 'Proactive Remediation Scripts' }
     )
