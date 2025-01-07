@@ -69,10 +69,15 @@ Install-Module Microsoft.Graph.Authentication -Scope CurrentUser
 - 📊 Detailed reporting of Configuration Profiles, Compliance Policies, and Applications
 - 📈 Interactive HTML reports with charts and filterable tables
 
-## 🎥 Demo (This is from an older version and will be re-recorded ASAP)
+## 🎥 Demo
 
 <div align="center">
-  <video src="https://github.com/ugurkocde/IntuneAssignmentChecker/assets/43906965/3d0311f2-d537-4c31-9ef9-41c6500490a4" />
+      <a href="https://www.youtube.com/watch?v=uHBIGfa8mIM">
+     <img 
+      src="https://img.youtube.com/vi/uHBIGfa8mIM/maxresdefault.jpg" 
+      alt="IntuneAssignmentChecker" 
+      style="width:100%;">
+      </a>
 </div>
 
 ## 📋 Prerequisites
