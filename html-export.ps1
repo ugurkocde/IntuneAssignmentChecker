@@ -1,3 +1,11 @@
+$context = Get-MgContext
+$environment = $context.Environment
+
+$GraphEndpoint = switch ($environment) {
+    "Global" { "https://graph.microsoft.com" }
+    "USGov" { "https://graph.microsoft.us" }
+    "USGovDoD" { "https://dod-graph.microsoft.us" }
+}
 # Function to get assignment information 5
 function Get-AssignmentInfo {
     param (
@@ -517,13 +525,13 @@ function Export-HTMLReport {
         $policyType = $policy.'@odata.type'
         $assignmentsUri = switch ($policyType) {
             "#microsoft.graph.androidManagedAppProtection" {
-                "https://graph.microsoft.com/beta/deviceAppManagement/androidManagedAppProtections('$($policy.id)')/assignments"
+                "$GraphEndpoint/beta/deviceAppManagement/androidManagedAppProtections('$($policy.id)')/assignments"
             }
             "#microsoft.graph.iosManagedAppProtection" {
-                "https://graph.microsoft.com/beta/deviceAppManagement/iosManagedAppProtections('$($policy.id)')/assignments"
+                "$GraphEndpoint/beta/deviceAppManagement/iosManagedAppProtections('$($policy.id)')/assignments"
             }
             "#microsoft.graph.windowsManagedAppProtection" {
-                "https://graph.microsoft.com/beta/deviceAppManagement/windowsManagedAppProtections('$($policy.id)')/assignments"
+                "$GraphEndpoint/beta/deviceAppManagement/windowsManagedAppProtections('$($policy.id)')/assignments"
             }
             default { $null }
         }
@@ -613,7 +621,7 @@ function Export-HTMLReport {
 
     # Get Apps
     Write-Host "Fetching Applications..." -ForegroundColor Yellow
-    $appUri = "https://graph.microsoft.com/beta/deviceAppManagement/mobileApps?`$filter=isAssigned eq true"
+    $appUri = "$GraphEndpoint/beta/deviceAppManagement/mobileApps?`$filter=isAssigned eq true"
     $appResponse = Invoke-MgGraphRequest -Uri $appUri -Method Get
     $allApps = $appResponse.value
     while ($appResponse.'@odata.nextLink') {
@@ -628,7 +636,7 @@ function Export-HTMLReport {
         }
 
         $appId = $app.id
-        $assignmentsUri = "https://graph.microsoft.com/beta/deviceAppManagement/mobileApps('$appId')/assignments"
+        $assignmentsUri = "$GraphEndpoint/beta/deviceAppManagement/mobileApps('$appId')/assignments"
         $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
 
         foreach ($assignment in $assignmentResponse.value) {
@@ -950,4 +958,3 @@ function Export-HTMLReport {
     $htmlContent | Out-File -FilePath $FilePath -Encoding UTF8
     Write-Host "HTML report exported to: $FilePath" -ForegroundColor Green
 }
-
