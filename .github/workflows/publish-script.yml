@@ -1,0 +1,41 @@
+name: Publish PowerShell Script
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Prepare script for publishing
+        shell: pwsh
+        run: |
+          $version = Get-Content version_v3.txt
+          $content = Get-Content IntuneAssignmentChecker_v3.ps1
+          $scriptContent = @"
+          #Requires -Version 7.0
+          #Requires -Modules Microsoft.Graph.Authentication
+
+          <#PSScriptInfo
+          .VERSION $version
+          .GUID c6e25ec6-5787-45ef-95af-8abeb8a17daf
+          .AUTHOR ugurk
+          .PROJECTURI https://github.com/ugurkocde/IntuneAssignmentChecker
+          #>
+
+          <#
+          .DESCRIPTION
+          This script enables IT administrators to efficiently analyze and audit Intune assignments. It checks assignments for specific users, groups, or devices, displays all policies and their assignments, identifies unassigned policies, detects empty groups in assignments, and searches for specific settings across policies.
+          #>
+
+          "@
+          $scriptContent + ($content -join "`n`n") | Set-Content IntuneAssignmentChecker.ps1
+
+      - name: Publish to PowerShell Gallery
+        shell: pwsh
+        run: |
+          $env:PSGalleryApiKey = "${{ secrets.NUGET_KEY }}"
+          Publish-Script -Path ./IntuneAssignmentChecker.ps1 -Repository PSGallery -NuGetApiKey $env:PSGalleryApiKey -Verbose
