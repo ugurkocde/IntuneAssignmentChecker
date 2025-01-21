@@ -204,14 +204,14 @@ try {
             Write-Host "Attempting manual interactive connection (you need privileges to consent permissions)..." -ForegroundColor Yellow
             $permissionsList = ($requiredPermissions | ForEach-Object { $_.Permission }) -join ', '
             $environment = Set-Environment
-            $connectionResult = Connect-MgGraph -Scopes $permissionsList -NoWelcome -ErrorAction Stop
+            $connectionResult = Connect-MgGraph -Scopes $permissionsList -Environment $environment -NoWelcome -ErrorAction Stop
         } else {
             Write-Host "Script execution cancelled by user." -ForegroundColor Red
             exit
         }
     } else {
         $environment = Set-Environment
-        $connectionResult = Connect-MgGraph -ClientId $appid -TenantId $tenantid -CertificateThumbprint $certThumbprint -NoWelcome -ErrorAction Stop
+        $connectionResult = Connect-MgGraph -ClientId $appid -TenantId $tenantid -Environment $environment -CertificateThumbprint $certThumbprint -NoWelcome -ErrorAction Stop
     }
     Write-Host "Successfully connected to Microsoft Graph" -ForegroundColor Green
 
