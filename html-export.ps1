@@ -1,3 +1,5 @@
+#Updated
+
 $context = Get-MgContext
 $environment = $context.Environment
 
@@ -26,9 +28,9 @@ function Get-AssignmentInfo {
         "All Users" { "All Users"; break }
         "All Devices" { "All Devices"; break }
         "Group Assignment" { "Group"; break }
+        "Exclude" { "Exclude"; break }
         default { "None" }
     }
-
     $target = switch ($type) {
         "All Users" { "All Users" }
         "All Devices" { "All Devices" }
@@ -41,13 +43,22 @@ function Get-AssignmentInfo {
                 "Unknown Group"
             }
         }
+        "Exclude" {
+            if ($assignment.GroupId) {
+                $groupInfo = Get-GroupInfo -GroupId $assignment.GroupId
+                $groupInfo.DisplayName
+            }
+            else {
+                "Excluded Group"
+            }
+        }
         default { "Not Assigned" }
     }
 
     return @{
-        Type   = $type
-        Target = $target
-    }
+            Type   = $type
+            Target = $target
+        }
 }
 
 function Export-HTMLReport {
@@ -125,6 +136,12 @@ function Export-HTMLReport {
         }
         .badge-none {
             background-color: #dc3545;
+            color: white;
+            padding: 5px 10px;
+            border-radius: 15px;
+        }
+        .badge-exclude {
+            background-color: #6c757d;
             color: white;
             padding: 5px 10px;
             border-radius: 15px;
@@ -546,9 +563,17 @@ function Export-HTMLReport {
                         '#microsoft.graph.allLicensedUsersAssignmentTarget' {
                             $assignmentReason = "All Users"
                         }
+                        '#microsoft.graph.allDevicesAssignmentTarget' {
+                            $assignmentReason = "All Devices"
+                        }
                         '#microsoft.graph.groupAssignmentTarget' {
                             if (!$GroupId -or $assignment.target.groupId -eq $GroupId) {
                                 $assignmentReason = "Group Assignment"
+                            }
+                        }
+                        '#microsoft.graph.exclusionGroupAssignmentTarget' {
+                            if (!$GroupId -or $assignment.target.groupId -eq $GroupId) {
+                                $assignmentReason = "Exclude"
                             }
                         }
                     }
@@ -645,6 +670,7 @@ function Export-HTMLReport {
                         '#microsoft.graph.allLicensedUsersAssignmentTarget' { "All Users" }
                         '#microsoft.graph.allDevicesAssignmentTarget' { "All Devices" }
                         '#microsoft.graph.groupAssignmentTarget' { "Group Assignment" }
+                        '#microsoft.graph.exclusionGroupAssignmentTarget' { "Exclude" }
                         default { "None" }
                     }
                     GroupId = $assignment.target.groupId
@@ -730,6 +756,7 @@ function Export-HTMLReport {
                             'All Users' { 'badge-all-users' }
                             'All Devices' { 'badge-all-devices' }
                             'Group' { 'badge-group' }
+                            'Exclude' { 'badge-exclude' }
                             default { 'badge-none' }
                         }
                         "<tr>
@@ -768,6 +795,7 @@ function Export-HTMLReport {
                     'All Users' { 'badge-all-users' }
                     'All Devices' { 'badge-all-devices' }
                     'Group' { 'badge-group' }
+                    'Exclude' { 'badge-exclude' }
                     default { 'badge-none' }
                 }
                 "<tr>
