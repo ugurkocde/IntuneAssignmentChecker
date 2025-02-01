@@ -26,9 +26,9 @@ function Get-AssignmentInfo {
         "All Users" { "All Users"; break }
         "All Devices" { "All Devices"; break }
         "Group Assignment" { "Group"; break }
+        "Exclude" { "Exclude"; break }
         default { "None" }
     }
-
     $target = switch ($type) {
         "All Users" { "All Users" }
         "All Devices" { "All Devices" }
@@ -41,13 +41,22 @@ function Get-AssignmentInfo {
                 "Unknown Group"
             }
         }
+        "Exclude" {
+            if ($assignment.GroupId) {
+                $groupInfo = Get-GroupInfo -GroupId $assignment.GroupId
+                $groupInfo.DisplayName
+            }
+            else {
+                "Excluded Group"
+            }
+        }
         default { "Not Assigned" }
     }
 
     return @{
-        Type   = $type
-        Target = $target
-    }
+            Type   = $type
+            Target = $target
+        }
 }
 
 function Export-HTMLReport {
@@ -125,6 +134,12 @@ function Export-HTMLReport {
         }
         .badge-none {
             background-color: #dc3545;
+            color: white;
+            padding: 5px 10px;
+            border-radius: 15px;
+        }
+        .badge-exclude {
+            background-color: #6c757d;
             color: white;
             padding: 5px 10px;
             border-radius: 15px;
@@ -294,27 +309,23 @@ function Export-HTMLReport {
             color: #6c757d;
             margin: 0;
         }
-        .quick-actions {
-            margin: 20px 0;
-            padding: 20px;
-            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-            border-radius: 10px;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-        }
-        .quick-action-btn {
-            margin: 5px;
-            padding: 10px 20px;
-            border-radius: 20px;
-            font-weight: 500;
+        #assignmentTypeFilter {
+            border: 2px solid #dee2e6;
+            border-radius: 5px;
+            padding: 8px;
             transition: all 0.3s ease;
+            background-color: var(--card-bg);
+            color: var(--text-color);
         }
-        .quick-action-btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        #assignmentTypeFilter:focus {
+            border-color: #0d6efd;
+            box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.25);
+            outline: none;
         }
-        .quick-action-btn.active {
-            background-color: #0d6efd;
-            color: white;
+        .form-label {
+            color: var(--text-color);
+            margin-bottom: 0.5rem;
+            font-weight: 500;
         }
     </style>
 </head>
@@ -339,21 +350,27 @@ function Export-HTMLReport {
             </div>
         </div>
 
-        <div class="quick-actions">
-            <h5>Quick Actions</h5>
-            <div class="btn-group" role="group">
-                <button type="button" class="btn btn-outline-primary quick-action-btn" data-filter="all">Show All</button>
-                <button type="button" class="btn btn-outline-success quick-action-btn" data-filter="all-users">All Users Assignments</button>
-                <button type="button" class="btn btn-outline-info quick-action-btn" data-filter="all-devices">All Devices Assignments</button>
-                <button type="button" class="btn btn-outline-warning quick-action-btn" data-filter="group">Group Assignments</button>
-                <button type="button" class="btn btn-outline-danger quick-action-btn" data-filter="none">Unassigned Policies</button>
-            </div>
-        </div>
-
         <div class="search-box">
-            <div class="form-group">
-                <label for="groupSearch">Search by Group Name:</label>
-                <input type="text" class="form-control" id="groupSearch" placeholder="Enter group name...">
+            <div class="row align-items-end">
+                <div class="col-md-6">
+                    <div class="form-group">
+                        <label for="groupSearch">Search by Group Name:</label>
+                        <input type="text" class="form-control" id="groupSearch" placeholder="Enter group name...">
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="form-group">
+                        <label for="assignmentTypeFilter" class="form-label">Filter by Assignment Type:</label>
+                        <select class="form-select" id="assignmentTypeFilter">
+                            <option value="all">All Types</option>
+                            <option value="All Users">All Users</option>
+                            <option value="All Devices">All Devices</option>
+                            <option value="Group">Group</option>
+                            <option value="None">None</option>
+                            <option value="Exclude">Exclude</option>
+                        </select>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -395,36 +412,15 @@ function Export-HTMLReport {
                 ]
             });
 
-            // Quick Action Filtering
-            jQuery('.quick-action-btn').on('click', function() {
-                const filter = jQuery(this).data('filter');
-                jQuery('.quick-action-btn').removeClass('active');
-                jQuery(this).addClass('active');
-                
+            // Assignment Type Filter
+            jQuery('#assignmentTypeFilter').on('change', function() {
+                const filterValue = jQuery(this).val();
                 jQuery('.policy-table').each(function() {
                     const dataTable = jQuery(this).DataTable();
-                    
-                    if (filter === 'all') {
+                    if (filterValue === 'all') {
                         dataTable.search('').columns().search('').draw();
                     } else {
-                        let searchTerm = '';
-                        switch(filter) {
-                            case 'all-users':
-                                searchTerm = 'All Users';
-                                break;
-                            case 'all-devices':
-                                searchTerm = 'All Devices';
-                                break;
-                            case 'group':
-                                searchTerm = 'Group';
-                                break;
-                            case 'none':
-                                searchTerm = 'None';
-                                break;
-                        }
-                        
-                        // Simple column search on the Assignment Type column (index 1)
-                        dataTable.column(1).search(searchTerm, false, false).draw();
+                        dataTable.column(1).search(filterValue, false, false).draw();
                     }
                 });
             });
@@ -546,9 +542,17 @@ function Export-HTMLReport {
                         '#microsoft.graph.allLicensedUsersAssignmentTarget' {
                             $assignmentReason = "All Users"
                         }
+                        '#microsoft.graph.allDevicesAssignmentTarget' {
+                            $assignmentReason = "All Devices"
+                        }
                         '#microsoft.graph.groupAssignmentTarget' {
                             if (!$GroupId -or $assignment.target.groupId -eq $GroupId) {
                                 $assignmentReason = "Group Assignment"
+                            }
+                        }
+                        '#microsoft.graph.exclusionGroupAssignmentTarget' {
+                            if (!$GroupId -or $assignment.target.groupId -eq $GroupId) {
+                                $assignmentReason = "Exclude"
                             }
                         }
                     }
@@ -645,6 +649,7 @@ function Export-HTMLReport {
                         '#microsoft.graph.allLicensedUsersAssignmentTarget' { "All Users" }
                         '#microsoft.graph.allDevicesAssignmentTarget' { "All Devices" }
                         '#microsoft.graph.groupAssignmentTarget' { "Group Assignment" }
+                        '#microsoft.graph.exclusionGroupAssignmentTarget' { "Exclude" }
                         default { "None" }
                     }
                     GroupId = $assignment.target.groupId
@@ -730,6 +735,7 @@ function Export-HTMLReport {
                             'All Users' { 'badge-all-users' }
                             'All Devices' { 'badge-all-devices' }
                             'Group' { 'badge-group' }
+                            'Exclude' { 'badge-exclude' }
                             default { 'badge-none' }
                         }
                         "<tr>
@@ -768,6 +774,7 @@ function Export-HTMLReport {
                     'All Users' { 'badge-all-users' }
                     'All Devices' { 'badge-all-devices' }
                     'Group' { 'badge-group' }
+                    'Exclude' { 'badge-exclude' }
                     default { 'badge-none' }
                 }
                 "<tr>
