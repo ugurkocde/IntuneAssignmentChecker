@@ -170,7 +170,7 @@ Follow these steps if you want to use certificate authentication with an app reg
 
 If you prefer not to set up an app registration, you can use interactive authentication:
 
-You can just run the script without any changes. It will ask if you want to use interactive authentication where you will type "y" and press enter.
+You can just run the script without any changes. It will ask for the intune environment you wish to connect (Global, USGov, or USGovDoD) and if you want to use interactive authentication where you will type "y" and press enter.
 
 This will prompt you to sign in with your credentials when running the script. The permissions will be based on your user account's roles and permissions in Entra ID.
 

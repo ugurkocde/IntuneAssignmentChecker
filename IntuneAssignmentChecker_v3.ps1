@@ -39,7 +39,7 @@ $certThumbprint = '<YourCertificateThumbprintHere>' # Thumbprint of the certific
 ####################################################################################################
 
 # Version of the local script
-$localVersion = "3.0.1"
+$localVersion = "3.0.2"
 
 Write-Host "🔍 INTUNE ASSIGNMENT CHECKER" -ForegroundColor Cyan
 Write-Host "Made by Ugur Koc with" -NoNewline; Write-Host " ❤️  and ☕" -NoNewline
@@ -119,7 +119,56 @@ catch {
 
 # Do not change the following code
 
+# Ask user to select the Intune environment
+function Set-Environment {
+    do {
+        if ([string]::IsNullOrWhiteSpace($GraphEndpoint)) {
+            Write-Host "Select Intune Tenant Environment:" -ForegroundColor Cyan
+            Write-Host "  [1] Global" -ForegroundColor White
+            Write-Host "  [2] USGov" -ForegroundColor White
+            Write-Host "  [3] USGovDoD" -ForegroundColor White
+            Write-Host ""
+            Write-Host "  [0] Exit" -ForegroundColor White
+            Write-Host ""
+            Write-Host "Select an option: " -ForegroundColor Yellow -NoNewline
+
+            $selection = Read-Host
+
+            switch ($selection) {
+ 
+                '1' {
+                    $GraphEndpoint = "https://graph.microsoft.com"
+                    Write-Host "Environment set to Global" -ForegroundColor Green
+                    return "Global"
+                }
+                '2' {
+                    $GraphEndpoint = "https://graph.microsoft.us"
+                    Write-Host "Environment set to USGov" -ForegroundColor Green
+                    return "USGov"
+                }
+                '3' {
+                    $GraphEndpoint = "https://dod-graph.microsoft.us"
+                    Write-Host "Environment set to USGovDoD" -ForegroundColor Green
+                    return "USGovDoD"
+                }
+                '0' {
+                    Write-Host "Thank you for using IntuneAssignmentChecker! 👋" -ForegroundColor Green
+                    Write-Host "If you found this tool helpful, please consider:" -ForegroundColor Cyan
+                    Write-Host "- Starring the repository: https://github.com/ugurkocde/IntuneAssignmentChecker" -ForegroundColor White
+                    Write-Host "- Supporting the project: https://github.com/sponsors/ugurkocde" -ForegroundColor White
+                    Write-Host ""
+                    exit
+                }
+                default {
+                    Write-Host "Invalid choice, please select 1,2,3, or 0" -ForegroundColor Red
+                }
+            }
+        }
+    } while ($selection -ne '0')
+}
+
 # Connect to Microsoft Graph using certificate-based authentication
+
 try {
     # Define required permissions with reasons
     $requiredPermissions = @(
@@ -157,17 +206,18 @@ try {
         $manualConnection = Read-Host "Would you like to attempt a manual interactive connection? (y/n)"
         if ($manualConnection -eq 'y') {
             # Manual connection using interactive login
-            write-host "Attempting manual interactive connection (you need privileges to consent permissions)..." -ForegroundColor Yellow
+            Write-Host "Attempting manual interactive connection (you need privileges to consent permissions)..." -ForegroundColor Yellow
             $permissionsList = ($requiredPermissions | ForEach-Object { $_.Permission }) -join ', '
-            $connectionResult = Connect-MgGraph -Scopes $permissionsList -NoWelcome -ErrorAction Stop
-        }
-        else {
+            $environment = Set-Environment
+            $connectionResult = Connect-MgGraph -Scopes $permissionsList -Environment $environment -NoWelcome -ErrorAction Stop
+        } else {
             Write-Host "Script execution cancelled by user." -ForegroundColor Red
             exit
         }
     }
     else {
-        $connectionResult = Connect-MgGraph -ClientId $appid -TenantId $tenantid -CertificateThumbprint $certThumbprint -NoWelcome -ErrorAction Stop
+        $environment = Set-Environment
+        $connectionResult = Connect-MgGraph -ClientId $appid -TenantId $tenantid -Environment $environment -CertificateThumbprint $certThumbprint -NoWelcome -ErrorAction Stop
     }
     Write-Host "Successfully connected to Microsoft Graph" -ForegroundColor Green
 
@@ -244,7 +294,7 @@ function Get-IntuneAssignments {
     # Handle special cases for App Protection Policies
     $assignmentsUri = if ($EntityType -eq "deviceAppManagement/managedAppPolicies") {
         # For App Protection Policies, we need to determine the specific policy type first
-        $policyUri = "https://graph.microsoft.com/beta/deviceAppManagement/managedAppPolicies/$EntityId"
+        $policyUri = "$GraphEndpoint/beta/deviceAppManagement/managedAppPolicies/$EntityId"
         $policy = Invoke-MgGraphRequest -Uri $policyUri -Method Get
         $policyType = switch ($policy.'@odata.type') {
             "#microsoft.graph.androidManagedAppProtection" { "androidManagedAppProtections" }
@@ -253,14 +303,14 @@ function Get-IntuneAssignments {
             default { return $null }
         }
         if ($policyType) {
-            "https://graph.microsoft.com/beta/deviceAppManagement/$policyType('$EntityId')/assignments"
+            "$GraphEndpoint/beta/deviceAppManagement/$policyType('$EntityId')/assignments"
         }
         else {
             $null
         }
     }
     else {
-        "https://graph.microsoft.com/beta/deviceManagement/$EntityType('$EntityId')/assignments"
+        "$GraphEndpoint/beta/deviceManagement/$EntityType('$EntityId')/assignments"
     }
     # For App Protection Policies that use $expand, the response structure is different
     $isAppProtectionPolicy = $EntityType -like "deviceAppManagement/*" -and ($EntityType -like "*ManagedAppProtections")
@@ -346,10 +396,10 @@ function Get-IntuneEntities {
 
     # Handle special cases for app management endpoints
     $baseUri = if ($EntityType -like "deviceAppManagement/*") {
-        "https://graph.microsoft.com/beta"
+        "$GraphEndpoint/beta"
     }
     else {
-        "https://graph.microsoft.com/beta/deviceManagement"
+        "$GraphEndpoint/beta/deviceManagement"
     }
     
     # Extract the actual entity type from full path if needed
@@ -383,7 +433,7 @@ function Get-GroupInfo {
     )
 
     try {
-        $groupUri = "https://graph.microsoft.com/v1.0/groups/$GroupId"
+        $groupUri = "$GraphEndpoint/v1.0/groups/$GroupId"
         $group = Invoke-MgGraphRequest -Uri $groupUri -Method Get
         return @{
             Id          = $group.id
@@ -406,7 +456,7 @@ function Get-DeviceInfo {
         [string]$DeviceName
     )
 
-    $deviceUri = "https://graph.microsoft.com/v1.0/devices?`$filter=displayName eq '$DeviceName'"
+    $deviceUri = "$GraphEndpoint/v1.0/devices?`$filter=displayName eq '$DeviceName'"
     $deviceResponse = Invoke-MgGraphRequest -Uri $deviceUri -Method Get
     
     if ($deviceResponse.value) {
@@ -431,7 +481,7 @@ function Get-UserInfo {
     )
 
     try {
-        $userUri = "https://graph.microsoft.com/v1.0/users/$UserPrincipalName"
+        $userUri = "$GraphEndpoint/v1.0/users/$UserPrincipalName"
         $user = Invoke-MgGraphRequest -Uri $userUri -Method Get
         return @{
             Id                = $user.id
@@ -458,7 +508,7 @@ function Get-GroupMemberships {
         [string]$ObjectType
     )
 
-    $uri = "https://graph.microsoft.com/v1.0/$($ObjectType.ToLower())s/$ObjectId/transitiveMemberOf?`$select=id,displayName"
+    $uri = "$GraphEndpoint/v1.0/$($ObjectType.ToLower())s/$ObjectId/transitiveMemberOf?`$select=id,displayName"
     $response = Invoke-MgGraphRequest -Uri $uri -Method Get
     
     return $response.value
@@ -793,9 +843,9 @@ do {
                 foreach ($policy in $appProtectionPolicies) {
                     $policyType = $policy.'@odata.type'
                     $assignmentsUri = switch ($policyType) {
-                        "#microsoft.graph.androidManagedAppProtection" { "https://graph.microsoft.com/beta/deviceAppManagement/androidManagedAppProtections('$($policy.id)')/assignments" }
-                        "#microsoft.graph.iosManagedAppProtection" { "https://graph.microsoft.com/beta/deviceAppManagement/iosManagedAppProtections('$($policy.id)')/assignments" }
-                        "#microsoft.graph.windowsManagedAppProtection" { "https://graph.microsoft.com/beta/deviceAppManagement/windowsManagedAppProtections('$($policy.id)')/assignments" }
+                        "#microsoft.graph.androidManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/androidManagedAppProtections('$($policy.id)')/assignments" }
+                        "#microsoft.graph.iosManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/iosManagedAppProtections('$($policy.id)')/assignments" }
+                        "#microsoft.graph.windowsManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/windowsManagedAppProtections('$($policy.id)')/assignments" }
                         default { $null }
                     }
 
@@ -861,7 +911,7 @@ do {
 
                 # Fetch and process Applications
                 Write-Host "Fetching Applications..." -ForegroundColor Yellow
-                $appUri = "https://graph.microsoft.com/beta/deviceAppManagement/mobileApps?`$filter=isAssigned eq true"
+                $appUri = "$GraphEndpoint/beta/deviceAppManagement/mobileApps?`$filter=isAssigned eq true"
                 $appResponse = Invoke-MgGraphRequest -Uri $appUri -Method Get
                 $allApps = $appResponse.value
                 while ($appResponse.'@odata.nextLink') {
@@ -880,7 +930,7 @@ do {
                     $currentApp++
                     Write-Host "`rFetching Application $currentApp of $totalApps" -NoNewline
                     $appId = $app.id
-                    $assignmentsUri = "https://graph.microsoft.com/beta/deviceAppManagement/mobileApps('$appId')/assignments"
+                    $assignmentsUri = "$GraphEndpoint/beta/deviceAppManagement/mobileApps('$appId')/assignments"
                     $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
 
                     foreach ($assignment in $assignmentResponse.value) {
@@ -1084,7 +1134,7 @@ do {
                 }
                 else {
                     # Try to find group by display name
-                    $groupUri = "https://graph.microsoft.com/v1.0/groups?`$filter=displayName eq '$input'"
+                    $groupUri = "$GraphEndpoint/v1.0/groups?`$filter=displayName eq '$input'"
                     $groupResponse = Invoke-MgGraphRequest -Uri $groupUri -Method Get
 
                     if ($groupResponse.value.Count -eq 0) {
@@ -1219,9 +1269,9 @@ do {
                 foreach ($policy in $appProtectionPolicies) {
                     $policyType = $policy.'@odata.type'
                     $assignmentsUri = switch ($policyType) {
-                        "#microsoft.graph.androidManagedAppProtection" { "https://graph.microsoft.com/beta/deviceAppManagement/androidManagedAppProtections('$($policy.id)')/assignments" }
-                        "#microsoft.graph.iosManagedAppProtection" { "https://graph.microsoft.com/beta/deviceAppManagement/iosManagedAppProtections('$($policy.id)')/assignments" }
-                        "#microsoft.graph.windowsManagedAppProtection" { "https://graph.microsoft.com/beta/deviceAppManagement/windowsManagedAppProtections('$($policy.id)')/assignments" }
+                        "#microsoft.graph.androidManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/androidManagedAppProtections('$($policy.id)')/assignments" }
+                        "#microsoft.graph.iosManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/iosManagedAppProtections('$($policy.id)')/assignments" }
+                        "#microsoft.graph.windowsManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/windowsManagedAppProtections('$($policy.id)')/assignments" }
                         default { $null }
                     }
 
@@ -1295,7 +1345,7 @@ do {
 
                 # Fetch and process Applications
                 Write-Host "Fetching Applications..." -ForegroundColor Yellow
-                $appUri = "https://graph.microsoft.com/beta/deviceAppManagement/mobileApps?`$filter=isAssigned eq true"
+                $appUri = "$GraphEndpoint/beta/deviceAppManagement/mobileApps?`$filter=isAssigned eq true"
                 $appResponse = Invoke-MgGraphRequest -Uri $appUri -Method Get
                 $allApps = $appResponse.value
                 while ($appResponse.'@odata.nextLink') {
@@ -1311,7 +1361,7 @@ do {
                     }
 
                     $appId = $app.id
-                    $assignmentsUri = "https://graph.microsoft.com/beta/deviceAppManagement/mobileApps('$appId')/assignments"
+                    $assignmentsUri = "$GraphEndpoint/beta/deviceAppManagement/mobileApps('$appId')/assignments"
                     $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
 
                     foreach ($assignment in $assignmentResponse.value) {
@@ -1512,7 +1562,7 @@ do {
                 }
             }
         }
-         '3' {
+        '3' {
             Write-Host "Device selection chosen" -ForegroundColor Green
 
             # Prompt for one or more Device Names
@@ -1636,9 +1686,9 @@ do {
                 foreach ($policy in $appProtectionPolicies) {
                     $policyType = $policy.'@odata.type'
                     $assignmentsUri = switch ($policyType) {
-                        "#microsoft.graph.androidManagedAppProtection" { "https://graph.microsoft.com/beta/deviceAppManagement/androidManagedAppProtections('$($policy.id)')/assignments" }
-                        "#microsoft.graph.iosManagedAppProtection" { "https://graph.microsoft.com/beta/deviceAppManagement/iosManagedAppProtections('$($policy.id)')/assignments" }
-                        "#microsoft.graph.windowsManagedAppProtection" { "https://graph.microsoft.com/beta/deviceAppManagement/windowsManagedAppProtections('$($policy.id)')/assignments" }
+                        "#microsoft.graph.androidManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/androidManagedAppProtections('$($policy.id)')/assignments" }
+                        "#microsoft.graph.iosManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/iosManagedAppProtections('$($policy.id)')/assignments" }
+                        "#microsoft.graph.windowsManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/windowsManagedAppProtections('$($policy.id)')/assignments" }
                         default { $null }
                     }
 
@@ -1741,7 +1791,7 @@ do {
                 # Get Applications
                 Write-Host "Fetching Applications..." -ForegroundColor Yellow
                 # Fetch Applications
-                $appUri = "https://graph.microsoft.com/beta/deviceAppManagement/mobileApps?`$filter=isAssigned eq true"
+                $appUri = "$GraphEndpoint/beta/deviceAppManagement/mobileApps?`$filter=isAssigned eq true"
                 $appResponse = Invoke-MgGraphRequest -Uri $appUri -Method Get
                 $allApps = $appResponse.value
                 while ($appResponse.'@odata.nextLink') {
@@ -1757,7 +1807,7 @@ do {
                     }
 
                     $appId = $app.id
-                    $assignmentsUri = "https://graph.microsoft.com/beta/deviceAppManagement/mobileApps('$appId')/assignments"
+                    $assignmentsUri = "$GraphEndpoint/beta/deviceAppManagement/mobileApps('$appId')/assignments"
                     $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
 
                     foreach ($assignment in $assignmentResponse.value) {
@@ -1766,7 +1816,7 @@ do {
                             $assignmentReason = "All Devices"
                         }
                         elseif ($assignment.target.'@odata.type' -eq '#microsoft.graph.groupAssignmentTarget' -and
-                               $groupMemberships.id -contains $assignment.target.groupId) {
+                            $groupMemberships.id -contains $assignment.target.groupId) {
                             $groupInfo = Get-GroupInfo -GroupId $assignment.target.groupId
                             $assignmentReason = "Group Assignment - $($groupInfo.DisplayName)"
                         }
@@ -2070,9 +2120,9 @@ do {
             foreach ($policy in $appProtectionPolicies) {
                 $policyType = $policy.'@odata.type'
                 $assignmentsUri = switch ($policyType) {
-                    "#microsoft.graph.androidManagedAppProtection" { "https://graph.microsoft.com/beta/deviceAppManagement/androidManagedAppProtections('$($policy.id)')/assignments" }
-                    "#microsoft.graph.iosManagedAppProtection" { "https://graph.microsoft.com/beta/deviceAppManagement/iosManagedAppProtections('$($policy.id)')/assignments" }
-                    "#microsoft.graph.windowsManagedAppProtection" { "https://graph.microsoft.com/beta/deviceAppManagement/windowsManagedAppProtections('$($policy.id)')/assignments" }
+                    "#microsoft.graph.androidManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/androidManagedAppProtections('$($policy.id)')/assignments" }
+                    "#microsoft.graph.iosManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/iosManagedAppProtections('$($policy.id)')/assignments" }
+                    "#microsoft.graph.windowsManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/windowsManagedAppProtections('$($policy.id)')/assignments" }
                     default { $null }
                 }
 
@@ -2262,9 +2312,9 @@ do {
             foreach ($policy in $appProtectionPolicies) {
                 $policyType = $policy.'@odata.type'
                 $assignmentsUri = switch ($policyType) {
-                    "#microsoft.graph.androidManagedAppProtection" { "https://graph.microsoft.com/beta/deviceAppManagement/androidManagedAppProtections('$($policy.id)')/assignments" }
-                    "#microsoft.graph.iosManagedAppProtection" { "https://graph.microsoft.com/beta/deviceAppManagement/iosManagedAppProtections('$($policy.id)')/assignments" }
-                    "#microsoft.graph.windowsManagedAppProtection" { "https://graph.microsoft.com/beta/deviceAppManagement/windowsManagedAppProtections('$($policy.id)')/assignments" }
+                    "#microsoft.graph.androidManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/androidManagedAppProtections('$($policy.id)')/assignments" }
+                    "#microsoft.graph.iosManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/iosManagedAppProtections('$($policy.id)')/assignments" }
+                    "#microsoft.graph.windowsManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/windowsManagedAppProtections('$($policy.id)')/assignments" }
                     default { $null }
                 }
 
@@ -2303,7 +2353,7 @@ do {
             # Get Applications
             Write-Host "Fetching Applications..." -ForegroundColor Yellow
             # Fetch Applications
-            $appUri = "https://graph.microsoft.com/beta/deviceAppManagement/mobileApps?`$filter=isAssigned eq true"
+            $appUri = "$GraphEndpoint/beta/deviceAppManagement/mobileApps?`$filter=isAssigned eq true"
             $appResponse = Invoke-MgGraphRequest -Uri $appUri -Method Get
             $allApps = $appResponse.value
             while ($appResponse.'@odata.nextLink') {
@@ -2319,7 +2369,7 @@ do {
                 }
 
                 $appId = $app.id
-                $assignmentsUri = "https://graph.microsoft.com/beta/deviceAppManagement/mobileApps('$appId')/assignments"
+                $assignmentsUri = "$GraphEndpoint/beta/deviceAppManagement/mobileApps('$appId')/assignments"
                 $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
 
                 foreach ($assignment in $assignmentResponse.value) {
@@ -2589,9 +2639,9 @@ do {
             foreach ($policy in $appProtectionPolicies) {
                 $policyType = $policy.'@odata.type'
                 $assignmentsUri = switch ($policyType) {
-                    "#microsoft.graph.androidManagedAppProtection" { "https://graph.microsoft.com/beta/deviceAppManagement/androidManagedAppProtections('$($policy.id)')/assignments" }
-                    "#microsoft.graph.iosManagedAppProtection" { "https://graph.microsoft.com/beta/deviceAppManagement/iosManagedAppProtections('$($policy.id)')/assignments" }
-                    "#microsoft.graph.windowsManagedAppProtection" { "https://graph.microsoft.com/beta/deviceAppManagement/windowsManagedAppProtections('$($policy.id)')/assignments" }
+                    "#microsoft.graph.androidManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/androidManagedAppProtections('$($policy.id)')/assignments" }
+                    "#microsoft.graph.iosManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/iosManagedAppProtections('$($policy.id)')/assignments" }
+                    "#microsoft.graph.windowsManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/windowsManagedAppProtections('$($policy.id)')/assignments" }
                     default { $null }
                 }
 
@@ -2629,7 +2679,7 @@ do {
 
             # Get Applications
             Write-Host "Fetching Applications..." -ForegroundColor Yellow
-            $appUri = "https://graph.microsoft.com/beta/deviceAppManagement/mobileApps?`$filter=isAssigned eq true"
+            $appUri = "$GraphEndpoint/beta/deviceAppManagement/mobileApps?`$filter=isAssigned eq true"
             $appResponse = Invoke-MgGraphRequest -Uri $appUri -Method Get
             $allApps = $appResponse.value
             while ($appResponse.'@odata.nextLink') {
@@ -2645,7 +2695,7 @@ do {
                 }
 
                 $appId = $app.id
-                $assignmentsUri = "https://graph.microsoft.com/beta/deviceAppManagement/mobileApps('$appId')/assignments"
+                $assignmentsUri = "$GraphEndpoint/beta/deviceAppManagement/mobileApps('$appId')/assignments"
                 $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
 
                 foreach ($assignment in $assignmentResponse.value) {
@@ -2943,9 +2993,9 @@ do {
             foreach ($policy in $appProtectionPolicies) {
                 $policyType = $policy.'@odata.type'
                 $assignmentsUri = switch ($policyType) {
-                    "#microsoft.graph.androidManagedAppProtection" { "https://graph.microsoft.com/beta/deviceAppManagement/androidManagedAppProtections('$($policy.id)')/assignments" }
-                    "#microsoft.graph.iosManagedAppProtection" { "https://graph.microsoft.com/beta/deviceAppManagement/iosManagedAppProtections('$($policy.id)')/assignments" }
-                    "#microsoft.graph.windowsManagedAppProtection" { "https://graph.microsoft.com/beta/deviceAppManagement/windowsManagedAppProtections('$($policy.id)')/assignments" }
+                    "#microsoft.graph.androidManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/androidManagedAppProtections('$($policy.id)')/assignments" }
+                    "#microsoft.graph.iosManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/iosManagedAppProtections('$($policy.id)')/assignments" }
+                    "#microsoft.graph.windowsManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/windowsManagedAppProtections('$($policy.id)')/assignments" }
                     default { $null }
                 }
 
@@ -3128,7 +3178,7 @@ do {
                 )
 
                 try {
-                    $membersUri = "https://graph.microsoft.com/v1.0/groups/$GroupId/members?`$select=id"
+                    $membersUri = "$GraphEndpoint/v1.0/groups/$GroupId/members?`$select=id"
                     $response = Invoke-MgGraphRequest -Uri $membersUri -Method Get
                     return $response.value.Count -eq 0
                 }
@@ -3224,9 +3274,9 @@ do {
             foreach ($policy in $appProtectionPolicies) {
                 $policyType = $policy.'@odata.type'
                 $assignmentsUri = switch ($policyType) {
-                    "#microsoft.graph.androidManagedAppProtection" { "https://graph.microsoft.com/beta/deviceAppManagement/androidManagedAppProtections('$($policy.id)')/assignments" }
-                    "#microsoft.graph.iosManagedAppProtection" { "https://graph.microsoft.com/beta/deviceAppManagement/iosManagedAppProtections('$($policy.id)')/assignments" }
-                    "#microsoft.graph.windowsManagedAppProtection" { "https://graph.microsoft.com/beta/deviceAppManagement/windowsManagedAppProtections('$($policy.id)')/assignments" }
+                    "#microsoft.graph.androidManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/androidManagedAppProtections('$($policy.id)')/assignments" }
+                    "#microsoft.graph.iosManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/iosManagedAppProtections('$($policy.id)')/assignments" }
+                    "#microsoft.graph.windowsManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/windowsManagedAppProtections('$($policy.id)')/assignments" }
                     default { $null }
                 }
 
@@ -3602,7 +3652,7 @@ do {
                 if ($input -match '^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$') {
                     try {
                         # Get group info from Graph API
-                        $groupUri = "https://graph.microsoft.com/v1.0/groups/$input"
+                        $groupUri = "$GraphEndpoint/v1.0/groups/$input"
                         $groupResponse = Invoke-MgGraphRequest -Uri $groupUri -Method Get
                         $groupId = $groupResponse.id
                         $groupName = $groupResponse.displayName
@@ -3630,7 +3680,7 @@ do {
                 }
                 else {
                     # Try to find group by display name
-                    $groupUri = "https://graph.microsoft.com/v1.0/groups?`$filter=displayName eq '$input'"
+                    $groupUri = "$GraphEndpoint/v1.0/groups?`$filter=displayName eq '$input'"
                     $groupResponse = Invoke-MgGraphRequest -Uri $groupUri -Method Get
 
                     if ($groupResponse.value.Count -eq 0) {
@@ -3666,7 +3716,7 @@ do {
                 }
 
                 # Process Device Configurations
-                $deviceConfigsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceConfigurations"
+                $deviceConfigsUri = "$GraphEndpoint/beta/deviceManagement/deviceConfigurations"
                 $deviceConfigsResponse = Invoke-MgGraphRequest -Uri $deviceConfigsUri -Method Get
                 $allDeviceConfigs = $deviceConfigsResponse.value
                 while ($deviceConfigsResponse.'@odata.nextLink') {
@@ -3679,7 +3729,7 @@ do {
                     $currentDeviceConfig++
                     Write-Host "`rFetching Device Configuration $currentDeviceConfig of $totalDeviceConfigs" -NoNewline
                     $configId = $config.id
-                    $assignmentsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceConfigurations('$configId')/assignments"
+                    $assignmentsUri = "$GraphEndpoint/beta/deviceManagement/deviceConfigurations('$configId')/assignments"
                     $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
             
                     if ($assignmentResponse.value | Where-Object { $_.target.groupId -eq $groupId }) {
@@ -3691,12 +3741,12 @@ do {
                 Write-Host ""  # Move to the next line after the loop
 
                 # Process Settings Catalog
-                $settingsCatalogUri = "https://graph.microsoft.com/beta/deviceManagement/configurationPolicies"
+                $settingsCatalogUri = "$GraphEndpoint/beta/deviceManagement/configurationPolicies"
                 $settingsCatalogResponse = Invoke-MgGraphRequest -Uri $settingsCatalogUri -Method Get
 
                 foreach ($policy in $settingsCatalogResponse.value) {
                     $policyId = $policy.id
-                    $assignmentsUri = "https://graph.microsoft.com/beta/deviceManagement/configurationPolicies('$policyId')/assignments"
+                    $assignmentsUri = "$GraphEndpoint/beta/deviceManagement/configurationPolicies('$policyId')/assignments"
                     $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
 
                     if ($assignmentResponse.value | Where-Object { $_.target.groupId -eq $groupId }) {
@@ -3705,12 +3755,12 @@ do {
                 }
 
                 # Process Administrative Templates
-                $adminTemplatesUri = "https://graph.microsoft.com/beta/deviceManagement/groupPolicyConfigurations"
+                $adminTemplatesUri = "$GraphEndpoint/beta/deviceManagement/groupPolicyConfigurations"
                 $adminTemplatesResponse = Invoke-MgGraphRequest -Uri $adminTemplatesUri -Method Get
 
                 foreach ($template in $adminTemplatesResponse.value) {
                     $templateId = $template.id
-                    $assignmentsUri = "https://graph.microsoft.com/beta/deviceManagement/groupPolicyConfigurations('$templateId')/assignments"
+                    $assignmentsUri = "$GraphEndpoint/beta/deviceManagement/groupPolicyConfigurations('$templateId')/assignments"
                     $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
 
                     if ($assignmentResponse.value | Where-Object { $_.target.groupId -eq $groupId }) {
@@ -3719,12 +3769,12 @@ do {
                 }
 
                 # Process Compliance Policies
-                $complianceUri = "https://graph.microsoft.com/beta/deviceManagement/deviceCompliancePolicies"
+                $complianceUri = "$GraphEndpoint/beta/deviceManagement/deviceCompliancePolicies"
                 $complianceResponse = Invoke-MgGraphRequest -Uri $complianceUri -Method Get
 
                 foreach ($policy in $complianceResponse.value) {
                     $policyId = $policy.id
-                    $assignmentsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceCompliancePolicies('$policyId')/assignments"
+                    $assignmentsUri = "$GraphEndpoint/beta/deviceManagement/deviceCompliancePolicies('$policyId')/assignments"
                     $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
 
                     if ($assignmentResponse.value | Where-Object { $_.target.groupId -eq $groupId }) {
@@ -3733,7 +3783,7 @@ do {
                 }
 
                 # Process Apps
-                $appUri = "https://graph.microsoft.com/beta/deviceAppManagement/mobileApps?`$filter=isAssigned eq true"
+                $appUri = "$GraphEndpoint/beta/deviceAppManagement/mobileApps?`$filter=isAssigned eq true"
                 $appResponse = Invoke-MgGraphRequest -Uri $appUri -Method Get
 
                 foreach ($app in $appResponse.value) {
@@ -3743,7 +3793,7 @@ do {
                     }
 
                     $appId = $app.id
-                    $assignmentsUri = "https://graph.microsoft.com/beta/deviceAppManagement/mobileApps('$appId')/assignments"
+                    $assignmentsUri = "$GraphEndpoint/beta/deviceAppManagement/mobileApps('$appId')/assignments"
                     $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
 
                     foreach ($assignment in $assignmentResponse.value) {
@@ -3758,12 +3808,12 @@ do {
                 }
 
                 # Process Platform Scripts (PowerShell)
-                $scriptsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceManagementScripts"
+                $scriptsUri = "$GraphEndpoint/beta/deviceManagement/deviceManagementScripts"
                 $scriptsResponse = Invoke-MgGraphRequest -Uri $scriptsUri -Method Get
                 # For PowerShell scripts, we need to check the script type
                 foreach ($script in $scriptsResponse.value) {
                     $scriptId = $script.id
-                    $assignmentsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceManagementScripts('$scriptId')/assignments"
+                    $assignmentsUri = "$GraphEndpoint/beta/deviceManagement/deviceManagementScripts('$scriptId')/assignments"
                     $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
 
                     if ($assignmentResponse.value | Where-Object { $_.target.groupId -eq $groupId }) {
@@ -3773,12 +3823,12 @@ do {
                 }
 
                 # Process Shell Scripts (macOS)
-                $shellScriptsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceShellScripts"
+                $shellScriptsUri = "$GraphEndpoint/beta/deviceManagement/deviceShellScripts"
                 $shellScriptsResponse = Invoke-MgGraphRequest -Uri $shellScriptsUri -Method Get
                 # For Shell scripts, we need to check the script type
                 foreach ($script in $shellScriptsResponse.value) {
                     $scriptId = $script.id
-                    $assignmentsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceShellScripts('$scriptId')/groupAssignments"
+                    $assignmentsUri = "$GraphEndpoint/beta/deviceManagement/deviceShellScripts('$scriptId')/groupAssignments"
                     $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
 
                     if ($assignmentResponse.value | Where-Object { $_.targetGroupId -eq $groupId }) {
@@ -3788,11 +3838,11 @@ do {
                 }
 
                 # Fetch and process Proactive Remediation Scripts (deviceHealthScripts)
-                $healthScriptsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceHealthScripts"
+                $healthScriptsUri = "$GraphEndpoint/beta/deviceManagement/deviceHealthScripts"
                 $healthScriptsResponse = Invoke-MgGraphRequest -Uri $healthScriptsUri -Method Get
                 foreach ($script in $healthScriptsResponse.value) {
                     $scriptId = $script.id
-                    $assignmentsUri = "https://graph.microsoft.com/beta/deviceManagement/deviceHealthScripts('$scriptId')/assignments"
+                    $assignmentsUri = "$GraphEndpoint/beta/deviceManagement/deviceHealthScripts('$scriptId')/assignments"
                     $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
 
                     if ($assignmentResponse.value | Where-Object { $_.target.'@odata.type' -eq '#microsoft.graph.groupAssignmentTarget' -and $_.target.groupId -eq $groupId }) {
