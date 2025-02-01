@@ -1,5 +1,3 @@
-#Updated
-
 $context = Get-MgContext
 $environment = $context.Environment
 
