@@ -39,12 +39,12 @@ $certThumbprint = '<YourCertificateThumbprintHere>' # Thumbprint of the certific
 ####################################################################################################
 
 # Version of the local script
-$localVersion = "3.1.0"
+$localVersion = "3.1.1"
 
 Write-Host "🔍 INTUNE ASSIGNMENT CHECKER" -ForegroundColor Cyan
 Write-Host "Made by Ugur Koc with" -NoNewline; Write-Host " ❤️  and ☕" -NoNewline
 Write-Host " | Version" -NoNewline; Write-Host " $localVersion" -ForegroundColor Yellow -NoNewline
-Write-Host " | Last updated: " -NoNewline; Write-Host "2025-02-01" -ForegroundColor Magenta
+Write-Host " | Last updated: " -NoNewline; Write-Host "2025-02-17" -ForegroundColor Magenta
 Write-Host ""
 Write-Host "📢 Feedback & Issues: " -NoNewline -ForegroundColor Cyan
 Write-Host "https://github.com/ugurkocde/IntuneAssignmentChecker/issues" -ForegroundColor White
@@ -312,6 +312,9 @@ function Get-IntuneAssignments {
         else {
             $null
         }
+    }
+    elseif ($EntityType -eq "mobileAppConfigurations") {
+        "$GraphEndpoint/beta/deviceAppManagement/mobileAppConfigurations('$EntityId')/assignments"
     }
     else {
         "$GraphEndpoint/beta/deviceManagement/$EntityType('$EntityId')/assignments"
