@@ -25,36 +25,47 @@ function Get-AssignmentInfo {
     $targets = @()
 
     foreach ($assignment in $Assignments) {
-        $type = switch ($assignment.Reason) {
-            "All Users" { "All Users"; break }
-            "All Devices" { "All Devices"; break }
-            "Group Assignment" { "Group"; break }
-            "Exclude" { "Exclude"; break }
-            default { "None" }
+        $type = "None"
+        $target = "Not Assigned"
+        $groupId = $null
+
+        # Handle Graph API format (with target object)
+        if ($assignment.target) {
+            switch ($assignment.target.'@odata.type') {
+                '#microsoft.graph.allLicensedUsersAssignmentTarget' {
+                    $type = "All Users"
+                    $target = "All Users"
+                }
+                '#microsoft.graph.allDevicesAssignmentTarget' {
+                    $type = "All Devices"
+                    $target = "All Devices"
+                }
+                '#microsoft.graph.groupAssignmentTarget' {
+                    $type = "Group"
+                    $groupId = $assignment.target.groupId
+                }
+                '#microsoft.graph.exclusionGroupAssignmentTarget' {
+                    $type = "Exclude"
+                    $groupId = $assignment.target.groupId
+                }
+            }
         }
-        
-        $target = switch ($type) {
-            "All Users" { "All Users" }
-            "All Devices" { "All Devices" }
-            "Group" {
-                if ($assignment.GroupId) {
-                    $groupInfo = Get-GroupInfo -GroupId $assignment.GroupId
-                    $groupInfo.DisplayName
-                }
-                else {
-                    "Unknown Group"
-                }
+        # Handle standard format (with Reason and GroupId)
+        else {
+            $type = switch ($assignment.Reason) {
+                "All Users" { "All Users"; break }
+                "All Devices" { "All Devices"; break }
+                "Group Assignment" { "Group"; break }
+                "Exclude" { "Exclude"; break }
+                default { "None" }
             }
-            "Exclude" {
-                if ($assignment.GroupId) {
-                    $groupInfo = Get-GroupInfo -GroupId $assignment.GroupId
-                    $groupInfo.DisplayName
-                }
-                else {
-                    "Excluded Group"
-                }
-            }
-            default { "Not Assigned" }
+            $groupId = $assignment.GroupId
+        }
+
+        # Get group name if we have a group ID
+        if ($groupId) {
+            $groupInfo = Get-GroupInfo -GroupId $groupId
+            $target = $groupInfo.DisplayName
         }
 
         $types += $type
