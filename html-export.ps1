@@ -6,7 +6,7 @@ $GraphEndpoint = switch ($environment) {
     "USGov" { "https://graph.microsoft.us" }
     "USGovDoD" { "https://dod-graph.microsoft.us" }
 }
-# Function to get assignment information 5
+# Function to get assignment information
 function Get-AssignmentInfo {
     param (
         [Parameter(Mandatory = $true)]
@@ -21,42 +21,67 @@ function Get-AssignmentInfo {
         }
     }
 
-    $assignment = $Assignments[0]  # Take the first assignment
-    $type = switch ($assignment.Reason) {
-        "All Users" { "All Users"; break }
-        "All Devices" { "All Devices"; break }
-        "Group Assignment" { "Group"; break }
-        "Exclude" { "Exclude"; break }
-        default { "None" }
+    $types = @()
+    $targets = @()
+
+    foreach ($assignment in $Assignments) {
+        $type = switch ($assignment.Reason) {
+            "All Users" { "All Users"; break }
+            "All Devices" { "All Devices"; break }
+            "Group Assignment" { "Group"; break }
+            "Exclude" { "Exclude"; break }
+            default { "None" }
+        }
+        
+        $target = switch ($type) {
+            "All Users" { "All Users" }
+            "All Devices" { "All Devices" }
+            "Group" {
+                if ($assignment.GroupId) {
+                    $groupInfo = Get-GroupInfo -GroupId $assignment.GroupId
+                    $groupInfo.DisplayName
+                }
+                else {
+                    "Unknown Group"
+                }
+            }
+            "Exclude" {
+                if ($assignment.GroupId) {
+                    $groupInfo = Get-GroupInfo -GroupId $assignment.GroupId
+                    $groupInfo.DisplayName
+                }
+                else {
+                    "Excluded Group"
+                }
+            }
+            default { "Not Assigned" }
+        }
+
+        $types += $type
+        $targets += $target
     }
-    $target = switch ($type) {
-        "All Users" { "All Users" }
-        "All Devices" { "All Devices" }
-        "Group" {
-            if ($assignment.GroupId) {
-                $groupInfo = Get-GroupInfo -GroupId $assignment.GroupId
-                $groupInfo.DisplayName
-            }
-            else {
-                "Unknown Group"
-            }
-        }
-        "Exclude" {
-            if ($assignment.GroupId) {
-                $groupInfo = Get-GroupInfo -GroupId $assignment.GroupId
-                $groupInfo.DisplayName
-            }
-            else {
-                "Excluded Group"
-            }
-        }
-        default { "Not Assigned" }
+
+    # Determine the primary type (prioritize All Users/Devices over Group)
+    $primaryType = if ($types -contains "All Users") {
+        "All Users"
+    }
+    elseif ($types -contains "All Devices") {
+        "All Devices"
+    }
+    elseif ($types -contains "Group") {
+        "Group"
+    }
+    elseif ($types -contains "Exclude") {
+        "Exclude"
+    }
+    else {
+        "None"
     }
 
     return @{
-            Type   = $type
-            Target = $target
-        }
+        Type   = $primaryType
+        Target = ($targets -join "; ")
+    }
 }
 
 function Export-HTMLReport {
