@@ -193,6 +193,69 @@ This will prompt you to sign in with your credentials when running the script. T
 
 ## 📖 Usage
 
+The script can be used in two ways:
+
+1. **Interactive Mode**: Menu-driven interface for manual exploration
+2. **Command-Line Mode**: Parameter-based execution for automation and scripting
+
+### 🖥️ Command-Line Parameters
+
+You can run the script with parameters to automate tasks without user interaction:
+
+```powershell
+# Check assignments for a specific user and export to CSV
+.\IntuneAssignmentChecker_v3.ps1 -CheckUser -UserPrincipalNames "user@contoso.com" -ExportToCSV -ExportPath "C:\Temp\UserAssignments.csv"
+
+# Check assignments for multiple users
+.\IntuneAssignmentChecker_v3.ps1 -CheckUser -UserPrincipalNames "user1@contoso.com,user2@contoso.com"
+
+# Check assignments for a specific group
+.\IntuneAssignmentChecker_v3.ps1 -CheckGroup -GroupNames "Marketing Team"
+
+# Check assignments for a specific device
+.\IntuneAssignmentChecker_v3.ps1 -CheckDevice -DeviceNames "Laptop123"
+
+# Show all policies with 'All Users' assignments
+.\IntuneAssignmentChecker_v3.ps1 -ShowAllUsersAssignments -ExportToCSV
+
+# Generate HTML report
+.\IntuneAssignmentChecker_v3.ps1 -GenerateHTMLReport
+
+# Specify environment (Global, USGov, USGovDoD)
+.\IntuneAssignmentChecker_v3.ps1 -CheckUser -UserPrincipalNames "user@contoso.com" -Environment "USGov"
+
+# Use with certificate authentication
+.\IntuneAssignmentChecker_v3.ps1 -CheckUser -UserPrincipalNames "user@contoso.com" -AppId "your-app-id" -TenantId "your-tenant-id" -CertificateThumbprint "your-cert-thumbprint"
+```
+
+Available parameters:
+
+| Parameter                         | Description                                                |
+| --------------------------------- | ---------------------------------------------------------- |
+| `-CheckUser`                      | Check assignments for specific users                       |
+| `-UserPrincipalNames`             | User Principal Names to check (comma-separated)            |
+| `-CheckGroup`                     | Check assignments for specific groups                      |
+| `-GroupNames`                     | Group names or IDs to check (comma-separated)              |
+| `-CheckDevice`                    | Check assignments for specific devices                     |
+| `-DeviceNames`                    | Device names to check (comma-separated)                    |
+| `-ShowAllPolicies`                | Show all policies and their assignments                    |
+| `-ShowAllUsersAssignments`        | Show all 'All Users' assignments                           |
+| `-ShowAllDevicesAssignments`      | Show all 'All Devices' assignments                         |
+| `-GenerateHTMLReport`             | Generate HTML report                                       |
+| `-ShowPoliciesWithoutAssignments` | Show policies without assignments                          |
+| `-CheckEmptyGroups`               | Check for empty groups in assignments                      |
+| `-ShowAdminTemplates`             | Show all Administrative Templates                          |
+| `-CompareGroups`                  | Compare assignments between groups                         |
+| `-CompareGroupNames`              | Groups to compare assignments between (comma-separated)    |
+| `-ExportToCSV`                    | Export results to CSV                                      |
+| `-ExportPath`                     | Path to export the CSV file                                |
+| `-AppId`                          | Application ID for authentication                          |
+| `-TenantId`                       | Tenant ID for authentication                               |
+| `-CertificateThumbprint`          | Certificate Thumbprint for authentication                  |
+| `-Environment`                    | Environment (Global, USGov, USGovDoD) - defaults to Global |
+
+### 📋 Interactive Menu Options
+
 The script provides a comprehensive menu-driven interface with the following options:
 
 ### 🎯 Assignment Checks

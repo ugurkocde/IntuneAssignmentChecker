@@ -1,6 +1,88 @@
 #Requires -Version 7.0
 #Requires -Modules Microsoft.Graph.Authentication
 
+param(
+    [Parameter(Mandatory = $false, HelpMessage = "Check assignments for specific users")]
+    [switch]$CheckUser,
+    
+    [Parameter(Mandatory = $false, HelpMessage = "User Principal Names to check, comma-separated")]
+    [string]$UserPrincipalNames,
+    
+    [Parameter(Mandatory = $false, HelpMessage = "Check assignments for specific groups")]
+    [switch]$CheckGroup,
+    
+    [Parameter(Mandatory = $false, HelpMessage = "Group names or IDs to check, comma-separated")]
+    [string]$GroupNames,
+    
+    [Parameter(Mandatory = $false, HelpMessage = "Check assignments for specific devices")]
+    [switch]$CheckDevice,
+    
+    [Parameter(Mandatory = $false, HelpMessage = "Device names to check, comma-separated")]
+    [string]$DeviceNames,
+    
+    [Parameter(Mandatory = $false, HelpMessage = "Show all policies and their assignments")]
+    [switch]$ShowAllPolicies,
+    
+    [Parameter(Mandatory = $false, HelpMessage = "Show all 'All Users' assignments")]
+    [switch]$ShowAllUsersAssignments,
+    
+    [Parameter(Mandatory = $false, HelpMessage = "Show all 'All Devices' assignments")]
+    [switch]$ShowAllDevicesAssignments,
+    
+    [Parameter(Mandatory = $false, HelpMessage = "Generate HTML report")]
+    [switch]$GenerateHTMLReport,
+    
+    [Parameter(Mandatory = $false, HelpMessage = "Show policies without assignments")]
+    [switch]$ShowPoliciesWithoutAssignments,
+    
+    [Parameter(Mandatory = $false, HelpMessage = "Check for empty groups in assignments")]
+    [switch]$CheckEmptyGroups,
+    
+    [Parameter(Mandatory = $false, HelpMessage = "Show all Administrative Templates")]
+    [switch]$ShowAdminTemplates,
+    
+    [Parameter(Mandatory = $false, HelpMessage = "Compare assignments between groups")]
+    [switch]$CompareGroups,
+    
+    [Parameter(Mandatory = $false, HelpMessage = "Groups to compare assignments between, comma-separated")]
+    [string]$CompareGroupNames,
+    
+    [Parameter(Mandatory = $false, HelpMessage = "Export results to CSV")]
+    [switch]$ExportToCSV,
+    
+    [Parameter(Mandatory = $false, HelpMessage = "Path for the exported CSV file")]
+    [string]$ExportPath,
+    
+    [Parameter(Mandatory = $false, HelpMessage = "App ID for authentication")]
+    [string]$AppId,
+    
+    [Parameter(Mandatory = $false, HelpMessage = "Tenant ID for authentication")]
+    [string]$TenantId,
+    
+    [Parameter(Mandatory = $false, HelpMessage = "Certificate Thumbprint for authentication")]
+    [string]$CertificateThumbprint,
+    
+    [Parameter(Mandatory = $false, HelpMessage = "Environment (Global, USGov, USGovDoD)")]
+    [ValidateSet("Global", "USGov", "USGovDoD")]
+    [string]$Environment = "Global"
+)
+
+# Check if any command-line parameters were provided
+$parameterMode = $false
+$selectedOption = $null
+
+if ($CheckUser) { $parameterMode = $true; $selectedOption = '1' }
+elseif ($CheckGroup) { $parameterMode = $true; $selectedOption = '2' }
+elseif ($CheckDevice) { $parameterMode = $true; $selectedOption = '3' }
+elseif ($ShowAllPolicies) { $parameterMode = $true; $selectedOption = '4' }
+elseif ($ShowAllUsersAssignments) { $parameterMode = $true; $selectedOption = '5' }
+elseif ($ShowAllDevicesAssignments) { $parameterMode = $true; $selectedOption = '6' }
+elseif ($GenerateHTMLReport) { $parameterMode = $true; $selectedOption = '7' }
+elseif ($ShowPoliciesWithoutAssignments) { $parameterMode = $true; $selectedOption = '8' }
+elseif ($CheckEmptyGroups) { $parameterMode = $true; $selectedOption = '9' }
+elseif ($ShowAdminTemplates) { $parameterMode = $true; $selectedOption = '10' }
+elseif ($CompareGroups) { $parameterMode = $true; $selectedOption = '11' }
+
 <#
 .SYNOPSIS
     Checks Intune policy and app assignments for users, groups, and devices.
@@ -12,6 +94,81 @@
     - Finding policies without assignments
     - Identifying empty groups in assignments
     - Searching for specific settings across policies
+
+.PARAMETER CheckUser
+    Check assignments for specific users.
+
+.PARAMETER UserPrincipalNames
+    User Principal Names to check, comma-separated.
+
+.PARAMETER CheckGroup
+    Check assignments for specific groups.
+
+.PARAMETER GroupNames
+    Group names or IDs to check, comma-separated.
+
+.PARAMETER CheckDevice
+    Check assignments for specific devices.
+
+.PARAMETER DeviceNames
+    Device names to check, comma-separated.
+
+.PARAMETER ShowAllPolicies
+    Show all policies and their assignments.
+
+.PARAMETER ShowAllUsersAssignments
+    Show all 'All Users' assignments.
+
+.PARAMETER ShowAllDevicesAssignments
+    Show all 'All Devices' assignments.
+
+.PARAMETER GenerateHTMLReport
+    Generate HTML report.
+
+.PARAMETER ShowPoliciesWithoutAssignments
+    Show policies without assignments.
+
+.PARAMETER CheckEmptyGroups
+    Check for empty groups in assignments.
+
+.PARAMETER ShowAdminTemplates
+    Show all Administrative Templates.
+
+.PARAMETER CompareGroups
+    Compare assignments between groups.
+
+.PARAMETER CompareGroupNames
+    Groups to compare assignments between, comma-separated.
+
+.PARAMETER ExportToCSV
+    Export results to CSV.
+
+.PARAMETER ExportPath
+    Path for the exported CSV file.
+
+.PARAMETER AppId
+    App ID for authentication.
+
+.PARAMETER TenantId
+    Tenant ID for authentication.
+
+.PARAMETER CertificateThumbprint
+    Certificate Thumbprint for authentication.
+
+.PARAMETER Environment
+    Environment (Global, USGov, USGovDoD).
+
+.EXAMPLE
+    .\IntuneAssignmentChecker_v3.ps1 -CheckUser -UserPrincipalNames "user1@contoso.com,user2@contoso.com"
+    Checks assignments for the specified users.
+
+.EXAMPLE
+    .\IntuneAssignmentChecker_v3.ps1 -CheckGroup -GroupNames "Marketing Team"
+    Checks assignments for the specified group.
+
+.EXAMPLE
+    .\IntuneAssignmentChecker_v3.ps1 -ShowAllPolicies -ExportToCSV -ExportPath "C:\Temp\AllPolicies.csv"
+    Shows all policies and exports the results to CSV.
 
 .AUTHOR
     Ugur Koc (@ugurkocde)
@@ -31,15 +188,16 @@
 ################################ Prerequisites #####################################################
 
 # Fill in your App ID, Tenant ID, and Certificate Thumbprint
-$appid = '<YourAppIdHere>' # App ID of the App Registration
-$tenantid = '<YourTenantIdHere>' # Tenant ID of your EntraID
-$certThumbprint = '<YourCertificateThumbprintHere>' # Thumbprint of the certificate associated with the App Registration
+# Use parameter values if provided, otherwise use defaults
+$appid = if ($AppId) { $AppId } else { '<YourAppIdHere>' } # App ID of the App Registration
+$tenantid = if ($TenantId) { $TenantId } else { '<YourTenantIdHere>' } # Tenant ID of your EntraID
+$certThumbprint = if ($CertificateThumbprint) { $CertificateThumbprint } else { '<YourCertificateThumbprintHere>' } # Thumbprint of the certificate associated with the App Registration
 # $certName = '<YourCertificateNameHere>' # Name of the certificate associated with the App Registration
 
 ####################################################################################################
 
 # Version of the local script
-$localVersion = "3.1.1"
+$localVersion = "3.2.0"
 
 Write-Host "🔍 INTUNE ASSIGNMENT CHECKER" -ForegroundColor Cyan
 Write-Host "Made by Ugur Koc with" -NoNewline; Write-Host " ❤️  and ☕" -NoNewline
@@ -125,6 +283,39 @@ $script:GraphEnvironment = $null
 
 # Ask user to select the Intune environment
 function Set-Environment {
+    param (
+        [Parameter(Mandatory = $false)]
+        [string]$EnvironmentName
+    )
+    
+    if ($EnvironmentName) {
+        switch ($EnvironmentName) {
+            'Global' {
+                $script:GraphEndpoint = "https://graph.microsoft.com"
+                $script:GraphEnvironment = "Global"
+                Write-Host "Environment set to Global" -ForegroundColor Green
+                return $script:GraphEnvironment
+            }
+            'USGov' {
+                $script:GraphEndpoint = "https://graph.microsoft.us"
+                $script:GraphEnvironment = "USGov"
+                Write-Host "Environment set to USGov" -ForegroundColor Green
+                return $script:GraphEnvironment
+            }
+            'USGovDoD' {
+                $script:GraphEndpoint = "https://dod-graph.microsoft.us"
+                $script:GraphEnvironment = "USGovDoD"
+                Write-Host "Environment set to USGovDoD" -ForegroundColor Green
+                return $script:GraphEnvironment
+            }
+            default {
+                Write-Host "Invalid environment name. Using interactive selection." -ForegroundColor Yellow
+                # Fall through to interactive selection
+            }
+        }
+    }
+    
+    # Interactive selection if no valid environment name was provided
     do {
         Write-Host "Select Intune Tenant Environment:" -ForegroundColor Cyan
         Write-Host "  [1] Global" -ForegroundColor White
@@ -212,7 +403,14 @@ try {
             # Manual connection using interactive login
             Write-Host "Attempting manual interactive connection (you need privileges to consent permissions)..." -ForegroundColor Yellow
             $permissionsList = ($requiredPermissions | ForEach-Object { $_.Permission }) -join ', '
-            Set-Environment
+            # In parameter mode, use the Environment parameter (which defaults to Global)
+            # In interactive mode, always prompt for environment selection
+            if ($parameterMode) {
+                Set-Environment -EnvironmentName $Environment
+            }
+            else {
+                Set-Environment  # Prompt for environment selection in interactive mode
+            }
             $connectionResult = Connect-MgGraph -Scopes $permissionsList -Environment $script:GraphEnvironment -NoWelcome -ErrorAction Stop
         }
         else {
@@ -221,7 +419,14 @@ try {
         }
     }
     else {
-        Set-Environment
+        # In parameter mode, use the Environment parameter (which defaults to Global)
+        # In interactive mode, always prompt for environment selection
+        if ($parameterMode) {
+            Set-Environment -EnvironmentName $Environment
+        }
+        else {
+            Set-Environment  # Prompt for environment selection in interactive mode
+        }
         $connectionResult = Connect-MgGraph -ClientId $appid -TenantId $tenantid -Environment $script:GraphEnvironment -CertificateThumbprint $certThumbprint -NoWelcome -ErrorAction Stop
     }
     Write-Host "Successfully connected to Microsoft Graph" -ForegroundColor Green
@@ -724,30 +929,76 @@ function Show-Menu {
     Write-Host "Select an option: " -ForegroundColor Yellow -NoNewline
 }
 
+# Function to handle export
+function Export-ResultsIfRequested {
+    param (
+        [System.Collections.ArrayList]$ExportData,
+        [string]$DefaultFileName,
+        [switch]$ForceExport,
+        [string]$CustomExportPath
+    )
+    
+    if ($ForceExport -or $ExportToCSV) {
+        $exportPath = if ($CustomExportPath) {
+            $CustomExportPath
+        }
+        else {
+            Show-SaveFileDialog -DefaultFileName $DefaultFileName
+        }
+        
+        if ($exportPath) {
+            Export-PolicyData -ExportData $ExportData -FilePath $exportPath
+        }
+    }
+    else {
+        $export = Read-Host "`nWould you like to export the results to CSV? (y/n)"
+        if ($export -eq 'y') {
+            $exportPath = Show-SaveFileDialog -DefaultFileName $DefaultFileName
+            if ($exportPath) {
+                Export-PolicyData -ExportData $ExportData -FilePath $exportPath
+            }
+        }
+    }
+}
+
+# Move this code to the beginning of the script, right after the param block
+
 # Main script logic
 do {
-    Show-Menu
-    $selection = Read-Host
+    # Only show menu in interactive mode
+    if (-not $parameterMode) {
+        Show-Menu
+        $selection = Read-Host
+    }
+    else {
+        $selection = $selectedOption
+    }
 
     switch ($selection) {
         '1' {
             Write-Host "User selection chosen" -ForegroundColor Green
 
-            # Prompt for one or more User Principal Names
-            Write-Host "Please enter User Principal Name(s), separated by commas (,): " -ForegroundColor Cyan
-            $upnInput = Read-Host
+            # Get User Principal Names from parameter or prompt
+            if ($parameterMode -and $UserPrincipalNames) {
+                $upnInput = $UserPrincipalNames
+            }
+            else {
+                # Prompt for one or more User Principal Names
+                Write-Host "Please enter User Principal Name(s), separated by commas (,): " -ForegroundColor Cyan
+                $upnInput = Read-Host
+            }
     
             # Validate input
             if ([string]::IsNullOrWhiteSpace($upnInput)) {
                 Write-Host "No UPN provided. Please try again with a valid UPN." -ForegroundColor Red
-                continue
+                if ($parameterMode) { exit 1 } else { continue }
             }
     
             $upns = $upnInput -split ',' | ForEach-Object { $_.Trim() } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
     
             if ($upns.Count -eq 0) {
                 Write-Host "No valid UPNs provided. Please try again with at least one valid UPN." -ForegroundColor Red
-                continue
+                if ($parameterMode) { exit 1 } else { continue }
             }
 
             $exportData = [System.Collections.ArrayList]::new()
@@ -1510,15 +1761,8 @@ do {
                 )
             }
 
-            # Offer to export results
-            $export = Read-Host "`nWould you like to export the results to CSV? (y/n)"
-            if ($export -eq 'y') {
-                $exportPath = Show-SaveFileDialog -DefaultFileName "IntuneUserAssignments.csv"
-                if ($exportPath) {
-                    $exportData | Export-Csv -Path $exportPath -NoTypeInformation
-                    Write-Host "Results exported to $exportPath" -ForegroundColor Green
-                }
-            }
+            # Export results if requested
+            Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneUserAssignments.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath
         }
         '2' {
             Write-Host "Group selection chosen" -ForegroundColor Green
@@ -2009,26 +2253,25 @@ do {
                 )
             }
 
-            # Offer to export results
-            $export = Read-Host "`nWould you like to export the results to CSV? (y/n)"
-            if ($export -eq 'y') {
-                $exportPath = Show-SaveFileDialog -DefaultFileName "IntuneDeviceAssignments.csv"
-                if ($exportPath) {
-                    $exportData | Export-Csv -Path $exportPath -NoTypeInformation
-                    Write-Host "Results exported to $exportPath" -ForegroundColor Green
-                }
-            }
+            # Export results if requested
+            Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneDeviceAssignments.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath
         }
         '3' {
             Write-Host "Device selection chosen" -ForegroundColor Green
 
-            # Prompt for one or more Device Names
-            Write-Host "Please enter Device Name(s), separated by commas (,): " -ForegroundColor Cyan
-            $deviceInput = Read-Host
+            # Get Device names from parameter or prompt
+            if ($parameterMode -and $DeviceNames) {
+                $deviceInput = $DeviceNames
+            }
+            else {
+                # Prompt for one or more Device Names
+                Write-Host "Please enter Device Name(s), separated by commas (,): " -ForegroundColor Cyan
+                $deviceInput = Read-Host
+            }
 
             if ([string]::IsNullOrWhiteSpace($deviceInput)) {
                 Write-Host "No device name provided. Please try again." -ForegroundColor Red
-                continue
+                if ($parameterMode) { exit 1 } else { continue }
             }
 
             $deviceNames = $deviceInput -split ',' | ForEach-Object { $_.Trim() }
@@ -2471,15 +2714,8 @@ do {
                 )
             }
 
-            # Offer to export results
-            $export = Read-Host "`nWould you like to export the results to CSV? (y/n)"
-            if ($export -eq 'y') {
-                $exportPath = Show-SaveFileDialog -DefaultFileName "IntuneDeviceAssignments.csv"
-                if ($exportPath) {
-                    $exportData | Export-Csv -Path $exportPath -NoTypeInformation
-                    Write-Host "Results exported to $exportPath" -ForegroundColor Green
-                }
-            }
+            # Export results if requested
+            Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneDeviceAssignments.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath
         }
         '4' {
             Write-Host "Fetching all policies and their assignments..." -ForegroundColor Green
@@ -2721,15 +2957,8 @@ do {
             Add-ExportData -ExportData $exportData -Category "Platform Scripts" -Items $allPolicies.PlatformScripts -AssignmentReason { param($item) $item.AssignmentSummary }
             Add-ExportData -ExportData $exportData -Category "Proactive Remediation Scripts" -Items $allPolicies.HealthScripts -AssignmentReason { param($item) $item.AssignmentSummary }
 
-            # Offer to export results
-            $export = Read-Host "`nWould you like to export the results to CSV? (y/n)"
-            if ($export -eq 'y') {
-                $exportPath = Show-SaveFileDialog -DefaultFileName "IntuneAllPolicies.csv"
-                if ($exportPath) {
-                    $exportData | Export-Csv -Path $exportPath -NoTypeInformation
-                    Write-Host "Results exported to $exportPath" -ForegroundColor Green
-                }
-            }
+            # Export results if requested
+            Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneAllPolicies.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath
         }
         '5' {
             Write-Host "Fetching all 'All Users' assignments..." -ForegroundColor Green
@@ -3048,15 +3277,8 @@ do {
                 }
             }
 
-            # Offer to export results
-            $export = Read-Host "`nWould you like to export the results to CSV? (y/n)"
-            if ($export -eq 'y') {
-                $exportPath = Show-SaveFileDialog -DefaultFileName "IntuneAllUsersAssignments.csv"
-                if ($exportPath) {
-                    $exportData | Export-Csv -Path $exportPath -NoTypeInformation
-                    Write-Host "Results exported to $exportPath" -ForegroundColor Green
-                }
-            }
+            # Export results if requested
+            Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneAllUsersAssignments.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath
         }     
         '6' {
             Write-Host "Fetching all 'All Devices' assignments..." -ForegroundColor Green
@@ -3374,15 +3596,8 @@ do {
                 }
             }
 
-            # Offer to export results
-            $export = Read-Host "`nWould you like to export the results to CSV? (y/n)"
-            if ($export -eq 'y') {
-                $exportPath = Show-SaveFileDialog -DefaultFileName "IntuneAllDevicesAssignments.csv"
-                if ($exportPath) {
-                    $exportData | Export-Csv -Path $exportPath -NoTypeInformation
-                    Write-Host "Results exported to $exportPath" -ForegroundColor Green
-                }
-            }
+            # Export results if requested
+            Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneAllDevicesAssignments.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath
         }
         '7' {
             Write-Host "Generating HTML Report..." -ForegroundColor Green
@@ -3643,15 +3858,8 @@ do {
                 }
             }
 
-            # Offer to export results
-            $export = Read-Host "`nWould you like to export the results to CSV? (y/n)"
-            if ($export -eq 'y') {
-                $exportPath = Show-SaveFileDialog -DefaultFileName "IntuneUnassignedPolicies.csv"
-                if ($exportPath) {
-                    $exportData | Export-Csv -Path $exportPath -NoTypeInformation
-                    Write-Host "Results exported to $exportPath" -ForegroundColor Green
-                }
-            }
+            # Export results if requested
+            Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneUnassignedPolicies.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath
         }
        
         '9' {
@@ -4001,15 +4209,8 @@ do {
                 }
             }
 
-            # Offer to export results
-            $export = Read-Host "`nWould you like to export the results to CSV? (y/n)"
-            if ($export -eq 'y') {
-                $exportPath = Show-SaveFileDialog -DefaultFileName "IntuneEmptyGroupAssignments.csv"
-                if ($exportPath) {
-                    $exportData | Export-Csv -Path $exportPath -NoTypeInformation
-                    Write-Host "Results exported to $exportPath" -ForegroundColor Green
-                }
-            }
+            # Export results if requested
+            Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneEmptyGroupAssignments.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath
         }
         '10' {
             Write-Host "⚠️  WARNING: Administrative Templates will be deprecated in December 2024" -ForegroundColor Yellow
@@ -4099,29 +4300,29 @@ do {
                 Write-Host "Templates with assignments: $assignedCount" -ForegroundColor White
                 Write-Host "Templates without assignments: $unassignedCount" -ForegroundColor White
                 
-                # Offer to export results
-                $export = Read-Host "`nWould you like to export the results to CSV? (y/n)"
-                if ($export -eq 'y') {
-                    $exportPath = Show-SaveFileDialog -DefaultFileName "IntuneAdministrativeTemplates.csv"
-                    if ($exportPath) {
-                        $exportData | Export-Csv -Path $exportPath -NoTypeInformation
-                        Write-Host "Results exported to $exportPath" -ForegroundColor Green
-                    }
-                }
+                # Export results if requested
+                Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneAdministrativeTemplates.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath
             }
         }
         '11' {
             Write-Host "Compare Group Assignments chosen" -ForegroundColor Green
 
-            # Prompt for Group names or IDs
-            Write-Host "Please enter Group names or Object IDs to compare, separated by commas (,): " -ForegroundColor Cyan
-            Write-Host "Example: 'Marketing Team, 12345678-1234-1234-1234-123456789012'" -ForegroundColor Gray
-            $groupInput = Read-Host
+            # Get Group names to compare from parameter or prompt
+            if ($parameterMode -and $CompareGroupNames) {
+                $groupInput = $CompareGroupNames
+            }
+            else {
+                # Prompt for Group names or IDs
+                Write-Host "Please enter Group names or Object IDs to compare, separated by commas (,): " -ForegroundColor Cyan
+                Write-Host "Example: 'Marketing Team, 12345678-1234-1234-1234-123456789012'" -ForegroundColor Gray
+                $groupInput = Read-Host
+            }
+            
             $groupInputs = $groupInput -split ',' | ForEach-Object { $_.Trim() }
 
             if ($groupInputs.Count -lt 2) {
                 Write-Host "Please provide at least two groups to compare." -ForegroundColor Red
-                continue
+                if ($parameterMode) { exit 1 } else { continue }
             }
 
             # Before caching starts, initialize the group assignments hashtable
@@ -4428,33 +4629,49 @@ do {
             }
             Write-Host ""
 
-            # Offer to export results
-            $export = Read-Host "Would you like to export the comparison results to CSV? (y/n)"
-            if ($export -eq 'y') {
-                $exportPath = Show-SaveFileDialog -DefaultFileName "IntuneGroupAssignmentComparison.csv"
-                if ($exportPath) {
-                    $comparisonResults = [System.Collections.ArrayList]@()
-                    foreach ($category in $categories.Keys) {
-                        $categoryKey = $categories[$category]
-                        foreach ($policy in $uniquePolicies) {
-                            $assignedGroups = @()
-                            foreach ($groupName in $groupAssignments.Keys) {
-                                if ($groupAssignments[$groupName][$categoryKey] -contains $policy) {
-                                    $assignedGroups += $groupName
-                                }
-                            }
-
-                            if ($assignedGroups.Count -gt 0) {
-                                [void]$comparisonResults.Add([PSCustomObject]@{
-                                        Category           = $category
-                                        PolicyName         = $policy
-                                        AssignedTo         = $assignedGroups -join '; '
-                                        NotAssignedTo      = ($groupAssignments.Keys | Where-Object { $assignedGroups -notcontains $_ }) -join '; '
-                                        IsSharedAssignment = ($assignedGroups.Count -gt 1)
-                                    })
-                            }
+            # Create comparison results
+            $comparisonResults = [System.Collections.ArrayList]@()
+            foreach ($category in $categories.Keys) {
+                $categoryKey = $categories[$category]
+                foreach ($policy in $uniquePolicies) {
+                    $assignedGroups = @()
+                    foreach ($groupName in $groupAssignments.Keys) {
+                        if ($groupAssignments[$groupName][$categoryKey] -contains $policy) {
+                            $assignedGroups += $groupName
                         }
                     }
+
+                    if ($assignedGroups.Count -gt 0) {
+                        [void]$comparisonResults.Add([PSCustomObject]@{
+                                Category           = $category
+                                PolicyName         = $policy
+                                AssignedTo         = $assignedGroups -join '; '
+                                NotAssignedTo      = ($groupAssignments.Keys | Where-Object { $assignedGroups -notcontains $_ }) -join '; '
+                                IsSharedAssignment = ($assignedGroups.Count -gt 1)
+                            })
+                    }
+                }
+            }
+            
+            # Export results if requested
+            if ($ExportToCSV -or -not $parameterMode) {
+                $exportPath = if ($ExportPath) {
+                    $ExportPath
+                }
+                elseif (-not $parameterMode) {
+                    $export = Read-Host "Would you like to export the comparison results to CSV? (y/n)"
+                    if ($export -eq 'y') {
+                        Show-SaveFileDialog -DefaultFileName "IntuneGroupAssignmentComparison.csv"
+                    }
+                    else {
+                        $null
+                    }
+                }
+                else {
+                    $null
+                }
+                
+                if ($exportPath) {
                     $comparisonResults | Export-Csv -Path $exportPath -NoTypeInformation
                     Write-Host "Results exported to $exportPath" -ForegroundColor Green
                 }
@@ -4484,8 +4701,17 @@ do {
         }
     }
 
+    # In parameter mode, exit after completing the task
+    # In interactive mode, return to the menu unless exit was selected
     if ($selection -ne '0') {
-        Write-Host "Press any key to return to the main menu..." -ForegroundColor Cyan
-        $null = $host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+        if ($parameterMode) {
+            # Exit after completing the task in parameter mode
+            break
+        }
+        else {
+            # Return to menu in interactive mode
+            Write-Host "Press any key to return to the main menu..." -ForegroundColor Cyan
+            $null = $host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+        }
     }
 } while ($selection -ne '0')
