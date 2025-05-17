@@ -214,7 +214,8 @@ try {
             $permissionsList = ($requiredPermissions | ForEach-Object { $_.Permission }) -join ', '
             Set-Environment
             $connectionResult = Connect-MgGraph -Scopes $permissionsList -Environment $script:GraphEnvironment -NoWelcome -ErrorAction Stop
-        } else {
+        }
+        else {
             Write-Host "Script execution cancelled by user." -ForegroundColor Red
             exit
         }
@@ -1076,7 +1077,8 @@ do {
                         $rowFormat = "{0,-50} {1,-40} {2,-30}" -f $configName, $configId, $assignment
                         if ($assignment -eq "Excluded") {
                             Write-Host $rowFormat -ForegroundColor Red
-                        } else {
+                        }
+                        else {
                             Write-Host $rowFormat -ForegroundColor White
                         }
                     }
@@ -1115,7 +1117,8 @@ do {
                         $rowFormat = "{0,-50} {1,-40} {2,-30}" -f $policyName, $policyId, $assignment
                         if ($assignment -eq "Excluded") {
                             Write-Host $rowFormat -ForegroundColor Red
-                        } else {
+                        }
+                        else {
                             Write-Host $rowFormat -ForegroundColor White
                         }
                     }
@@ -1154,7 +1157,8 @@ do {
                         $rowFormat = "{0,-50} {1,-40} {2,-30}" -f $templateName, $templateId, $assignment
                         if ($assignment -eq "Excluded") {
                             Write-Host $rowFormat -ForegroundColor Red
-                        } else {
+                        }
+                        else {
                             Write-Host $rowFormat -ForegroundColor White
                         }
                     }
@@ -1193,7 +1197,8 @@ do {
                         $rowFormat = "{0,-50} {1,-40} {2,-30}" -f $policyName, $policyId, $assignment
                         if ($assignment -eq "Excluded") {
                             Write-Host $rowFormat -ForegroundColor Red
-                        } else {
+                        }
+                        else {
                             Write-Host $rowFormat -ForegroundColor White
                         }
                     }
@@ -1239,7 +1244,8 @@ do {
                         $rowFormat = "{0,-40} {1,-30} {2,-20} {3,-30}" -f $policyName, $policyId, $policyType, $assignment
                         if ($assignment -eq "Excluded") {
                             Write-Host $rowFormat -ForegroundColor Red
-                        } else {
+                        }
+                        else {
                             Write-Host $rowFormat -ForegroundColor White
                         }
                     }
@@ -1278,7 +1284,8 @@ do {
                         $rowFormat = "{0,-50} {1,-40} {2,-30}" -f $policyName, $policyId, $assignment
                         if ($assignment -eq "Excluded") {
                             Write-Host $rowFormat -ForegroundColor Red
-                        } else {
+                        }
+                        else {
                             Write-Host $rowFormat -ForegroundColor White
                         }
                     }
@@ -1317,7 +1324,8 @@ do {
                         $rowFormat = "{0,-50} {1,-40} {2,-30}" -f $scriptName, $scriptId, $assignment
                         if ($assignment -eq "Excluded") {
                             Write-Host $rowFormat -ForegroundColor Red
-                        } else {
+                        }
+                        else {
                             Write-Host $rowFormat -ForegroundColor White
                         }
                     }
@@ -1356,7 +1364,8 @@ do {
                         $rowFormat = "{0,-50} {1,-40} {2,-30}" -f $scriptName, $scriptId, $assignment
                         if ($assignment -eq "Excluded") {
                             Write-Host $rowFormat -ForegroundColor Red
-                        } else {
+                        }
+                        else {
                             Write-Host $rowFormat -ForegroundColor White
                         }
                     }
@@ -1395,7 +1404,8 @@ do {
                         $rowFormat = "{0,-50} {1,-40} {2,-30}" -f $appName, $appId, $assignment
                         if ($assignment -like "*Exclusion*") {
                             Write-Host $rowFormat -ForegroundColor Red
-                        } else {
+                        }
+                        else {
                             Write-Host $rowFormat -ForegroundColor White
                         }
                     }
@@ -1434,7 +1444,8 @@ do {
                         $rowFormat = "{0,-50} {1,-40} {2,-30}" -f $appName, $appId, $assignment
                         if ($assignment -like "*Exclusion*") {
                             Write-Host $rowFormat -ForegroundColor Red
-                        } else {
+                        }
+                        else {
                             Write-Host $rowFormat -ForegroundColor White
                         }
                     }
@@ -1473,7 +1484,8 @@ do {
                         $rowFormat = "{0,-50} {1,-40} {2,-30}" -f $appName, $appId, $assignment
                         if ($assignment -like "*Exclusion*") {
                             Write-Host $rowFormat -ForegroundColor Red
-                        } else {
+                        }
+                        else {
                             Write-Host $rowFormat -ForegroundColor White
                         }
                     }
@@ -1590,7 +1602,8 @@ do {
                             if ($assignments[0].GroupId -eq $groupId) {
                                 if ($assignments[0].Reason -eq "Group Exclusion") {
                                     "Direct Exclusion"
-                                } else {
+                                }
+                                else {
                                     "Direct Assignment"
                                 }
                             }
@@ -1882,8 +1895,8 @@ do {
                         
                         # Format assignment reason
                         $assignment = if ($policy.AssignmentReason) { $policy.AssignmentReason }
-                                    elseif ($policy.AssignmentSummary) { $policy.AssignmentSummary }
-                                    else { "No Assignment" }
+                        elseif ($policy.AssignmentSummary) { $policy.AssignmentSummary }
+                        else { "No Assignment" }
                         if ($assignment.Length -gt 27) {
                             $assignment = $assignment.Substring(0, 24) + "..."
                         }
@@ -1892,7 +1905,8 @@ do {
                         $rowFormat = "{0,-50} {1,-40} {2,-30}" -f $name, $id, $assignment
                         if ($assignment -like "*Exclusion*" -or $assignment -eq "Excluded") {
                             Write-Host $rowFormat -ForegroundColor Red
-                        } else {
+                        }
+                        else {
                             Write-Host $rowFormat -ForegroundColor White
                         }
                     }
