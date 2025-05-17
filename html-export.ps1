@@ -524,7 +524,7 @@ function Export-HTMLReport {
         $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
         $assignmentInfo = Get-AssignmentInfo -Assignments $assignments
         $policies.SettingsCatalog += @{
-            Name           = $policy.name
+            Name           = if (-not [string]::IsNullOrWhiteSpace($policy.displayName)) { $policy.displayName } else { $policy.name }
             ID             = $policy.id
             Type           = "Settings Catalog"
             AssignmentType = $assignmentInfo.Type
@@ -641,14 +641,15 @@ function Export-HTMLReport {
         $processedIds = [System.Collections.Generic.HashSet[string]]::new()
 
         # 1. Check configurationPolicies (Settings Catalog)
-        $configPolicies = Get-IntuneEntities -EntityType "configurationPolicies" -Filter "templateReference/templateFamily eq '$($esCategory.TemplateFamily)'"
+        $allConfigPolicies = Get-IntuneEntities -EntityType "configurationPolicies"
+        $configPolicies = $allConfigPolicies | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq $esCategory.TemplateFamily }
         if ($configPolicies) {
             foreach ($policy in $configPolicies) {
                 if ($processedIds.Add($policy.id)) {
                     $rawAssignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
                     $assignmentInfo = Get-AssignmentInfo -Assignments $rawAssignments
                     $policies[$esCategory.Key] += @{
-                        Name           = $policy.displayName
+                        Name           = if (-not [string]::IsNullOrWhiteSpace($policy.displayName)) { $policy.displayName } else { $policy.name }
                         ID             = $policy.id
                         Type           = $esCategory.UserFriendlyType
                         AssignmentType = $assignmentInfo.Type
@@ -659,7 +660,8 @@ function Export-HTMLReport {
         }
 
         # 2. Check deviceManagement/intents (Templates)
-        $intentPolicies = Get-IntuneEntities -EntityType "deviceManagement/intents" -Filter "templateReference/templateFamily eq '$($esCategory.TemplateFamily)'"
+        $allIntentPolicies = Get-IntuneEntities -EntityType "deviceManagement/intents"
+        $intentPolicies = $allIntentPolicies | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq $esCategory.TemplateFamily }
         if ($intentPolicies) {
             foreach ($policy in $intentPolicies) {
                 if ($processedIds.Add($policy.id)) {
@@ -667,7 +669,7 @@ function Export-HTMLReport {
                         $assignmentsResponse = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
                         $assignmentInfo = Get-AssignmentInfo -Assignments $assignmentsResponse.value # This expects an array
                         $policies[$esCategory.Key] += @{
-                            Name           = $policy.displayName
+                            Name           = if (-not [string]::IsNullOrWhiteSpace($policy.displayName)) { $policy.displayName } else { $policy.name }
                             ID             = $policy.id
                             Type           = $esCategory.UserFriendlyType
                             AssignmentType = $assignmentInfo.Type
@@ -1046,3 +1048,4 @@ function Export-HTMLReport {
     $htmlContent | Out-File -FilePath $FilePath -Encoding UTF8
     Write-Host "HTML report exported to: $FilePath" -ForegroundColor Green
 }
+
