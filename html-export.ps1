@@ -481,17 +481,22 @@ function Export-HTMLReport {
 
     # Initialize collections
     $policies = @{
-        DeviceConfigs            = @()
-        SettingsCatalog          = @()
-        AdminTemplates           = @()
-        CompliancePolicies       = @()
-        AppProtectionPolicies    = @()
-        AppConfigurationPolicies = @()
-        PlatformScripts          = @()
-        HealthScripts            = @()
-        RequiredApps             = @()
-        AvailableApps            = @()
-        UninstallApps            = @()
+        DeviceConfigs             = @()
+        SettingsCatalog           = @()
+        AdminTemplates            = @()
+        CompliancePolicies        = @()
+        AppProtectionPolicies     = @()
+        AppConfigurationPolicies  = @()
+        PlatformScripts           = @()
+        HealthScripts             = @()
+        RequiredApps              = @()
+        AvailableApps             = @()
+        UninstallApps             = @()
+        AntivirusProfiles         = @()
+        DiskEncryptionProfiles    = @()
+        FirewallProfiles          = @()
+        EndpointDetectionProfiles = @()
+        AttackSurfaceProfiles     = @()
     }
 
     # Fetch all policies
@@ -706,7 +711,102 @@ function Export-HTMLReport {
             }
         }
     }
-
+    
+    # Get Endpoint Security - Antivirus Policies
+    Write-Host "Fetching Antivirus Policies for HTML Export..." -ForegroundColor Yellow
+    $antivirusTemplate = Get-IntuneEntities -EntityType "deviceManagement/templates" -Filter "displayName eq 'Antivirus'"
+    if ($antivirusTemplate.Count -gt 0) {
+        $templateId = $antivirusTemplate[0].id
+        $antivirusPolicies = Get-IntuneEntities -EntityType "deviceManagement/intents" -Filter "templateId eq '$templateId'"
+        foreach ($policy in $antivirusPolicies) {
+            $assignments = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
+            $assignmentInfo = Get-AssignmentInfo -Assignments $assignments.value
+            $policies.AntivirusProfiles += @{
+                Name           = $policy.displayName
+                ID             = $policy.id
+                Type           = "Endpoint Security - Antivirus"
+                AssignmentType = $assignmentInfo.Type
+                AssignedTo     = $assignmentInfo.Target
+            }
+        }
+    }
+    
+    # Get Endpoint Security - Disk Encryption Policies
+    Write-Host "Fetching Disk Encryption Policies for HTML Export..." -ForegroundColor Yellow
+    $diskEncryptionTemplate = Get-IntuneEntities -EntityType "deviceManagement/templates" -Filter "displayName eq 'Disk encryption'"
+    if ($diskEncryptionTemplate.Count -gt 0) {
+        $templateId = $diskEncryptionTemplate[0].id
+        $diskEncryptionPolicies = Get-IntuneEntities -EntityType "deviceManagement/intents" -Filter "templateId eq '$templateId'"
+        foreach ($policy in $diskEncryptionPolicies) {
+            $assignments = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
+            $assignmentInfo = Get-AssignmentInfo -Assignments $assignments.value
+            $policies.DiskEncryptionProfiles += @{
+                Name           = $policy.displayName
+                ID             = $policy.id
+                Type           = "Endpoint Security - Disk Encryption"
+                AssignmentType = $assignmentInfo.Type
+                AssignedTo     = $assignmentInfo.Target
+            }
+        }
+    }
+    
+    # Get Endpoint Security - Firewall Policies
+    Write-Host "Fetching Firewall Policies for HTML Export..." -ForegroundColor Yellow
+    $firewallTemplate = Get-IntuneEntities -EntityType "deviceManagement/templates" -Filter "displayName eq 'Firewall'"
+    if ($firewallTemplate.Count -gt 0) {
+        $templateId = $firewallTemplate[0].id
+        $firewallPolicies = Get-IntuneEntities -EntityType "deviceManagement/intents" -Filter "templateId eq '$templateId'"
+        foreach ($policy in $firewallPolicies) {
+            $assignments = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
+            $assignmentInfo = Get-AssignmentInfo -Assignments $assignments.value
+            $policies.FirewallProfiles += @{
+                Name           = $policy.displayName
+                ID             = $policy.id
+                Type           = "Endpoint Security - Firewall"
+                AssignmentType = $assignmentInfo.Type
+                AssignedTo     = $assignmentInfo.Target
+            }
+        }
+    }
+    
+    # Get Endpoint Security - Endpoint Detection and Response Policies
+    Write-Host "Fetching EDR Policies for HTML Export..." -ForegroundColor Yellow
+    $edrTemplate = Get-IntuneEntities -EntityType "deviceManagement/templates" -Filter "displayName eq 'Endpoint detection and response'"
+    if ($edrTemplate.Count -gt 0) {
+        $templateId = $edrTemplate[0].id
+        $edrPolicies = Get-IntuneEntities -EntityType "deviceManagement/intents" -Filter "templateId eq '$templateId'"
+        foreach ($policy in $edrPolicies) {
+            $assignments = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
+            $assignmentInfo = Get-AssignmentInfo -Assignments $assignments.value
+            $policies.EndpointDetectionProfiles += @{
+                Name           = $policy.displayName
+                ID             = $policy.id
+                Type           = "Endpoint Security - EDR"
+                AssignmentType = $assignmentInfo.Type
+                AssignedTo     = $assignmentInfo.Target
+            }
+        }
+    }
+    
+    # Get Endpoint Security - Attack Surface Reduction Policies
+    Write-Host "Fetching ASR Policies for HTML Export..." -ForegroundColor Yellow
+    $asrTemplate = Get-IntuneEntities -EntityType "deviceManagement/templates" -Filter "displayName eq 'Attack surface reduction'"
+    if ($asrTemplate.Count -gt 0) {
+        $templateId = $asrTemplate[0].id
+        $asrPolicies = Get-IntuneEntities -EntityType "deviceManagement/intents" -Filter "templateId eq '$templateId'"
+        foreach ($policy in $asrPolicies) {
+            $assignments = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
+            $assignmentInfo = Get-AssignmentInfo -Assignments $assignments.value
+            $policies.AttackSurfaceProfiles += @{
+                Name           = $policy.displayName
+                ID             = $policy.id
+                Type           = "Endpoint Security - ASR"
+                AssignmentType = $assignmentInfo.Type
+                AssignedTo     = $assignmentInfo.Target
+            }
+        }
+    }
+    
     # Generate summary statistics
     $summaryStats = @{
         TotalPolicies = 0
@@ -727,7 +827,12 @@ function Export-HTMLReport {
         @{ Key = 'AvailableApps'; Name = 'Available Applications' },
         @{ Key = 'UninstallApps'; Name = 'Uninstall Applications' },
         @{ Key = 'PlatformScripts'; Name = 'Platform Scripts' },
-        @{ Key = 'HealthScripts'; Name = 'Proactive Remediation Scripts' }
+        @{ Key = 'HealthScripts'; Name = 'Proactive Remediation Scripts' },
+        @{ Key = 'AntivirusProfiles'; Name = 'Endpoint Security - Antivirus' },
+        @{ Key = 'DiskEncryptionProfiles'; Name = 'Endpoint Security - Disk Encryption' },
+        @{ Key = 'FirewallProfiles'; Name = 'Endpoint Security - Firewall' },
+        @{ Key = 'EndpointDetectionProfiles'; Name = 'Endpoint Security - EDR' },
+        @{ Key = 'AttackSurfaceProfiles'; Name = 'Endpoint Security - ASR' }
     )
 
     foreach ($category in $categories) {
@@ -947,7 +1052,7 @@ function Export-HTMLReport {
     var policyTypesChart = new Chart(ctx2, {
         type: 'bar',
         data: {
-            labels: ['Device Configs', 'Settings Catalog', 'Admin Templates', 'Compliance', 'App Protection', 'Scripts'],
+            labels: ['Device Configs', 'Settings Catalog', 'Admin Templates', 'Compliance', 'App Protection', 'Scripts', 'Antivirus', 'Disk Encryption', 'Firewall', 'EDR', 'ASR'],
             datasets: [{
                 label: 'Number of Policies',
                 data: [
@@ -956,10 +1061,15 @@ function Export-HTMLReport {
                     $($policies.AdminTemplates.Count),
                     $($policies.CompliancePolicies.Count),
                     $($policies.AppProtectionPolicies.Count),
-                    $($policies.PlatformScripts.Count + $policies.HealthScripts.Count)
+                    $($policies.PlatformScripts.Count + $policies.HealthScripts.Count),
+                    $($policies.AntivirusProfiles.Count),
+                    $($policies.DiskEncryptionProfiles.Count),
+                    $($policies.FirewallProfiles.Count),
+                    $($policies.EndpointDetectionProfiles.Count),
+                    $($policies.AttackSurfaceProfiles.Count)
                 ],
                 backgroundColor: [
-                    '#4e73df', '#1cc88a', '#36b9cc', '#f6c23e', '#e74a3b', '#858796'
+                    '#4e73df', '#1cc88a', '#36b9cc', '#f6c23e', '#e74a3b', '#858796', '#f06292', '#ba68c8', '#ffd54f', '#a1887f', '#90a4ae'
                 ]
             }]
         },
