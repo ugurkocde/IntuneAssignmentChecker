@@ -481,17 +481,22 @@ function Export-HTMLReport {
 
     # Initialize collections
     $policies = @{
-        DeviceConfigs            = @()
-        SettingsCatalog          = @()
-        AdminTemplates           = @()
-        CompliancePolicies       = @()
-        AppProtectionPolicies    = @()
-        AppConfigurationPolicies = @()
-        PlatformScripts          = @()
-        HealthScripts            = @()
-        RequiredApps             = @()
-        AvailableApps            = @()
-        UninstallApps            = @()
+        DeviceConfigs             = @()
+        SettingsCatalog           = @()
+        AdminTemplates            = @()
+        CompliancePolicies        = @()
+        AppProtectionPolicies     = @()
+        AppConfigurationPolicies  = @()
+        PlatformScripts           = @()
+        HealthScripts             = @()
+        RequiredApps              = @()
+        AvailableApps             = @()
+        UninstallApps             = @()
+        AntivirusProfiles         = @()
+        DiskEncryptionProfiles    = @()
+        FirewallProfiles          = @()
+        EndpointDetectionProfiles = @()
+        AttackSurfaceProfiles     = @()
     }
 
     # Fetch all policies
@@ -512,6 +517,10 @@ function Export-HTMLReport {
     Write-Host "Fetching Settings Catalog Policies..." -ForegroundColor Yellow
     $settingsCatalog = Get-IntuneEntities -EntityType "configurationPolicies"
     foreach ($policy in $settingsCatalog) {
+        # Exclude Endpoint Security policies from this generic Settings Catalog fetch
+        if ($policy.templateReference -and $policy.templateReference.templateFamily -like "endpointSecurity*") {
+            continue
+        }
         $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
         $assignmentInfo = Get-AssignmentInfo -Assignments $assignments
         $policies.SettingsCatalog += @{
@@ -571,60 +580,19 @@ function Export-HTMLReport {
         if ($assignmentsUri) {
             try {
                 $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
-                $assignments = @()
-                foreach ($assignment in $assignmentResponse.value) {
-                    $assignmentReason = $null
-                    switch ($assignment.target.'@odata.type') {
-                        '#microsoft.graph.allLicensedUsersAssignmentTarget' {
-                            $assignmentReason = "All Users"
-                        }
-                        '#microsoft.graph.allDevicesAssignmentTarget' {
-                            $assignmentReason = "All Devices"
-                        }
-                        '#microsoft.graph.groupAssignmentTarget' {
-                            if (!$GroupId -or $assignment.target.groupId -eq $GroupId) {
-                                $assignmentReason = "Group Assignment"
-                            }
-                        }
-                        '#microsoft.graph.exclusionGroupAssignmentTarget' {
-                            if (!$GroupId -or $assignment.target.groupId -eq $GroupId) {
-                                $assignmentReason = "Exclude"
-                            }
-                        }
-                    }
+                # Pass the raw .value to Get-AssignmentInfo as it expects an array of assignment objects
+                $assignmentInfo = Get-AssignmentInfo -Assignments $assignmentResponse.value 
 
-                    if ($assignmentReason) {
-                        $assignments += @{
-                            Reason  = $assignmentReason
-                            GroupId = $assignment.target.groupId
-                        }
-                    }
-                }
-
-                if ($assignments.Count -gt 0) {
-                    $assignmentSummary = $assignments | ForEach-Object {
-                        if ($_.Reason -eq "Group Assignment") {
-                            $groupInfo = Get-GroupInfo -GroupId $_.GroupId
-                            "$($_.Reason) - $($groupInfo.DisplayName)"
-                        }
-                        else {
-                            $_.Reason
-                        }
-                    }
-                    $policy | Add-Member -NotePropertyName 'AssignmentSummary' -NotePropertyValue ($assignmentSummary -join "; ") -Force
-                    $policies.AppProtectionPolicies += @{
-                        Name           = $policy.displayName
-                        ID             = $policy.id
-                        Type           = "App Protection Policy"
-                        AssignmentType = if ($assignmentSummary -match "All Users") { "All Users" }
-                        elseif ($assignmentSummary -match "Group") { "Group" }
-                        else { "None" }
-                        AssignedTo     = $assignmentSummary
-                    }
+                $policies.AppProtectionPolicies += @{
+                    Name           = $policy.displayName
+                    ID             = $policy.id
+                    Type           = "App Protection Policy ($($policyType.Split('.')[-1].Replace('ManagedAppProtection','')))"
+                    AssignmentType = $assignmentInfo.Type
+                    AssignedTo     = $assignmentInfo.Target
                 }
             }
             catch {
-                Write-Host "Error fetching assignments for policy $($policy.displayName): $($_.Exception.Message)" -ForegroundColor Red
+                Write-Host "Error fetching assignments for App Protection policy $($policy.displayName): $($_.Exception.Message)" -ForegroundColor Red
             }
         }
     }
@@ -659,6 +627,61 @@ function Export-HTMLReport {
         }
     }
 
+    # Endpoint Security Policies Fetching
+    $endpointSecurityCategories = @(
+        @{ Name = "Antivirus"; Key = "AntivirusProfiles"; TemplateFamily = "endpointSecurityAntivirus"; UserFriendlyType = "Antivirus Profile" },
+        @{ Name = "Disk Encryption"; Key = "DiskEncryptionProfiles"; TemplateFamily = "endpointSecurityDiskEncryption"; UserFriendlyType = "Disk Encryption Profile" },
+        @{ Name = "Firewall"; Key = "FirewallProfiles"; TemplateFamily = "endpointSecurityFirewall"; UserFriendlyType = "Firewall Profile" },
+        @{ Name = "Endpoint Detection and Response"; Key = "EndpointDetectionProfiles"; TemplateFamily = "endpointSecurityEndpointDetectionAndResponse"; UserFriendlyType = "EDR Profile" },
+        @{ Name = "Attack Surface Reduction"; Key = "AttackSurfaceProfiles"; TemplateFamily = "endpointSecurityAttackSurfaceReductionRules"; UserFriendlyType = "ASR Profile" }
+    )
+
+    foreach ($esCategory in $endpointSecurityCategories) {
+        Write-Host "Fetching Endpoint Security - $($esCategory.Name) Policies..." -ForegroundColor Yellow
+        $processedIds = [System.Collections.Generic.HashSet[string]]::new()
+
+        # 1. Check configurationPolicies (Settings Catalog)
+        $configPolicies = Get-IntuneEntities -EntityType "configurationPolicies" -Filter "templateReference/templateFamily eq '$($esCategory.TemplateFamily)'"
+        if ($configPolicies) {
+            foreach ($policy in $configPolicies) {
+                if ($processedIds.Add($policy.id)) {
+                    $rawAssignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
+                    $assignmentInfo = Get-AssignmentInfo -Assignments $rawAssignments
+                    $policies[$esCategory.Key] += @{
+                        Name           = $policy.displayName
+                        ID             = $policy.id
+                        Type           = $esCategory.UserFriendlyType
+                        AssignmentType = $assignmentInfo.Type
+                        AssignedTo     = $assignmentInfo.Target
+                    }
+                }
+            }
+        }
+
+        # 2. Check deviceManagement/intents (Templates)
+        $intentPolicies = Get-IntuneEntities -EntityType "deviceManagement/intents" -Filter "templateReference/templateFamily eq '$($esCategory.TemplateFamily)'"
+        if ($intentPolicies) {
+            foreach ($policy in $intentPolicies) {
+                if ($processedIds.Add($policy.id)) {
+                    try {
+                        $assignmentsResponse = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
+                        $assignmentInfo = Get-AssignmentInfo -Assignments $assignmentsResponse.value # This expects an array
+                        $policies[$esCategory.Key] += @{
+                            Name           = $policy.displayName
+                            ID             = $policy.id
+                            Type           = $esCategory.UserFriendlyType
+                            AssignmentType = $assignmentInfo.Type
+                            AssignedTo     = $assignmentInfo.Target
+                        }
+                    } 
+                    catch {
+                        Write-Host "Error fetching assignments for $($esCategory.Name) intent $($policy.displayName): $($_.Exception.Message)" -ForegroundColor Red
+                    }
+                } 
+            } 
+        } 
+    }
+
     # Get Apps
     Write-Host "Fetching Applications..." -ForegroundColor Yellow
     $appUri = "$GraphEndpoint/beta/deviceAppManagement/mobileApps?`$filter=isAssigned eq true"
@@ -680,23 +703,18 @@ function Export-HTMLReport {
         $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
 
         foreach ($assignment in $assignmentResponse.value) {
-            $assignmentInfo = Get-AssignmentInfo -Assignments @(@{
-                    Reason  = switch ($assignment.target.'@odata.type') {
-                        '#microsoft.graph.allLicensedUsersAssignmentTarget' { "All Users" }
-                        '#microsoft.graph.allDevicesAssignmentTarget' { "All Devices" }
-                        '#microsoft.graph.groupAssignmentTarget' { "Group Assignment" }
-                        '#microsoft.graph.exclusionGroupAssignmentTarget' { "Exclude" }
-                        default { "None" }
-                    }
-                    GroupId = $assignment.target.groupId
-                })
-
+            # Get-AssignmentInfo expects an array of assignment objects.
+            # Here, $assignment is a single assignment object from the loop.
+            # We need to wrap it in an array for Get-AssignmentInfo.
+            $currentAssignmentArray = @($assignment) # Ensure it's an array
+            $assignmentInfo = Get-AssignmentInfo -Assignments $currentAssignmentArray
+            
             $appInfo = @{
                 Name           = $app.displayName
                 ID             = $app.id
                 Type           = "Application"
-                AssignmentType = $assignmentInfo.Type
-                AssignedTo     = $assignmentInfo.Target
+                AssignmentType = $assignmentInfo.Type 
+                AssignedTo     = $assignmentInfo.Target 
             }
 
             switch ($assignment.intent) {
@@ -717,7 +735,7 @@ function Export-HTMLReport {
     }
 
     $categories = @(
-        @{ Key = 'all'; Name = 'All' },
+        @{ Key = 'all'; Name = 'All Policies & Apps' }, 
         @{ Key = 'DeviceConfigs'; Name = 'Device Configurations' },
         @{ Key = 'SettingsCatalog'; Name = 'Settings Catalog' },
         @{ Key = 'AdminTemplates'; Name = 'Administrative Templates' },
@@ -727,18 +745,28 @@ function Export-HTMLReport {
         @{ Key = 'AvailableApps'; Name = 'Available Applications' },
         @{ Key = 'UninstallApps'; Name = 'Uninstall Applications' },
         @{ Key = 'PlatformScripts'; Name = 'Platform Scripts' },
-        @{ Key = 'HealthScripts'; Name = 'Proactive Remediation Scripts' }
+        @{ Key = 'HealthScripts'; Name = 'Proactive Remediation Scripts' },
+        @{ Key = 'AntivirusProfiles'; Name = 'Endpoint Security - Antivirus' },
+        @{ Key = 'DiskEncryptionProfiles'; Name = 'Endpoint Security - Disk Encryption' },
+        @{ Key = 'FirewallProfiles'; Name = 'Endpoint Security - Firewall' },
+        @{ Key = 'EndpointDetectionProfiles'; Name = 'Endpoint Security - EDR' },
+        @{ Key = 'AttackSurfaceProfiles'; Name = 'Endpoint Security - ASR' }
     )
 
-    foreach ($category in $categories) {
-        $items = $policies[$category.Key]
-        $summaryStats.TotalPolicies += $items.Count
-        $summaryStats.AllUsers += ($items | Where-Object { $_.AssignmentType -eq "All Users" }).Count
-        $summaryStats.AllDevices += ($items | Where-Object { $_.AssignmentType -eq "All Devices" }).Count
-        $summaryStats.GroupAssigned += ($items | Where-Object { $_.AssignmentType -eq "Group" }).Count
-        $summaryStats.Unassigned += ($items | Where-Object { $_.AssignmentType -eq "None" }).Count
+    # Recalculate summary stats for all defined categories in $policies
+    foreach ($category in $categories | Where-Object { $_.Key -ne 'all' }) {
+        if ($policies.ContainsKey($category.Key)) {
+            $items = $policies[$category.Key]
+            if ($null -ne $items) { 
+                $summaryStats.TotalPolicies += $items.Count
+                $summaryStats.AllUsers += ($items | Where-Object { $_.AssignmentType -eq "All Users" }).Count
+                $summaryStats.AllDevices += ($items | Where-Object { $_.AssignmentType -eq "All Devices" }).Count
+                $summaryStats.GroupAssigned += ($items | Where-Object { $_.AssignmentType -eq "Group" }).Count
+                $summaryStats.Unassigned += ($items | Where-Object { $_.AssignmentType -eq "None" }).Count
+            }
+        }
     }
-
+    
     # Build dynamic tab headers and tab content
     $tabHeaders = ""
     $tabContent = ""
@@ -764,21 +792,24 @@ function Export-HTMLReport {
 
         if ($category.Key -eq 'all') {
             $allTableRows = foreach ($cat in $categories | Where-Object { $_.Key -ne 'all' }) {
-                $categoryPolicies = $policies[$cat.Key]
-                if ($categoryPolicies) {
-                    foreach ($p in $categoryPolicies) {
-                        $badgeClass = switch ($p.AssignmentType) {
-                            'All Users' { 'badge-all-users' }
-                            'All Devices' { 'badge-all-devices' }
-                            'Group' { 'badge-group' }
-                            'Exclude' { 'badge-exclude' }
-                            default { 'badge-none' }
+                if ($policies.ContainsKey($cat.Key)) {
+                    # Ensure category exists in policies
+                    $categoryPolicies = $policies[$cat.Key]
+                    if ($categoryPolicies) {
+                        foreach ($p in $categoryPolicies) {
+                            $badgeClass = switch ($p.AssignmentType) {
+                                'All Users' { 'badge-all-users' }
+                                'All Devices' { 'badge-all-devices' }
+                                'Group' { 'badge-group' }
+                                'Exclude' { 'badge-exclude' }
+                                default { 'badge-none' }
+                            }
+                            "<tr>
+                                <td>$($p.Name)</td>
+                                <td><span class='badge $badgeClass'>$($p.AssignmentType)</span></td>
+                                <td>$($p.AssignedTo)</td>
+                            </tr>"
                         }
-                        "<tr>
-                            <td>$($p.Name)</td>
-                            <td><span class='badge $badgeClass'>$($p.AssignmentType)</span></td>
-                            <td>$($p.AssignedTo)</td>
-                        </tr>"
                     }
                 }
             }
@@ -805,22 +836,30 @@ function Export-HTMLReport {
 "@
         }
         else {
-            $tableRows = foreach ($p in $policies[$category.Key]) {
-                $badgeClass = switch ($p.AssignmentType) {
-                    'All Users' { 'badge-all-users' }
-                    'All Devices' { 'badge-all-devices' }
-                    'Group' { 'badge-group' }
-                    'Exclude' { 'badge-exclude' }
-                    default { 'badge-none' }
+            $tableRows = "" # Initialize to empty string
+            if ($policies.ContainsKey($category.Key)) {
+                # Check if category exists
+                $currentCategoryPolicies = $policies[$category.Key]
+                if ($currentCategoryPolicies) {
+                    # Check if there are policies for this category
+                    $tableRows = foreach ($p in $currentCategoryPolicies) {
+                        $badgeClass = switch ($p.AssignmentType) {
+                            'All Users' { 'badge-all-users' }
+                            'All Devices' { 'badge-all-devices' }
+                            'Group' { 'badge-group' }
+                            'Exclude' { 'badge-exclude' }
+                            default { 'badge-none' }
+                        }
+                        "<tr>
+                            <td>$($p.Name)</td>
+                            <td><span class='badge $badgeClass'>$($p.AssignmentType)</span></td>
+                            <td>$($p.AssignedTo)</td>
+                        </tr>"
+                    }
                 }
-                "<tr>
-                    <td>$($p.Name)</td>
-                    <td><span class='badge $badgeClass'>$($p.AssignmentType)</span></td>
-                    <td>$($p.AssignedTo)</td>
-                </tr>"
             }
             $tabContent += @"
-<div class='tab-pane fade$(if($isActive){ ' show active' } else { '' })'
+<div class='tab-pane fade$(if($isActive -and $category.Key -ne 'all'){ ' show active' } else { '' })'
      id='$categoryId'
      role='tabpanel'
      aria-labelledby='$categoryId-tab'>
@@ -947,7 +986,7 @@ function Export-HTMLReport {
     var policyTypesChart = new Chart(ctx2, {
         type: 'bar',
         data: {
-            labels: ['Device Configs', 'Settings Catalog', 'Admin Templates', 'Compliance', 'App Protection', 'Scripts'],
+            labels: ['Device Configs', 'Settings Catalog', 'Admin Templates', 'Compliance', 'App Protection', 'Scripts', 'Antivirus', 'Disk Encryption', 'Firewall', 'EDR', 'ASR'],
             datasets: [{
                 label: 'Number of Policies',
                 data: [
@@ -956,10 +995,16 @@ function Export-HTMLReport {
                     $($policies.AdminTemplates.Count),
                     $($policies.CompliancePolicies.Count),
                     $($policies.AppProtectionPolicies.Count),
-                    $($policies.PlatformScripts.Count + $policies.HealthScripts.Count)
+                    ($($policies.PlatformScripts.Count) + $($policies.HealthScripts.Count)),
+                    $($policies.AntivirusProfiles.Count),
+                    $($policies.DiskEncryptionProfiles.Count),
+                    $($policies.FirewallProfiles.Count),
+                    $($policies.EndpointDetectionProfiles.Count),
+                    $($policies.AttackSurfaceProfiles.Count)
                 ],
                 backgroundColor: [
-                    '#4e73df', '#1cc88a', '#36b9cc', '#f6c23e', '#e74a3b', '#858796'
+                    '#4e73df', '#1cc88a', '#36b9cc', '#f6c23e', '#e74a3b', '#858796',
+                    '#5a5c69', '#f8f9fc', '#dddfeb', '#d1d3e2', '#b4b6c2' 
                 ]
             }]
         },
