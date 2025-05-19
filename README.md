@@ -324,6 +324,37 @@ The script provides a comprehensive menu-driven interface with the following opt
 
 All operations support CSV export for detailed analysis and reporting.
 
+## 🏃‍♂️ Example Runbook
+
+The script can also be executed from an Azure Automation runbook. Below is a
+minimal example that installs the script from the PowerShell Gallery (if it is
+not already present) and then generates an HTML report using certificate based
+authentication.
+
+```powershell
+param(
+    [string]$AppId,
+    [string]$TenantId,
+    [string]$CertificateThumbprint,
+    [string]$ExportPath = "C:\\Temp\\IntuneAssignmentReport.html"
+)
+
+# Ensure IntuneAssignmentChecker is available
+if (-not (Get-Command IntuneAssignmentChecker -ErrorAction SilentlyContinue)) {
+    Install-PSResource IntuneAssignmentChecker -Force -AcceptLicense
+}
+
+IntuneAssignmentChecker -GenerateHTMLReport `
+    -AppId $AppId `
+    -TenantId $TenantId `
+    -CertificateThumbprint $CertificateThumbprint `
+    -ExportPath $ExportPath
+```
+
+This runbook assumes certificate authentication as outlined earlier. You can
+extend it to upload the report to storage or send it via email once the file is
+generated.
+
 ## 🤝 Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
