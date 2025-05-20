@@ -197,12 +197,12 @@ $certThumbprint = if ($CertificateThumbprint) { $CertificateThumbprint } else { 
 ####################################################################################################
 
 # Version of the local script
-$localVersion = "3.3.0"
+$localVersion = "3.3.1"
 
 Write-Host "🔍 INTUNE ASSIGNMENT CHECKER" -ForegroundColor Cyan
 Write-Host "Made by Ugur Koc with" -NoNewline; Write-Host " ❤️  and ☕" -NoNewline
 Write-Host " | Version" -NoNewline; Write-Host " $localVersion" -ForegroundColor Yellow -NoNewline
-Write-Host " | Last updated: " -NoNewline; Write-Host "2025-05-18" -ForegroundColor Magenta
+Write-Host " | Last updated: " -NoNewline; Write-Host "2025-05-19" -ForegroundColor Magenta
 Write-Host ""
 Write-Host "📢 Feedback & Issues: " -NoNewline -ForegroundColor Cyan
 Write-Host "https://github.com/ugurkocde/IntuneAssignmentChecker/issues" -ForegroundColor White
@@ -1081,6 +1081,8 @@ do {
                     FirewallProfiles          = @()
                     EndpointDetectionProfiles = @()
                     AttackSurfaceProfiles     = @()
+                    DeploymentProfiles        = @()
+                    ESPProfiles              = @()
                 }
 
                 # Get Device Configurations
@@ -2339,6 +2341,8 @@ do {
                     Add-ExportData -ExportData $exportData -Category "App Configuration Policy" -Items $relevantPolicies.AppConfigurationPolicies -AssignmentReason { param($item) $item.AssignmentReason }
                     Add-ExportData -ExportData $exportData -Category "Platform Scripts" -Items $relevantPolicies.PlatformScripts -AssignmentReason { param($item) $item.AssignmentReason }
                     Add-ExportData -ExportData $exportData -Category "Proactive Remediation Scripts" -Items $relevantPolicies.HealthScripts -AssignmentReason { param($item) $item.AssignmentReason }
+                    Add-ExportData -ExportData $exportData -Category "Autopilot Deployment Profile" -Items $relevantPolicies.DeploymentProfiles -AssignmentReason { param($item) $item.AssignmentReason }
+                    Add-ExportData -ExportData $exportData -Category "Enrollment Status Page" -Items $relevantPolicies.ESPProfiles -AssignmentReason { param($item) $item.AssignmentReason }
                     Add-ExportData -ExportData $exportData -Category "Endpoint Security - Antivirus" -Items $relevantPolicies.AntivirusProfiles -AssignmentReason { param($item) $item.AssignmentReason }
                     Add-ExportData -ExportData $exportData -Category "Endpoint Security - Disk Encryption" -Items $relevantPolicies.DiskEncryptionProfiles -AssignmentReason { param($item) $item.AssignmentReason }
                     Add-ExportData -ExportData $exportData -Category "Endpoint Security - Firewall" -Items $relevantPolicies.FirewallProfiles -AssignmentReason { param($item) $item.AssignmentReason }
@@ -2426,6 +2430,8 @@ do {
                     FirewallProfiles          = @()
                     EndpointDetectionProfiles = @()
                     AttackSurfaceProfiles     = @()
+                    DeploymentProfiles        = @()
+                    ESPProfiles              = @()
                 }
 
                 # Get Device Configurations
@@ -2698,6 +2704,35 @@ do {
                     }
                 }
 
+                # Get Autopilot Deployment Profiles
+                Write-Host "Fetching Autopilot Deployment Profiles..." -ForegroundColor Yellow
+                $autoProfiles = Get-IntuneEntities -EntityType "windowsAutopilotDeploymentProfiles"
+                foreach ($profile in $autoProfiles) {
+                    $directAssignments = Get-IntuneAssignments -EntityType "windowsAutopilotDeploymentProfiles" -EntityId $profile.id -GroupId $groupId
+                    if ($directAssignments.Count -gt 0) {
+                        $assignmentReason = $directAssignments[0].Reason
+                        if ($assignmentReason -eq "Direct Assignment" -or $assignmentReason -eq "Direct Exclusion") {
+                            $profile | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentReason -Force
+                            $relevantPolicies.DeploymentProfiles += $profile
+                        }
+                    }
+                }
+
+                # Get Enrollment Status Page Profiles
+                Write-Host "Fetching Enrollment Status Page Profiles..." -ForegroundColor Yellow
+                $enrollmentConfigs = Get-IntuneEntities -EntityType "deviceEnrollmentConfigurations"
+                $espProfiles = $enrollmentConfigs | Where-Object { $_.'@odata.type' -match 'EnrollmentCompletionPageConfiguration' }
+                foreach ($esp in $espProfiles) {
+                    $directAssignments = Get-IntuneAssignments -EntityType "deviceEnrollmentConfigurations" -EntityId $esp.id -GroupId $groupId
+                    if ($directAssignments.Count -gt 0) {
+                        $assignmentReason = $directAssignments[0].Reason
+                        if ($assignmentReason -eq "Direct Assignment" -or $assignmentReason -eq "Direct Exclusion") {
+                            $esp | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentReason -Force
+                            $relevantPolicies.ESPProfiles += $esp
+                        }
+                    }
+                }
+
                 # Function to format and display policy table (specific to Option 2)
                 function Format-PolicyTable {
                     param (
@@ -2810,6 +2845,18 @@ do {
                     if ([string]::IsNullOrWhiteSpace($script.name)) { $script.displayName } else { $script.name }
                 }
 
+                # Display Autopilot Deployment Profiles
+                Format-PolicyTable -Title "Autopilot Deployment Profiles" -Policies $relevantPolicies.DeploymentProfiles -GetName {
+                    param($profile)
+                    if ([string]::IsNullOrWhiteSpace($profile.displayName)) { $profile.name } else { $profile.displayName }
+                }
+
+                # Display Enrollment Status Page Profiles
+                Format-PolicyTable -Title "Enrollment Status Page Profiles" -Policies $relevantPolicies.ESPProfiles -GetName {
+                    param($profile)
+                    if ([string]::IsNullOrWhiteSpace($profile.displayName)) { $profile.name } else { $profile.displayName }
+                }
+
                 # Display Required Apps
                 Format-PolicyTable -Title "Required Apps" -Policies $relevantPolicies.AppsRequired -GetName {
                     param($app)
@@ -2858,6 +2905,8 @@ do {
                     Add-ExportData -ExportData $exportData -Category "App Configuration Policy" -Items $relevantPolicies.AppConfigurationPolicies -AssignmentReason { param($item) $item.AssignmentReason }
                     Add-ExportData -ExportData $exportData -Category "Platform Scripts" -Items $relevantPolicies.PlatformScripts -AssignmentReason { param($item) $item.AssignmentReason }
                     Add-ExportData -ExportData $exportData -Category "Proactive Remediation Scripts" -Items $relevantPolicies.HealthScripts -AssignmentReason { param($item) $item.AssignmentReason }
+                    Add-ExportData -ExportData $exportData -Category "Autopilot Deployment Profile" -Items $relevantPolicies.DeploymentProfiles -AssignmentReason { param($item) $item.AssignmentReason }
+                    Add-ExportData -ExportData $exportData -Category "Enrollment Status Page" -Items $relevantPolicies.ESPProfiles -AssignmentReason { param($item) $item.AssignmentReason }
                     Add-ExportData -ExportData $exportData -Category "Endpoint Security - Antivirus" -Items $relevantPolicies.AntivirusProfiles -AssignmentReason { param($item) $item.AssignmentReason }
                     Add-ExportData -ExportData $exportData -Category "Endpoint Security - Disk Encryption" -Items $relevantPolicies.DiskEncryptionProfiles -AssignmentReason { param($item) $item.AssignmentReason }
                     Add-ExportData -ExportData $exportData -Category "Endpoint Security - Firewall" -Items $relevantPolicies.FirewallProfiles -AssignmentReason { param($item) $item.AssignmentReason }
@@ -3106,6 +3155,45 @@ do {
                              ($assignment.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignment.GroupId))) {
                             $script | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignment.Reason -Force
                             $relevantPolicies.HealthScripts += $script
+                            break
+                        }
+                    }
+                }
+
+                # Get Autopilot Deployment Profiles
+                Write-Host "Fetching Autopilot Deployment Profiles..." -ForegroundColor Yellow
+                $autoProfiles = Get-IntuneEntities -EntityType "windowsAutopilotDeploymentProfiles"
+                foreach ($profile in $autoProfiles) {
+                    $assignments = Get-IntuneAssignments -EntityType "windowsAutopilotDeploymentProfiles" -EntityId $profile.id
+                    foreach ($assignment in $assignments) {
+                        if (($assignment.Reason -eq "All Devices") -or
+                            ($assignment.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignment.GroupId)) {
+                            $profile | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignment.Reason -Force
+                            $relevantPolicies.DeploymentProfiles += $profile
+                            break
+                        } elseif ($assignment.Reason -eq "Group Exclusion" -and $groupMemberships.id -contains $assignment.GroupId) {
+                            $profile | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Excluded" -Force
+                            $relevantPolicies.DeploymentProfiles += $profile
+                            break
+                        }
+                    }
+                }
+
+                # Get Enrollment Status Page Profiles
+                Write-Host "Fetching Enrollment Status Page Profiles..." -ForegroundColor Yellow
+                $enrollmentConfigs = Get-IntuneEntities -EntityType "deviceEnrollmentConfigurations"
+                $espProfiles = $enrollmentConfigs | Where-Object { $_.'@odata.type' -match 'EnrollmentCompletionPageConfiguration' }
+                foreach ($esp in $espProfiles) {
+                    $assignments = Get-IntuneAssignments -EntityType "deviceEnrollmentConfigurations" -EntityId $esp.id
+                    foreach ($assignment in $assignments) {
+                        if (($assignment.Reason -eq "All Devices") -or
+                            ($assignment.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignment.GroupId)) {
+                            $esp | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignment.Reason -Force
+                            $relevantPolicies.ESPProfiles += $esp
+                            break
+                        } elseif ($assignment.Reason -eq "Group Exclusion" -and $groupMemberships.id -contains $assignment.GroupId) {
+                            $esp | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Excluded" -Force
+                            $relevantPolicies.ESPProfiles += $esp
                             break
                         }
                     }
@@ -3714,6 +3802,8 @@ do {
                 FirewallProfiles          = @()
                 EndpointDetectionProfiles = @()
                 AttackSurfaceProfiles     = @()
+                DeploymentProfiles        = @()
+                ESPProfiles              = @()
             }
 
             # Function to process and display policy assignments
@@ -3925,6 +4015,39 @@ do {
                 }
                 $script | Add-Member -NotePropertyName 'AssignmentSummary' -NotePropertyValue ($assignmentSummary -join "; ") -Force
                 $allPolicies.HealthScripts += $script
+            }
+
+            # Get Autopilot Deployment Profiles
+            Write-Host "Fetching Autopilot Deployment Profiles..." -ForegroundColor Yellow
+            $autoProfilesAll = Get-IntuneEntities -EntityType "windowsAutopilotDeploymentProfiles"
+            foreach ($profile in $autoProfilesAll) {
+                $assignments = Get-IntuneAssignments -EntityType "windowsAutopilotDeploymentProfiles" -EntityId $profile.id
+                $assignmentSummary = $assignments | ForEach-Object {
+                    if ($_.Reason -eq "Group Assignment") {
+                        $groupInfo = Get-GroupInfo -GroupId $_.GroupId
+                        "$($_.Reason) - $($groupInfo.DisplayName)"
+                    }
+                    else { $_.Reason }
+                }
+                $profile | Add-Member -NotePropertyName 'AssignmentSummary' -NotePropertyValue ($assignmentSummary -join "; ") -Force
+                $allPolicies.DeploymentProfiles += $profile
+            }
+
+            # Get Enrollment Status Page Profiles
+            Write-Host "Fetching Enrollment Status Page Profiles..." -ForegroundColor Yellow
+            $enrollmentConfigsAll = Get-IntuneEntities -EntityType "deviceEnrollmentConfigurations"
+            $espProfilesAll = $enrollmentConfigsAll | Where-Object { $_.'@odata.type' -match 'EnrollmentCompletionPageConfiguration' }
+            foreach ($esp in $espProfilesAll) {
+                $assignments = Get-IntuneAssignments -EntityType "deviceEnrollmentConfigurations" -EntityId $esp.id
+                $assignmentSummary = $assignments | ForEach-Object {
+                    if ($_.Reason -eq "Group Assignment") {
+                        $groupInfo = Get-GroupInfo -GroupId $_.GroupId
+                        "$($_.Reason) - $($groupInfo.DisplayName)"
+                    }
+                    else { $_.Reason }
+                }
+                $esp | Add-Member -NotePropertyName 'AssignmentSummary' -NotePropertyValue ($assignmentSummary -join "; ") -Force
+                $allPolicies.ESPProfiles += $esp
             }
 
             # Get Endpoint Security - Antivirus Policies
@@ -4191,6 +4314,8 @@ do {
             Process-PolicyAssignments -PolicyType "mobileAppConfigurations" -Policies $allPolicies.AppConfigurationPolicies -DisplayName "App Configuration Policies"
             Process-PolicyAssignments -PolicyType "deviceManagementScripts" -Policies $allPolicies.PlatformScripts -DisplayName "Platform Scripts"
             Process-PolicyAssignments -PolicyType "deviceHealthScripts" -Policies $allPolicies.HealthScripts -DisplayName "Proactive Remediation Scripts"
+            Process-PolicyAssignments -PolicyType "windowsAutopilotDeploymentProfiles" -Policies $allPolicies.DeploymentProfiles -DisplayName "Autopilot Deployment Profiles"
+            Process-PolicyAssignments -PolicyType "deviceEnrollmentConfigurations" -Policies $allPolicies.ESPProfiles -DisplayName "Enrollment Status Page Profiles"
             Process-PolicyAssignments -PolicyType "deviceManagementIntents" -Policies $allPolicies.AntivirusProfiles -DisplayName "Endpoint Security - Antivirus Profiles"
             Process-PolicyAssignments -PolicyType "deviceManagementIntents" -Policies $allPolicies.DiskEncryptionProfiles -DisplayName "Endpoint Security - Disk Encryption Profiles"
             Process-PolicyAssignments -PolicyType "deviceManagementIntents" -Policies $allPolicies.FirewallProfiles -DisplayName "Endpoint Security - Firewall Profiles"
@@ -4206,6 +4331,8 @@ do {
             Add-ExportData -ExportData $exportData -Category "App Configuration Policy" -Items $allPolicies.AppConfigurationPolicies -AssignmentReason { param($item) $item.AssignmentSummary }
             Add-ExportData -ExportData $exportData -Category "Platform Scripts" -Items $allPolicies.PlatformScripts -AssignmentReason { param($item) $item.AssignmentSummary }
             Add-ExportData -ExportData $exportData -Category "Proactive Remediation Scripts" -Items $allPolicies.HealthScripts -AssignmentReason { param($item) $item.AssignmentSummary }
+            Add-ExportData -ExportData $exportData -Category "Autopilot Deployment Profile" -Items $allPolicies.DeploymentProfiles -AssignmentReason { param($item) $item.AssignmentSummary }
+            Add-ExportData -ExportData $exportData -Category "Enrollment Status Page" -Items $allPolicies.ESPProfiles -AssignmentReason { param($item) $item.AssignmentSummary }
             Add-ExportData -ExportData $exportData -Category "Endpoint Security - Antivirus" -Items $allPolicies.AntivirusProfiles -AssignmentReason { param($item) $item.AssignmentSummary }
             Add-ExportData -ExportData $exportData -Category "Endpoint Security - Disk Encryption" -Items $allPolicies.DiskEncryptionProfiles -AssignmentReason { param($item) $item.AssignmentSummary }
             Add-ExportData -ExportData $exportData -Category "Endpoint Security - Firewall" -Items $allPolicies.FirewallProfiles -AssignmentReason { param($item) $item.AssignmentSummary }
