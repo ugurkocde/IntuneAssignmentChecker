@@ -197,7 +197,7 @@ $certThumbprint = if ($CertificateThumbprint) { $CertificateThumbprint } else { 
 ####################################################################################################
 
 # Version of the local script
-$localVersion = "3.3.2"
+$localVersion = "3.3.3"
 
 Write-Host "🔍 INTUNE ASSIGNMENT CHECKER" -ForegroundColor Cyan
 Write-Host "Made by Ugur Koc with" -NoNewline; Write-Host " ❤️  and ☕" -NoNewline
@@ -4943,6 +4943,32 @@ do {
                     $profileNameForDisplay = if ($profile.displayName) { $profile.displayName } else { $profile.name }
                     Write-Host "ASR Profile Name: $profileNameForDisplay, Profile ID: $($profile.id)" -ForegroundColor White
                     Add-ExportData -ExportData $exportData -Category "Endpoint Security - ASR" -Items @($profile) -AssignmentReason "All Users"
+                }
+            }
+
+            # Display Autopilot Deployment Profiles
+            Write-Host "`n------- Autopilot Deployment Profiles -------" -ForegroundColor Cyan
+            if ($allUsersAssignments.DeploymentProfiles.Count -eq 0) {
+                Write-Host "No Autopilot Deployment Profiles assigned to All Users" -ForegroundColor Gray
+            }
+            else {
+                foreach ($profile in $allUsersAssignments.DeploymentProfiles) {
+                    $profileName = if ([string]::IsNullOrWhiteSpace($profile.name)) { $profile.displayName } else { $profile.name }
+                    Write-Host "Autopilot Deployment Profile Name: $profileName, Profile ID: $($profile.id)" -ForegroundColor White
+                    Add-ExportData -ExportData $exportData -Category "Autopilot Deployment Profile" -Items @($profile) -AssignmentReason "All Users"
+                }
+            }
+
+            # Display Enrollment Status Page Profiles
+            Write-Host "`n------- Enrollment Status Page Profiles -------" -ForegroundColor Cyan
+            if ($allUsersAssignments.ESPProfiles.Count -eq 0) {
+                Write-Host "No Enrollment Status Page Profiles assigned to All Users" -ForegroundColor Gray
+            }
+            else {
+                foreach ($profile in $allUsersAssignments.ESPProfiles) {
+                    $profileName = if ([string]::IsNullOrWhiteSpace($profile.name)) { $profile.displayName } else { $profile.name }
+                    Write-Host "Enrollment Status Page Profile Name: $profileName, Profile ID: $($profile.id)" -ForegroundColor White
+                    Add-ExportData -ExportData $exportData -Category "Enrollment Status Page Profile" -Items @($profile) -AssignmentReason "All Users"
                 }
             }
 
