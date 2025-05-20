@@ -198,7 +198,6 @@ $certThumbprint = if ($CertificateThumbprint) { $CertificateThumbprint } else { 
 
 # Version of the local script
 $localVersion = "3.3.2"
-$localVersion = "3.3.1"
 
 Write-Host "🔍 INTUNE ASSIGNMENT CHECKER" -ForegroundColor Cyan
 Write-Host "Made by Ugur Koc with" -NoNewline; Write-Host " ❤️  and ☕" -NoNewline
