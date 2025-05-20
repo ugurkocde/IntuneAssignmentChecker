@@ -197,12 +197,13 @@ $certThumbprint = if ($CertificateThumbprint) { $CertificateThumbprint } else { 
 ####################################################################################################
 
 # Version of the local script
+$localVersion = "3.3.2"
 $localVersion = "3.3.1"
 
 Write-Host "🔍 INTUNE ASSIGNMENT CHECKER" -ForegroundColor Cyan
 Write-Host "Made by Ugur Koc with" -NoNewline; Write-Host " ❤️  and ☕" -NoNewline
 Write-Host " | Version" -NoNewline; Write-Host " $localVersion" -ForegroundColor Yellow -NoNewline
-Write-Host " | Last updated: " -NoNewline; Write-Host "2025-05-19" -ForegroundColor Magenta
+Write-Host " | Last updated: " -NoNewline; Write-Host "2025-05-20" -ForegroundColor Magenta
 Write-Host ""
 Write-Host "📢 Feedback & Issues: " -NoNewline -ForegroundColor Cyan
 Write-Host "https://github.com/ugurkocde/IntuneAssignmentChecker/issues" -ForegroundColor White
@@ -4359,6 +4360,8 @@ do {
                 RequiredApps             = @()
                 AvailableApps            = @()
                 UninstallApps            = @()
+                DeploymentProfiles        = @()
+                ESPProfiles              = @()
             }
 
             # Get Device Configurations
@@ -4967,6 +4970,55 @@ do {
                 }
             }
 
+            # Get Autopilot Deployment Profiles
+            Write-Host "Fetching Autopilot Deployment Profiles assigned to All Users..." -ForegroundColor Yellow
+            $autoProfilesAU = Get-IntuneEntities -EntityType "windowsAutopilotDeploymentProfiles"
+            foreach ($profile in $autoProfilesAU) {
+                $assignments = Get-IntuneAssignments -EntityType "windowsAutopilotDeploymentProfiles" -EntityId $profile.id
+                if ($assignments | Where-Object { $_.Reason -eq "All Users" }) {
+                    $profile | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Users" -Force
+                    $allUsersAssignments.DeploymentProfiles += $profile
+                }
+            }
+
+            # Get Enrollment Status Page Profiles
+            Write-Host "Fetching Enrollment Status Page Profiles assigned to All Users..." -ForegroundColor Yellow
+            $enrollmentConfigsAU = Get-IntuneEntities -EntityType "deviceEnrollmentConfigurations"
+            $espProfilesAU = $enrollmentConfigsAU | Where-Object { $_.'@odata.type' -match 'EnrollmentCompletionPageConfiguration' }
+            foreach ($esp in $espProfilesAU) {
+                $assignments = Get-IntuneAssignments -EntityType "deviceEnrollmentConfigurations" -EntityId $esp.id
+                if ($assignments | Where-Object { $_.Reason -eq "All Users" }) {
+                    $esp | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Users" -Force
+                    $allUsersAssignments.ESPProfiles += $esp
+                }
+            }
+
+            # Display Autopilot Deployment Profiles
+            Write-Host "`n------- Autopilot Deployment Profiles -------" -ForegroundColor Cyan
+            if ($allUsersAssignments.DeploymentProfiles.Count -eq 0) {
+                Write-Host "No Autopilot Deployment Profiles assigned to All Users" -ForegroundColor Gray
+            }
+            else {
+                foreach ($profile in $allUsersAssignments.DeploymentProfiles) {
+                    $profileName = if ([string]::IsNullOrWhiteSpace($profile.displayName)) { $profile.name } else { $profile.displayName }
+                    Write-Host "Deployment Profile Name: $profileName, Profile ID: $($profile.id)" -ForegroundColor White
+                    Add-ExportData -ExportData $exportData -Category "Autopilot Deployment Profile" -Items @($profile) -AssignmentReason "All Users"
+                }
+            }
+
+            # Display Enrollment Status Page Profiles
+            Write-Host "`n------- Enrollment Status Page Profiles -------" -ForegroundColor Cyan
+            if ($allUsersAssignments.ESPProfiles.Count -eq 0) {
+                Write-Host "No Enrollment Status Page Profiles assigned to All Users" -ForegroundColor Gray
+            }
+            else {
+                foreach ($profile in $allUsersAssignments.ESPProfiles) {
+                    $profileName = if ([string]::IsNullOrWhiteSpace($profile.displayName)) { $profile.name } else { $profile.displayName }
+                    Write-Host "Enrollment Status Page Name: $profileName, Profile ID: $($profile.id)" -ForegroundColor White
+                    Add-ExportData -ExportData $exportData -Category "Enrollment Status Page" -Items @($profile) -AssignmentReason "All Users"
+                }
+            }
+
             # Get Endpoint Security - Attack Surface Reduction Policies
             Write-Host "Fetching ASR Policies assigned to All Users..." -ForegroundColor Yellow
             $allIntentsForASR_AllUsers = Get-IntuneEntities -EntityType "deviceManagement/intents"
@@ -5259,6 +5311,8 @@ do {
                 RequiredApps              = @()
                 AvailableApps             = @()
                 UninstallApps             = @()
+                DeploymentProfiles        = @()
+                ESPProfiles              = @()
                 AntivirusProfiles         = @()
                 DiskEncryptionProfiles    = @()
                 FirewallProfiles          = @()
@@ -5408,6 +5462,55 @@ do {
                 if ($assignments | Where-Object { $_.Reason -eq "All Devices" }) {
                     $script | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Devices" -Force
                     $allDevicesAssignments.HealthScripts += $script
+                }
+            }
+
+            # Display Autopilot Deployment Profiles
+            Write-Host "`n------- Autopilot Deployment Profiles -------" -ForegroundColor Cyan
+            if ($allDevicesAssignments.DeploymentProfiles.Count -eq 0) {
+                Write-Host "No Autopilot Deployment Profiles assigned to All Devices" -ForegroundColor Gray
+            }
+            else {
+                foreach ($profile in $allDevicesAssignments.DeploymentProfiles) {
+                    $profileName = if ([string]::IsNullOrWhiteSpace($profile.displayName)) { $profile.name } else { $profile.displayName }
+                    Write-Host "Deployment Profile Name: $profileName, Profile ID: $($profile.id)" -ForegroundColor White
+                    Add-ExportData -ExportData $exportData -Category "Autopilot Deployment Profile" -Items @($profile) -AssignmentReason "All Devices"
+                }
+            }
+
+            # Display Enrollment Status Page Profiles
+            Write-Host "`n------- Enrollment Status Page Profiles -------" -ForegroundColor Cyan
+            if ($allDevicesAssignments.ESPProfiles.Count -eq 0) {
+                Write-Host "No Enrollment Status Page Profiles assigned to All Devices" -ForegroundColor Gray
+            }
+            else {
+                foreach ($profile in $allDevicesAssignments.ESPProfiles) {
+                    $profileName = if ([string]::IsNullOrWhiteSpace($profile.displayName)) { $profile.name } else { $profile.displayName }
+                    Write-Host "Enrollment Status Page Name: $profileName, Profile ID: $($profile.id)" -ForegroundColor White
+                    Add-ExportData -ExportData $exportData -Category "Enrollment Status Page" -Items @($profile) -AssignmentReason "All Devices"
+                }
+            }
+
+            # Get Autopilot Deployment Profiles
+            Write-Host "Fetching Autopilot Deployment Profiles assigned to All Devices..." -ForegroundColor Yellow
+            $autoProfilesAD = Get-IntuneEntities -EntityType "windowsAutopilotDeploymentProfiles"
+            foreach ($profile in $autoProfilesAD) {
+                $assignments = Get-IntuneAssignments -EntityType "windowsAutopilotDeploymentProfiles" -EntityId $profile.id
+                if ($assignments | Where-Object { $_.Reason -eq "All Devices" }) {
+                    $profile | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Devices" -Force
+                    $allDevicesAssignments.DeploymentProfiles += $profile
+                }
+            }
+
+            # Get Enrollment Status Page Profiles
+            Write-Host "Fetching Enrollment Status Page Profiles assigned to All Devices..." -ForegroundColor Yellow
+            $enrollmentConfigsAD = Get-IntuneEntities -EntityType "deviceEnrollmentConfigurations"
+            $espProfilesAD = $enrollmentConfigsAD | Where-Object { $_.'@odata.type' -match 'EnrollmentCompletionPageConfiguration' }
+            foreach ($esp in $espProfilesAD) {
+                $assignments = Get-IntuneAssignments -EntityType "deviceEnrollmentConfigurations" -EntityId $esp.id
+                if ($assignments | Where-Object { $_.Reason -eq "All Devices" }) {
+                    $esp | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Devices" -Force
+                    $allDevicesAssignments.ESPProfiles += $esp
                 }
             }
 
@@ -5810,16 +5913,14 @@ do {
         '7' {
             Write-Host "Generating HTML Report..." -ForegroundColor Green
 
-            # Download the html-export.ps1 script from GitHub
-            $downloadurl = "https://raw.githubusercontent.com/ugurkocde/IntuneAssignmentChecker/refs/heads/main/html-export.ps1"
+            $scriptPath = Join-Path (Split-Path $PSCommandPath) 'html-export.ps1'
+            if (-not (Test-Path $scriptPath)) {
+                Write-Host "Error: html-export.ps1 not found." -ForegroundColor Red
+                break
+            }
 
             try {
-                
-                $htmlExportScript = (Invoke-WebRequest -Uri $downloadurl -UseBasicParsing).Content
-                $scriptPath = ".\html-export.ps1"
-                Set-Content -Path $scriptPath -Value $htmlExportScript
 
-                # Import the script
                 . $scriptPath
 
                 # Generate the report with a fixed filename in the same directory
@@ -5832,14 +5933,9 @@ do {
                     Start-Process $filePath
                 }
 
-                # Clean up - remove the downloaded script
-                if (Test-Path $scriptPath) {
-                    Remove-Item -Path $scriptPath -Force
-                    continue
-                }
             }
             catch {
-                Write-Host "Error: Failed to download or process the HTML export script. $($_.Exception.Message)" -ForegroundColor Red
+                Write-Host "Error: Failed to generate the HTML report. $($_.Exception.Message)" -ForegroundColor Red
             }
         }
         '8' {

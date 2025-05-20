@@ -492,6 +492,8 @@ function Export-HTMLReport {
         RequiredApps              = @()
         AvailableApps             = @()
         UninstallApps             = @()
+        DeploymentProfiles        = @()
+        ESPProfiles              = @()
         AntivirusProfiles         = @()
         DiskEncryptionProfiles    = @()
         FirewallProfiles          = @()
@@ -627,6 +629,37 @@ function Export-HTMLReport {
         }
     }
 
+    # Get Autopilot Deployment Profiles
+    Write-Host "Fetching Autopilot Deployment Profiles..." -ForegroundColor Yellow
+    $autoProfiles = Get-IntuneEntities -EntityType "windowsAutopilotDeploymentProfiles"
+    foreach ($profile in $autoProfiles) {
+        $assignments = Get-IntuneAssignments -EntityType "windowsAutopilotDeploymentProfiles" -EntityId $profile.id
+        $assignmentInfo = Get-AssignmentInfo -Assignments $assignments
+        $policies.DeploymentProfiles += @{
+            Name           = $profile.displayName
+            ID             = $profile.id
+            Type           = "Autopilot Deployment Profile"
+            AssignmentType = $assignmentInfo.Type
+            AssignedTo     = $assignmentInfo.Target
+        }
+    }
+
+    # Get Enrollment Status Page Profiles
+    Write-Host "Fetching Enrollment Status Page Profiles..." -ForegroundColor Yellow
+    $enrollmentConfigs = Get-IntuneEntities -EntityType "deviceEnrollmentConfigurations"
+    $espProfiles = $enrollmentConfigs | Where-Object { $_.'@odata.type' -match 'EnrollmentCompletionPageConfiguration' }
+    foreach ($esp in $espProfiles) {
+        $assignments = Get-IntuneAssignments -EntityType "deviceEnrollmentConfigurations" -EntityId $esp.id
+        $assignmentInfo = Get-AssignmentInfo -Assignments $assignments
+        $policies.ESPProfiles += @{
+            Name           = $esp.displayName
+            ID             = $esp.id
+            Type           = "Enrollment Status Page"
+            AssignmentType = $assignmentInfo.Type
+            AssignedTo     = $assignmentInfo.Target
+        }
+    }
+
     # Endpoint Security Policies Fetching
     $endpointSecurityCategories = @(
         @{ Name = "Antivirus"; Key = "AntivirusProfiles"; TemplateFamily = "endpointSecurityAntivirus"; UserFriendlyType = "Antivirus Profile" },
@@ -748,6 +781,8 @@ function Export-HTMLReport {
         @{ Key = 'UninstallApps'; Name = 'Uninstall Applications' },
         @{ Key = 'PlatformScripts'; Name = 'Platform Scripts' },
         @{ Key = 'HealthScripts'; Name = 'Proactive Remediation Scripts' },
+        @{ Key = 'DeploymentProfiles'; Name = 'Autopilot Deployment Profiles' },
+        @{ Key = 'ESPProfiles'; Name = 'Enrollment Status Page Profiles' },
         @{ Key = 'AntivirusProfiles'; Name = 'Endpoint Security - Antivirus' },
         @{ Key = 'DiskEncryptionProfiles'; Name = 'Endpoint Security - Disk Encryption' },
         @{ Key = 'FirewallProfiles'; Name = 'Endpoint Security - Firewall' },
@@ -988,7 +1023,7 @@ function Export-HTMLReport {
     var policyTypesChart = new Chart(ctx2, {
         type: 'bar',
         data: {
-            labels: ['Device Configs', 'Settings Catalog', 'Admin Templates', 'Compliance', 'App Protection', 'Scripts', 'Antivirus', 'Disk Encryption', 'Firewall', 'EDR', 'ASR'],
+            labels: ['Device Configs', 'Settings Catalog', 'Admin Templates', 'Compliance', 'App Protection', 'Autopilot Profiles', 'ESP Profiles', 'Scripts', 'Antivirus', 'Disk Encryption', 'Firewall', 'EDR', 'ASR'],
             datasets: [{
                 label: 'Number of Policies',
                 data: [
@@ -997,6 +1032,8 @@ function Export-HTMLReport {
                     $($policies.AdminTemplates.Count),
                     $($policies.CompliancePolicies.Count),
                     $($policies.AppProtectionPolicies.Count),
+                    $($policies.DeploymentProfiles.Count),
+                    $($policies.ESPProfiles.Count),
                     ($($policies.PlatformScripts.Count) + $($policies.HealthScripts.Count)),
                     $($policies.AntivirusProfiles.Count),
                     $($policies.DiskEncryptionProfiles.Count),
@@ -1005,8 +1042,8 @@ function Export-HTMLReport {
                     $($policies.AttackSurfaceProfiles.Count)
                 ],
                 backgroundColor: [
-                    '#4e73df', '#1cc88a', '#36b9cc', '#f6c23e', '#e74a3b', '#858796',
-                    '#5a5c69', '#f8f9fc', '#dddfeb', '#d1d3e2', '#b4b6c2' 
+                    '#4e73df', '#1cc88a', '#36b9cc', '#f6c23e', '#e74a3b', '#6f42c1', '#20c997',
+                    '#858796', '#5a5c69', '#f8f9fc', '#dddfeb', '#d1d3e2', '#b4b6c2'
                 ]
             }]
         },
