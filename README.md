@@ -27,10 +27,16 @@
 - [📋 Prerequisites](#-prerequisites)
 - [🔐 Authentication Options](#-authentication-options)
 - [📖 Usage](#-usage)
+- [💬 Community](#-community)
 - [🤝 Contributing](#-contributing)
 - [📄 License](#-license)
 
-## 🚀 Quick Start
+## 💬 Community
+
+Join our Discord channel to discuss bugs, share ideas, and provide feedback:
+[Join Discord](https://discord.gg/BQSCU9eJ)
+
+## Quick Start
 
 > **Important**: All commands must be run in a PowerShell 7 session. The script will not work in PowerShell 5.1 or earlier versions.
 
