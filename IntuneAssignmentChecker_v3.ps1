@@ -197,7 +197,7 @@ $certThumbprint = if ($CertificateThumbprint) { $CertificateThumbprint } else { 
 ####################################################################################################
 
 # Version of the local script
-$localVersion = "3.3.3"
+$localVersion = "3.3.4"
 
 Write-Host "🔍 INTUNE ASSIGNMENT CHECKER" -ForegroundColor Cyan
 Write-Host "Made by Ugur Koc with" -NoNewline; Write-Host " ❤️  and ☕" -NoNewline
@@ -5594,14 +5594,15 @@ do {
         '7' {
             Write-Host "Generating HTML Report..." -ForegroundColor Green
 
-            $scriptPath = Join-Path (Split-Path $PSCommandPath) 'html-export.ps1'
-            if (-not (Test-Path $scriptPath)) {
-                Write-Host "Error: html-export.ps1 not found." -ForegroundColor Red
-                break
-            }
-
+            # Download html-export.ps1 from GitHub
+            $htmlExportUrl = "https://raw.githubusercontent.com/ugurkocde/IntuneAssignmentChecker/main/html-export.ps1"
+            $scriptPath = Join-Path $env:TEMP 'html-export.ps1'
+            
             try {
-
+                Write-Host "Downloading html-export.ps1 from GitHub..." -ForegroundColor Yellow
+                Invoke-WebRequest -Uri $htmlExportUrl -OutFile $scriptPath -UseBasicParsing
+                Write-Host "Download complete." -ForegroundColor Green
+                
                 . $scriptPath
 
                 # Generate the report with a fixed filename in the same directory
@@ -5617,6 +5618,13 @@ do {
             }
             catch {
                 Write-Host "Error: Failed to generate the HTML report. $($_.Exception.Message)" -ForegroundColor Red
+            }
+            finally {
+                # Clean up the downloaded script
+                if (Test-Path $scriptPath) {
+                    Remove-Item $scriptPath -Force
+                    Write-Host "Cleaned up temporary files." -ForegroundColor Gray
+                }
             }
         }
         '8' {
