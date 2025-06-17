@@ -115,3 +115,15 @@ Write-Host "Certificate exported to: $exportPath" -ForegroundColor Green
 Write-Host "----------------------------"
 
 Disconnect-MgGraph | Out-Null
+
+# STEP 8: Output command line for IntuneAssignmentChecker
+
+$certificateThumbprint = $cert.Thumbprint
+$tenantId = $tenant.Id
+$appId = $app.AppId
+
+Write-Host "`n----------------------------" -ForegroundColor Cyan
+Write-Host "You can now run IntuneAssignmentChecker with the following command:" -ForegroundColor Cyan
+Write-Host ".\IntuneAssignmentChecker.ps1 -CertificateThumbprint `"$certificateThumbprint`" -TenantId `"$tenantId`" -AppId `"$appId`"" -ForegroundColor Yellow
+Write-Host "----------------------------"
+
