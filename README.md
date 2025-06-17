@@ -198,6 +198,29 @@ This will prompt you to sign in with your credentials when running the script. T
 
 > **Note**: Keep your certificate and app credentials secure! Anyone with access to these can access your Intune environment with the configured permissions.
 
+## 📋 Prerequisites (Automated Setup Available)
+
+> **Good news!** You can automate most prerequisites using the provided helper script.
+
+### ✅ Automated Setup
+
+You can use the provided PowerShell automation script [`Create-IntuneAssignmentCheckerApp.ps1`](./Create-IntuneAssignmentCheckerApp.ps1) to automatically:
+
+- Create the Entra ID App Registration
+- Assign all required Microsoft Graph permissions
+- Generate a self-signed certificate
+- Upload the certificate to the app registration
+- Export the certificate for use with the script
+
+#### Run the automation script:
+
+```powershell
+# Download the script from the repository
+# Make sure to run with sufficient permissions (Global Admin)
+
+.\Create-IntuneAssignmentCheckerApp.ps1
+```
+
 ## 📖 Usage
 
 The script can be used in two ways:
