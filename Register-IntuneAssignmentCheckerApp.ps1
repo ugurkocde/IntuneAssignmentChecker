@@ -16,7 +16,7 @@
     The script uses Update-MgApplication for certificate injection to avoid common Graph SDK permission issues.
 
 .EXAMPLE
-    PS C:\> .\Create-IntuneAssignmentCheckerApp.ps1
+    PS C:\> .\Register-IntuneAssignmentCheckerApp.ps1
 
 .NOTES
     Author: Stefan Redlin
