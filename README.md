@@ -204,7 +204,7 @@ This will prompt you to sign in with your credentials when running the script. T
 
 ### ✅ Automated Setup
 
-You can use the provided PowerShell automation script [`Create-IntuneAssignmentCheckerApp.ps1`](./Create-IntuneAssignmentCheckerApp.ps1) to automatically:
+You can use the provided PowerShell automation script [`Register-IntuneAssignmentCheckerApp.ps1`](./Register-IntuneAssignmentCheckerApp.ps1) to automatically:
 
 - Create the Entra ID App Registration
 - Assign all required Microsoft Graph permissions
@@ -218,7 +218,7 @@ You can use the provided PowerShell automation script [`Create-IntuneAssignmentC
 # Download the script from the repository
 # Make sure to run with sufficient permissions (Global Admin)
 
-.\Create-IntuneAssignmentCheckerApp.ps1
+.\Register-IntuneAssignmentCheckerApp.ps1
 ```
 
 ## 📖 Usage
