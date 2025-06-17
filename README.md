@@ -220,6 +220,8 @@ You can use the provided PowerShell automation script [`Register-IntuneAssignmen
 
 .\Register-IntuneAssignmentCheckerApp.ps1
 ```
+> **Note**: After the script completes, you still need to grant Admin Consent for the assigned API permissions in the Azure Portal:
+Entra ID → App registrations → Your App → API permissions → "Grant admin consent for ...".
 
 ## 📖 Usage
 
