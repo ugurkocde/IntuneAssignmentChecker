@@ -176,6 +176,13 @@ elseif ($CompareGroups) { $parameterMode = $true; $selectedOption = '11' }
     Sponsor: https://github.com/sponsors/ugurkocde
     Changelog: https://github.com/ugurkocde/IntuneAssignmentChecker/releases
 
+.CHANGELOG
+    v3.4.0 (2025-06-23)
+    - Added support for Windows 365 Cloud PC Provisioning Policies
+    - Added support for Windows 365 Cloud PC User Settings
+    - Updated HTML export to include Windows 365 policies
+    - Both policy types are now fetched and displayed in all assignment checking options
+
 .REQUIRED PERMISSIONS
     - User.Read.All                    (Read user profiles)
     - Group.Read.All                   (Read group information)
@@ -197,7 +204,7 @@ $certThumbprint = if ($CertificateThumbprint) { $CertificateThumbprint } else { 
 ####################################################################################################
 
 # Version of the local script
-$localVersion = "3.3.4"
+$localVersion = "3.4.0"
 
 Write-Host "🔍 INTUNE ASSIGNMENT CHECKER" -ForegroundColor Cyan
 Write-Host "Made by Ugur Koc with" -NoNewline; Write-Host " ❤️  and ☕" -NoNewline
@@ -1064,25 +1071,26 @@ do {
 
                 # Initialize collections for relevant policies
                 $relevantPolicies = @{
-                    DeviceConfigs             = @()
-                    SettingsCatalog           = @()
-                    AdminTemplates            = @()
-                    CompliancePolicies        = @()
-                    AppProtectionPolicies     = @()
-                    AppConfigurationPolicies  = @()
-                    AppsRequired              = @()
-                    AppsAvailable             = @()
-                    AppsUninstall             = @()
-                    PlatformScripts           = @()
-                    HealthScripts             = @()
-                    # Endpoint Security profiles
-                    AntivirusProfiles         = @()
-                    DiskEncryptionProfiles    = @()
-                    FirewallProfiles          = @()
-                    EndpointDetectionProfiles = @()
-                    AttackSurfaceProfiles     = @()
-                    DeploymentProfiles        = @()
-                    ESPProfiles               = @()
+                    DeviceConfigs               = @()
+                    SettingsCatalog             = @()
+                    AdminTemplates              = @()
+                    CompliancePolicies          = @()
+                    AppProtectionPolicies       = @()
+                    AppConfigurationPolicies    = @()
+                    AppsRequired                = @()
+                    AppsAvailable               = @()
+                    AppsUninstall               = @()
+                    PlatformScripts             = @()
+                    HealthScripts               = @()
+                    AntivirusProfiles           = @()
+                    DiskEncryptionProfiles      = @()
+                    FirewallProfiles            = @()
+                    EndpointDetectionProfiles   = @()
+                    AttackSurfaceProfiles       = @()
+                    DeploymentProfiles          = @()
+                    ESPProfiles                 = @()
+                    CloudPCProvisioningPolicies = @()
+                    CloudPCUserSettings         = @()
                 }
 
                 # Get Device Configurations
@@ -1675,6 +1683,56 @@ do {
                     }
                 }
                 $relevantPolicies.AttackSurfaceProfiles = $asrPoliciesFound
+
+                # Get Windows 365 Cloud PC Provisioning Policies
+                Write-Host "Fetching Windows 365 Cloud PC Provisioning Policies..." -ForegroundColor Yellow
+                try {
+                    $cloudPCProvisioningPolicies = Get-IntuneEntities -EntityType "virtualEndpoint/provisioningPolicies"
+                    foreach ($policy in $cloudPCProvisioningPolicies) {
+                        $assignments = Get-IntuneAssignments -EntityType "virtualEndpoint/provisioningPolicies" -EntityId $policy.id
+                        foreach ($assignment in $assignments) {
+                            if ($assignment.Reason -eq "All Users" -or
+                                ($assignment.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignment.GroupId)) {
+                                $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignment.Reason -Force
+                                $relevantPolicies.CloudPCProvisioningPolicies += $policy
+                                break
+                            }
+                            elseif ($assignment.Reason -eq "Group Exclusion" -and $groupMemberships.id -contains $assignment.GroupId) {
+                                $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Excluded" -Force
+                                $relevantPolicies.CloudPCProvisioningPolicies += $policy
+                                break
+                            }
+                        }
+                    }
+                }
+                catch {
+                    Write-Warning "Unable to fetch Windows 365 Cloud PC Provisioning Policies: $($_.Exception.Message)"
+                }
+
+                # Get Windows 365 Cloud PC User Settings
+                Write-Host "Fetching Windows 365 Cloud PC User Settings..." -ForegroundColor Yellow
+                try {
+                    $cloudPCUserSettings = Get-IntuneEntities -EntityType "virtualEndpoint/userSettings"
+                    foreach ($setting in $cloudPCUserSettings) {
+                        $assignments = Get-IntuneAssignments -EntityType "virtualEndpoint/userSettings" -EntityId $setting.id
+                        foreach ($assignment in $assignments) {
+                            if ($assignment.Reason -eq "All Users" -or
+                                ($assignment.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignment.GroupId)) {
+                                $setting | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignment.Reason -Force
+                                $relevantPolicies.CloudPCUserSettings += $setting
+                                break
+                            }
+                            elseif ($assignment.Reason -eq "Group Exclusion" -and $groupMemberships.id -contains $assignment.GroupId) {
+                                $setting | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Excluded" -Force
+                                $relevantPolicies.CloudPCUserSettings += $setting
+                                break
+                            }
+                        }
+                    }
+                }
+                catch {
+                    Write-Warning "Unable to fetch Windows 365 Cloud PC User Settings: $($_.Exception.Message)"
+                }
 
                 # Display results
                 Write-Host "`nAssignments for User: $upn" -ForegroundColor Green
@@ -2326,6 +2384,86 @@ do {
                     Write-Host $separator
                 }
 
+                # Display Windows 365 Cloud PC Provisioning Policies
+                Write-Host "`n------- Windows 365 Cloud PC Provisioning Policies -------" -ForegroundColor Cyan
+                if ($relevantPolicies.CloudPCProvisioningPolicies.Count -eq 0) {
+                    Write-Host "No Windows 365 Cloud PC Provisioning Policies found" -ForegroundColor Gray
+                }
+                else {
+                    # Create table header
+                    $headerFormat = "{0,-50} {1,-40} {2,-30}" -f "Policy Name", "Policy ID", "Assignment"
+                    $separator = "-" * 120
+                    Write-Host $separator
+                    Write-Host $headerFormat -ForegroundColor Yellow
+                    Write-Host $separator
+                    
+                    foreach ($policy in $relevantPolicies.CloudPCProvisioningPolicies) {
+                        $policyName = if (-not [string]::IsNullOrWhiteSpace($policy.displayName)) { $policy.displayName } elseif (-not [string]::IsNullOrWhiteSpace($policy.name)) { $policy.name } else { "Unnamed Policy" }
+                        if ($policyName.Length -gt 47) {
+                            $policyName = $policyName.Substring(0, 44) + "..."
+                        }
+                        
+                        $policyId = $policy.id
+                        if ($policyId.Length -gt 37) {
+                            $policyId = $policyId.Substring(0, 34) + "..."
+                        }
+                        
+                        $assignment = $policy.AssignmentReason
+                        if ($assignment.Length -gt 27) {
+                            $assignment = $assignment.Substring(0, 24) + "..."
+                        }
+                        
+                        $rowFormat = "{0,-50} {1,-40} {2,-30}" -f $policyName, $policyId, $assignment
+                        if ($assignment -eq "Excluded") {
+                            Write-Host $rowFormat -ForegroundColor Red
+                        }
+                        else {
+                            Write-Host $rowFormat -ForegroundColor White
+                        }
+                    }
+                    Write-Host $separator
+                }
+
+                # Display Windows 365 Cloud PC User Settings
+                Write-Host "`n------- Windows 365 Cloud PC User Settings -------" -ForegroundColor Cyan
+                if ($relevantPolicies.CloudPCUserSettings.Count -eq 0) {
+                    Write-Host "No Windows 365 Cloud PC User Settings found" -ForegroundColor Gray
+                }
+                else {
+                    # Create table header
+                    $headerFormat = "{0,-50} {1,-40} {2,-30}" -f "Setting Name", "Setting ID", "Assignment"
+                    $separator = "-" * 120
+                    Write-Host $separator
+                    Write-Host $headerFormat -ForegroundColor Yellow
+                    Write-Host $separator
+                    
+                    foreach ($setting in $relevantPolicies.CloudPCUserSettings) {
+                        $settingName = if (-not [string]::IsNullOrWhiteSpace($setting.displayName)) { $setting.displayName } elseif (-not [string]::IsNullOrWhiteSpace($setting.name)) { $setting.name } else { "Unnamed Setting" }
+                        if ($settingName.Length -gt 47) {
+                            $settingName = $settingName.Substring(0, 44) + "..."
+                        }
+                        
+                        $settingId = $setting.id
+                        if ($settingId.Length -gt 37) {
+                            $settingId = $settingId.Substring(0, 34) + "..."
+                        }
+                        
+                        $assignment = $setting.AssignmentReason
+                        if ($assignment.Length -gt 27) {
+                            $assignment = $assignment.Substring(0, 24) + "..."
+                        }
+                        
+                        $rowFormat = "{0,-50} {1,-40} {2,-30}" -f $settingName, $settingId, $assignment
+                        if ($assignment -eq "Excluded") {
+                            Write-Host $rowFormat -ForegroundColor Red
+                        }
+                        else {
+                            Write-Host $rowFormat -ForegroundColor White
+                        }
+                    }
+                    Write-Host $separator
+                }
+
                 # Add all data to export
                 Add-ExportData -ExportData $exportData -Category "User" -Items @([PSCustomObject]@{
                         displayName      = $upn
@@ -2343,6 +2481,8 @@ do {
                     Add-ExportData -ExportData $exportData -Category "Proactive Remediation Scripts" -Items $relevantPolicies.HealthScripts -AssignmentReason { param($item) $item.AssignmentReason }
                     Add-ExportData -ExportData $exportData -Category "Autopilot Deployment Profile" -Items $relevantPolicies.DeploymentProfiles -AssignmentReason { param($item) $item.AssignmentReason }
                     Add-ExportData -ExportData $exportData -Category "Enrollment Status Page" -Items $relevantPolicies.ESPProfiles -AssignmentReason { param($item) $item.AssignmentReason }
+                    Add-ExportData -ExportData $exportData -Category "Windows 365 Cloud PC Provisioning Policy" -Items $relevantPolicies.CloudPCProvisioningPolicies -AssignmentReason { param($item) $item.AssignmentReason }
+                    Add-ExportData -ExportData $exportData -Category "Windows 365 Cloud PC User Setting" -Items $relevantPolicies.CloudPCUserSettings -AssignmentReason { param($item) $item.AssignmentReason }
                     Add-ExportData -ExportData $exportData -Category "Endpoint Security - Antivirus" -Items $relevantPolicies.AntivirusProfiles -AssignmentReason { param($item) $item.AssignmentReason }
                     Add-ExportData -ExportData $exportData -Category "Endpoint Security - Disk Encryption" -Items $relevantPolicies.DiskEncryptionProfiles -AssignmentReason { param($item) $item.AssignmentReason }
                     Add-ExportData -ExportData $exportData -Category "Endpoint Security - Firewall" -Items $relevantPolicies.FirewallProfiles -AssignmentReason { param($item) $item.AssignmentReason }
@@ -2413,25 +2553,27 @@ do {
 
                 # Initialize collections for relevant policies
                 $relevantPolicies = @{
-                    DeviceConfigs             = @()
-                    SettingsCatalog           = @()
-                    AdminTemplates            = @()
-                    CompliancePolicies        = @()
-                    AppProtectionPolicies     = @()
-                    AppConfigurationPolicies  = @()
-                    AppsRequired              = @()
-                    AppsAvailable             = @()
-                    AppsUninstall             = @()
-                    PlatformScripts           = @()
-                    HealthScripts             = @()
+                    DeviceConfigs               = @()
+                    SettingsCatalog             = @()
+                    AdminTemplates              = @()
+                    CompliancePolicies          = @()
+                    AppProtectionPolicies       = @()
+                    AppConfigurationPolicies    = @()
+                    AppsRequired                = @()
+                    AppsAvailable               = @()
+                    AppsUninstall               = @()
+                    PlatformScripts             = @()
+                    HealthScripts               = @()
                     # Endpoint Security profiles
-                    AntivirusProfiles         = @()
-                    DiskEncryptionProfiles    = @()
-                    FirewallProfiles          = @()
-                    EndpointDetectionProfiles = @()
-                    AttackSurfaceProfiles     = @()
-                    DeploymentProfiles        = @()
-                    ESPProfiles               = @()
+                    AntivirusProfiles           = @()
+                    DiskEncryptionProfiles      = @()
+                    FirewallProfiles            = @()
+                    EndpointDetectionProfiles   = @()
+                    AttackSurfaceProfiles       = @()
+                    DeploymentProfiles          = @()
+                    ESPProfiles                 = @()
+                    CloudPCProvisioningPolicies = @()
+                    CloudPCUserSettings         = @()
                 }
 
                 # Get Device Configurations
@@ -2733,6 +2875,44 @@ do {
                     }
                 }
 
+                # Get Windows 365 Cloud PC Provisioning Policies
+                Write-Host "Fetching Windows 365 Cloud PC Provisioning Policies..." -ForegroundColor Yellow
+                try {
+                    $cloudPCProvisioningPolicies = Get-IntuneEntities -EntityType "virtualEndpoint/provisioningPolicies"
+                    foreach ($policy in $cloudPCProvisioningPolicies) {
+                        $directAssignments = Get-IntuneAssignments -EntityType "virtualEndpoint/provisioningPolicies" -EntityId $policy.id -GroupId $groupId
+                        if ($directAssignments.Count -gt 0) {
+                            $assignmentReason = $directAssignments[0].Reason
+                            if ($assignmentReason -eq "Direct Assignment" -or $assignmentReason -eq "Direct Exclusion") {
+                                $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentReason -Force
+                                $relevantPolicies.CloudPCProvisioningPolicies += $policy
+                            }
+                        }
+                    }
+                }
+                catch {
+                    Write-Warning "Unable to fetch Windows 365 Cloud PC Provisioning Policies: $($_.Exception.Message)"
+                }
+
+                # Get Windows 365 Cloud PC User Settings
+                Write-Host "Fetching Windows 365 Cloud PC User Settings..." -ForegroundColor Yellow
+                try {
+                    $cloudPCUserSettings = Get-IntuneEntities -EntityType "virtualEndpoint/userSettings"
+                    foreach ($setting in $cloudPCUserSettings) {
+                        $directAssignments = Get-IntuneAssignments -EntityType "virtualEndpoint/userSettings" -EntityId $setting.id -GroupId $groupId
+                        if ($directAssignments.Count -gt 0) {
+                            $assignmentReason = $directAssignments[0].Reason
+                            if ($assignmentReason -eq "Direct Assignment" -or $assignmentReason -eq "Direct Exclusion") {
+                                $setting | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentReason -Force
+                                $relevantPolicies.CloudPCUserSettings += $setting
+                            }
+                        }
+                    }
+                }
+                catch {
+                    Write-Warning "Unable to fetch Windows 365 Cloud PC User Settings: $($_.Exception.Message)"
+                }
+
                 # Function to format and display policy table (specific to Option 2)
                 function Format-PolicyTable {
                     param (
@@ -2857,6 +3037,18 @@ do {
                     if ([string]::IsNullOrWhiteSpace($profile.displayName)) { $profile.name } else { $profile.displayName }
                 }
 
+                # Display Windows 365 Cloud PC Provisioning Policies
+                Format-PolicyTable -Title "Windows 365 Cloud PC Provisioning Policies" -Policies $relevantPolicies.CloudPCProvisioningPolicies -GetName {
+                    param($policy)
+                    if ([string]::IsNullOrWhiteSpace($policy.displayName)) { $policy.name } else { $policy.displayName }
+                }
+
+                # Display Windows 365 Cloud PC User Settings
+                Format-PolicyTable -Title "Windows 365 Cloud PC User Settings" -Policies $relevantPolicies.CloudPCUserSettings -GetName {
+                    param($setting)
+                    if ([string]::IsNullOrWhiteSpace($setting.displayName)) { $setting.name } else { $setting.displayName }
+                }
+
                 # Display Required Apps
                 Format-PolicyTable -Title "Required Apps" -Policies $relevantPolicies.AppsRequired -GetName {
                     param($app)
@@ -2907,6 +3099,8 @@ do {
                     Add-ExportData -ExportData $exportData -Category "Proactive Remediation Scripts" -Items $relevantPolicies.HealthScripts -AssignmentReason { param($item) $item.AssignmentReason }
                     Add-ExportData -ExportData $exportData -Category "Autopilot Deployment Profile" -Items $relevantPolicies.DeploymentProfiles -AssignmentReason { param($item) $item.AssignmentReason }
                     Add-ExportData -ExportData $exportData -Category "Enrollment Status Page" -Items $relevantPolicies.ESPProfiles -AssignmentReason { param($item) $item.AssignmentReason }
+                    Add-ExportData -ExportData $exportData -Category "Windows 365 Cloud PC Provisioning Policy" -Items $relevantPolicies.CloudPCProvisioningPolicies -AssignmentReason { param($item) $item.AssignmentReason }
+                    Add-ExportData -ExportData $exportData -Category "Windows 365 Cloud PC User Setting" -Items $relevantPolicies.CloudPCUserSettings -AssignmentReason { param($item) $item.AssignmentReason }
                     Add-ExportData -ExportData $exportData -Category "Endpoint Security - Antivirus" -Items $relevantPolicies.AntivirusProfiles -AssignmentReason { param($item) $item.AssignmentReason }
                     Add-ExportData -ExportData $exportData -Category "Endpoint Security - Disk Encryption" -Items $relevantPolicies.DiskEncryptionProfiles -AssignmentReason { param($item) $item.AssignmentReason }
                     Add-ExportData -ExportData $exportData -Category "Endpoint Security - Firewall" -Items $relevantPolicies.FirewallProfiles -AssignmentReason { param($item) $item.AssignmentReason }
@@ -2965,22 +3159,24 @@ do {
 
                 # Initialize collections for relevant policies
                 $relevantPolicies = @{
-                    DeviceConfigs             = @()
-                    SettingsCatalog           = @()
-                    AdminTemplates            = @()
-                    CompliancePolicies        = @()
-                    AppProtectionPolicies     = @()
-                    AppConfigurationPolicies  = @()
-                    AppsRequired              = @()
-                    AppsAvailable             = @()
-                    AppsUninstall             = @()
-                    PlatformScripts           = @()
-                    HealthScripts             = @()
-                    AntivirusProfiles         = @()
-                    DiskEncryptionProfiles    = @()
-                    FirewallProfiles          = @()
-                    EndpointDetectionProfiles = @()
-                    AttackSurfaceProfiles     = @()
+                    DeviceConfigs               = @()
+                    SettingsCatalog             = @()
+                    AdminTemplates              = @()
+                    CompliancePolicies          = @()
+                    AppProtectionPolicies       = @()
+                    AppConfigurationPolicies    = @()
+                    AppsRequired                = @()
+                    AppsAvailable               = @()
+                    AppsUninstall               = @()
+                    PlatformScripts             = @()
+                    HealthScripts               = @()
+                    AntivirusProfiles           = @()
+                    DiskEncryptionProfiles      = @()
+                    FirewallProfiles            = @()
+                    EndpointDetectionProfiles   = @()
+                    AttackSurfaceProfiles       = @()
+                    CloudPCProvisioningPolicies = @()
+                    CloudPCUserSettings         = @()
                 }
 
                 # Get Device Configurations
@@ -3199,6 +3395,56 @@ do {
                             break
                         }
                     }
+                }
+
+                # Get Windows 365 Cloud PC Provisioning Policies
+                Write-Host "Fetching Windows 365 Cloud PC Provisioning Policies..." -ForegroundColor Yellow
+                try {
+                    $cloudPCProvisioningPolicies = Get-IntuneEntities -EntityType "virtualEndpoint/provisioningPolicies"
+                    foreach ($policy in $cloudPCProvisioningPolicies) {
+                        $assignments = Get-IntuneAssignments -EntityType "virtualEndpoint/provisioningPolicies" -EntityId $policy.id
+                        foreach ($assignment in $assignments) {
+                            if (($assignment.Reason -eq "All Devices") -or
+                                ($assignment.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignment.GroupId)) {
+                                $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignment.Reason -Force
+                                $relevantPolicies.CloudPCProvisioningPolicies += $policy
+                                break
+                            }
+                            elseif ($assignment.Reason -eq "Group Exclusion" -and $groupMemberships.id -contains $assignment.GroupId) {
+                                $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Excluded" -Force
+                                $relevantPolicies.CloudPCProvisioningPolicies += $policy
+                                break
+                            }
+                        }
+                    }
+                }
+                catch {
+                    Write-Warning "Unable to fetch Windows 365 Cloud PC Provisioning Policies: $($_.Exception.Message)"
+                }
+
+                # Get Windows 365 Cloud PC User Settings
+                Write-Host "Fetching Windows 365 Cloud PC User Settings..." -ForegroundColor Yellow
+                try {
+                    $cloudPCUserSettings = Get-IntuneEntities -EntityType "virtualEndpoint/userSettings"
+                    foreach ($setting in $cloudPCUserSettings) {
+                        $assignments = Get-IntuneAssignments -EntityType "virtualEndpoint/userSettings" -EntityId $setting.id
+                        foreach ($assignment in $assignments) {
+                            if (($assignment.Reason -eq "All Devices") -or
+                                ($assignment.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignment.GroupId)) {
+                                $setting | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignment.Reason -Force
+                                $relevantPolicies.CloudPCUserSettings += $setting
+                                break
+                            }
+                            elseif ($assignment.Reason -eq "Group Exclusion" -and $groupMemberships.id -contains $assignment.GroupId) {
+                                $setting | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Excluded" -Force
+                                $relevantPolicies.CloudPCUserSettings += $setting
+                                break
+                            }
+                        }
+                    }
+                }
+                catch {
+                    Write-Warning "Unable to fetch Windows 365 Cloud PC User Settings: $($_.Exception.Message)"
                 }
 
                 # Get Endpoint Security - Antivirus Policies
@@ -3779,6 +4025,8 @@ do {
                     Add-ExportData -ExportData $exportData -Category "Endpoint Security - Firewall" -Items $relevantPolicies.FirewallProfiles -AssignmentReason { param($item) $item.AssignmentReason }
                     Add-ExportData -ExportData $exportData -Category "Endpoint Security - EDR" -Items $relevantPolicies.EndpointDetectionProfiles -AssignmentReason { param($item) $item.AssignmentReason }
                     Add-ExportData -ExportData $exportData -Category "Endpoint Security - ASR" -Items $relevantPolicies.AttackSurfaceProfiles -AssignmentReason { param($item) $item.AssignmentReason }
+                    Add-ExportData -ExportData $exportData -Category "Windows 365 Cloud PC Provisioning Policy" -Items $relevantPolicies.CloudPCProvisioningPolicies -AssignmentReason { param($item) $item.AssignmentReason }
+                    Add-ExportData -ExportData $exportData -Category "Windows 365 Cloud PC User Setting" -Items $relevantPolicies.CloudPCUserSettings -AssignmentReason { param($item) $item.AssignmentReason }
                 )
             }
 
@@ -3791,21 +4039,23 @@ do {
 
             # Initialize collections for all policies
             $allPolicies = @{
-                DeviceConfigs             = @()
-                SettingsCatalog           = @()
-                AdminTemplates            = @()
-                CompliancePolicies        = @()
-                AppProtectionPolicies     = @()
-                AppConfigurationPolicies  = @()
-                PlatformScripts           = @()
-                HealthScripts             = @()
-                AntivirusProfiles         = @()
-                DiskEncryptionProfiles    = @()
-                FirewallProfiles          = @()
-                EndpointDetectionProfiles = @()
-                AttackSurfaceProfiles     = @()
-                DeploymentProfiles        = @()
-                ESPProfiles               = @()
+                DeviceConfigs               = @()
+                SettingsCatalog             = @()
+                AdminTemplates              = @()
+                CompliancePolicies          = @()
+                AppProtectionPolicies       = @()
+                AppConfigurationPolicies    = @()
+                PlatformScripts             = @()
+                HealthScripts               = @()
+                AntivirusProfiles           = @()
+                DiskEncryptionProfiles      = @()
+                FirewallProfiles            = @()
+                EndpointDetectionProfiles   = @()
+                AttackSurfaceProfiles       = @()
+                DeploymentProfiles          = @()
+                ESPProfiles                 = @()
+                CloudPCProvisioningPolicies = @()
+                CloudPCUserSettings         = @()
             }
 
             # Function to process and display policy assignments
@@ -4050,6 +4300,48 @@ do {
                 }
                 $esp | Add-Member -NotePropertyName 'AssignmentSummary' -NotePropertyValue ($assignmentSummary -join "; ") -Force
                 $allPolicies.ESPProfiles += $esp
+            }
+
+            # Get Windows 365 Cloud PC Provisioning Policies
+            Write-Host "Fetching Windows 365 Cloud PC Provisioning Policies..." -ForegroundColor Yellow
+            try {
+                $cloudPCProvisioningPoliciesAll = Get-IntuneEntities -EntityType "virtualEndpoint/provisioningPolicies"
+                foreach ($policy in $cloudPCProvisioningPoliciesAll) {
+                    $assignments = Get-IntuneAssignments -EntityType "virtualEndpoint/provisioningPolicies" -EntityId $policy.id
+                    $assignmentSummary = $assignments | ForEach-Object {
+                        if ($_.Reason -eq "Group Assignment") {
+                            $groupInfo = Get-GroupInfo -GroupId $_.GroupId
+                            "$($_.Reason) - $($groupInfo.DisplayName)"
+                        }
+                        else { $_.Reason }
+                    }
+                    $policy | Add-Member -NotePropertyName 'AssignmentSummary' -NotePropertyValue ($assignmentSummary -join "; ") -Force
+                    $allPolicies.CloudPCProvisioningPolicies += $policy
+                }
+            }
+            catch {
+                Write-Warning "Unable to fetch Windows 365 Cloud PC Provisioning Policies: $($_.Exception.Message)"
+            }
+
+            # Get Windows 365 Cloud PC User Settings
+            Write-Host "Fetching Windows 365 Cloud PC User Settings..." -ForegroundColor Yellow
+            try {
+                $cloudPCUserSettingsAll = Get-IntuneEntities -EntityType "virtualEndpoint/userSettings"
+                foreach ($setting in $cloudPCUserSettingsAll) {
+                    $assignments = Get-IntuneAssignments -EntityType "virtualEndpoint/userSettings" -EntityId $setting.id
+                    $assignmentSummary = $assignments | ForEach-Object {
+                        if ($_.Reason -eq "Group Assignment") {
+                            $groupInfo = Get-GroupInfo -GroupId $_.GroupId
+                            "$($_.Reason) - $($groupInfo.DisplayName)"
+                        }
+                        else { $_.Reason }
+                    }
+                    $setting | Add-Member -NotePropertyName 'AssignmentSummary' -NotePropertyValue ($assignmentSummary -join "; ") -Force
+                    $allPolicies.CloudPCUserSettings += $setting
+                }
+            }
+            catch {
+                Write-Warning "Unable to fetch Windows 365 Cloud PC User Settings: $($_.Exception.Message)"
             }
 
             # Get Endpoint Security - Antivirus Policies
@@ -4318,6 +4610,8 @@ do {
             Process-PolicyAssignments -PolicyType "deviceHealthScripts" -Policies $allPolicies.HealthScripts -DisplayName "Proactive Remediation Scripts"
             Process-PolicyAssignments -PolicyType "windowsAutopilotDeploymentProfiles" -Policies $allPolicies.DeploymentProfiles -DisplayName "Autopilot Deployment Profiles"
             Process-PolicyAssignments -PolicyType "deviceEnrollmentConfigurations" -Policies $allPolicies.ESPProfiles -DisplayName "Enrollment Status Page Profiles"
+            Process-PolicyAssignments -PolicyType "virtualEndpoint/provisioningPolicies" -Policies $allPolicies.CloudPCProvisioningPolicies -DisplayName "Windows 365 Cloud PC Provisioning Policies"
+            Process-PolicyAssignments -PolicyType "virtualEndpoint/userSettings" -Policies $allPolicies.CloudPCUserSettings -DisplayName "Windows 365 Cloud PC User Settings"
             Process-PolicyAssignments -PolicyType "deviceManagementIntents" -Policies $allPolicies.AntivirusProfiles -DisplayName "Endpoint Security - Antivirus Profiles"
             Process-PolicyAssignments -PolicyType "deviceManagementIntents" -Policies $allPolicies.DiskEncryptionProfiles -DisplayName "Endpoint Security - Disk Encryption Profiles"
             Process-PolicyAssignments -PolicyType "deviceManagementIntents" -Policies $allPolicies.FirewallProfiles -DisplayName "Endpoint Security - Firewall Profiles"
@@ -4335,6 +4629,8 @@ do {
             Add-ExportData -ExportData $exportData -Category "Proactive Remediation Scripts" -Items $allPolicies.HealthScripts -AssignmentReason { param($item) $item.AssignmentSummary }
             Add-ExportData -ExportData $exportData -Category "Autopilot Deployment Profile" -Items $allPolicies.DeploymentProfiles -AssignmentReason { param($item) $item.AssignmentSummary }
             Add-ExportData -ExportData $exportData -Category "Enrollment Status Page" -Items $allPolicies.ESPProfiles -AssignmentReason { param($item) $item.AssignmentSummary }
+            Add-ExportData -ExportData $exportData -Category "Windows 365 Cloud PC Provisioning Policy" -Items $allPolicies.CloudPCProvisioningPolicies -AssignmentReason { param($item) $item.AssignmentSummary }
+            Add-ExportData -ExportData $exportData -Category "Windows 365 Cloud PC User Setting" -Items $allPolicies.CloudPCUserSettings -AssignmentReason { param($item) $item.AssignmentSummary }
             Add-ExportData -ExportData $exportData -Category "Endpoint Security - Antivirus" -Items $allPolicies.AntivirusProfiles -AssignmentReason { param($item) $item.AssignmentSummary }
             Add-ExportData -ExportData $exportData -Category "Endpoint Security - Disk Encryption" -Items $allPolicies.DiskEncryptionProfiles -AssignmentReason { param($item) $item.AssignmentSummary }
             Add-ExportData -ExportData $exportData -Category "Endpoint Security - Firewall" -Items $allPolicies.FirewallProfiles -AssignmentReason { param($item) $item.AssignmentSummary }

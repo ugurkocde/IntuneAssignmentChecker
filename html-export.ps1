@@ -499,6 +499,8 @@ function Export-HTMLReport {
         FirewallProfiles          = @()
         EndpointDetectionProfiles = @()
         AttackSurfaceProfiles     = @()
+        CloudPCProvisioningPolicies = @()
+        CloudPCUserSettings       = @()
     }
 
     # Fetch all policies
@@ -660,6 +662,46 @@ function Export-HTMLReport {
         }
     }
 
+    # Get Windows 365 Cloud PC Provisioning Policies
+    Write-Host "Fetching Windows 365 Cloud PC Provisioning Policies..." -ForegroundColor Yellow
+    try {
+        $cloudPCProvisioningPolicies = Get-IntuneEntities -EntityType "virtualEndpoint/provisioningPolicies"
+        foreach ($policy in $cloudPCProvisioningPolicies) {
+            $rawAssignments = Get-IntuneAssignments -EntityType "virtualEndpoint/provisioningPolicies" -EntityId $policy.id
+            $assignmentInfo = Get-AssignmentInfo -Assignments $rawAssignments
+            $policies.CloudPCProvisioningPolicies += @{
+                Name           = if (-not [string]::IsNullOrWhiteSpace($policy.displayName)) { $policy.displayName } else { $policy.name }
+                ID             = $policy.id
+                Type           = "Windows 365 Cloud PC Provisioning Policy"
+                AssignmentType = $assignmentInfo.Type
+                AssignedTo     = $assignmentInfo.Target
+            }
+        }
+    }
+    catch {
+        Write-Warning "Unable to fetch Windows 365 Cloud PC Provisioning Policies: $($_.Exception.Message)"
+    }
+
+    # Get Windows 365 Cloud PC User Settings
+    Write-Host "Fetching Windows 365 Cloud PC User Settings..." -ForegroundColor Yellow
+    try {
+        $cloudPCUserSettings = Get-IntuneEntities -EntityType "virtualEndpoint/userSettings"
+        foreach ($setting in $cloudPCUserSettings) {
+            $rawAssignments = Get-IntuneAssignments -EntityType "virtualEndpoint/userSettings" -EntityId $setting.id
+            $assignmentInfo = Get-AssignmentInfo -Assignments $rawAssignments
+            $policies.CloudPCUserSettings += @{
+                Name           = if (-not [string]::IsNullOrWhiteSpace($setting.displayName)) { $setting.displayName } else { $setting.name }
+                ID             = $setting.id
+                Type           = "Windows 365 Cloud PC User Setting"
+                AssignmentType = $assignmentInfo.Type
+                AssignedTo     = $assignmentInfo.Target
+            }
+        }
+    }
+    catch {
+        Write-Warning "Unable to fetch Windows 365 Cloud PC User Settings: $($_.Exception.Message)"
+    }
+
     # Endpoint Security Policies Fetching
     $endpointSecurityCategories = @(
         @{ Name = "Antivirus"; Key = "AntivirusProfiles"; TemplateFamily = "endpointSecurityAntivirus"; UserFriendlyType = "Antivirus Profile" },
@@ -783,6 +825,8 @@ function Export-HTMLReport {
         @{ Key = 'HealthScripts'; Name = 'Proactive Remediation Scripts' },
         @{ Key = 'DeploymentProfiles'; Name = 'Autopilot Deployment Profiles' },
         @{ Key = 'ESPProfiles'; Name = 'Enrollment Status Page Profiles' },
+        @{ Key = 'CloudPCProvisioningPolicies'; Name = 'Windows 365 Cloud PC Provisioning Policies' },
+        @{ Key = 'CloudPCUserSettings'; Name = 'Windows 365 Cloud PC User Settings' },
         @{ Key = 'AntivirusProfiles'; Name = 'Endpoint Security - Antivirus' },
         @{ Key = 'DiskEncryptionProfiles'; Name = 'Endpoint Security - Disk Encryption' },
         @{ Key = 'FirewallProfiles'; Name = 'Endpoint Security - Firewall' },
@@ -1023,7 +1067,7 @@ function Export-HTMLReport {
     var policyTypesChart = new Chart(ctx2, {
         type: 'bar',
         data: {
-            labels: ['Device Configs', 'Settings Catalog', 'Admin Templates', 'Compliance', 'App Protection', 'Autopilot Profiles', 'ESP Profiles', 'Scripts', 'Antivirus', 'Disk Encryption', 'Firewall', 'EDR', 'ASR'],
+            labels: ['Device Configs', 'Settings Catalog', 'Admin Templates', 'Compliance', 'App Protection', 'Autopilot Profiles', 'ESP Profiles', 'Windows 365 Provisioning', 'Windows 365 User Settings', 'Scripts', 'Antivirus', 'Disk Encryption', 'Firewall', 'EDR', 'ASR'],
             datasets: [{
                 label: 'Number of Policies',
                 data: [
@@ -1034,6 +1078,8 @@ function Export-HTMLReport {
                     $($policies.AppProtectionPolicies.Count),
                     $($policies.DeploymentProfiles.Count),
                     $($policies.ESPProfiles.Count),
+                    $($policies.CloudPCProvisioningPolicies.Count),
+                    $($policies.CloudPCUserSettings.Count),
                     ($($policies.PlatformScripts.Count) + $($policies.HealthScripts.Count)),
                     $($policies.AntivirusProfiles.Count),
                     $($policies.DiskEncryptionProfiles.Count),
@@ -1043,7 +1089,7 @@ function Export-HTMLReport {
                 ],
                 backgroundColor: [
                     '#4e73df', '#1cc88a', '#36b9cc', '#f6c23e', '#e74a3b', '#6f42c1', '#20c997',
-                    '#858796', '#5a5c69', '#f8f9fc', '#dddfeb', '#d1d3e2', '#b4b6c2'
+                    '#17a2b8', '#fd7e14', '#858796', '#5a5c69', '#f8f9fc', '#dddfeb', '#d1d3e2', '#b4b6c2'
                 ]
             }]
         },
