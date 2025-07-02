@@ -1,6 +1,31 @@
 #Requires -Version 7.0
 #Requires -Modules Microsoft.Graph.Authentication
 
+<#PSScriptInfo
+.VERSION 3.4.0
+.GUID c6e25ec6-5787-45ef-95af-8abeb8a17daf
+.AUTHOR ugurk
+.PROJECTURI https://github.com/ugurkocde/IntuneAssignmentChecker
+.DESCRIPTION
+This script enables IT administrators to efficiently analyze and audit Intune assignments. It checks assignments for specific users, groups, or devices, displays all policies and their assignments, identifies unassigned policies, detects empty groups in assignments, and searches for specific settings across policies.
+.RELEASENOTES
+Version 3.4.0:
+- NEW: Added "Show All Failed Assignments" feature (option 11) to display policy deployment failures
+- Added support for Windows 365 Cloud PC Provisioning Policies and User Settings
+- Updated HTML export to include these new policy types
+- Enhanced assignment checking functionality
+- Removed deprecated Administrative Templates option (was option 10)
+- Renumbered menu options: Compare Groups is now option 10
+
+Version 3.3.3:
+- Fixed HTML Export bug (#70)
+- Added display for Autopilot and Enrollment Status Page profiles
+
+Version 3.3.2:
+- Added support for Endpoint Security tab (Antivirus profiles, Disk Encryption, etc.)
+- Added Autopilot deployment profiles and ESP assignment checks
+#>
+
 param(
     [Parameter(Mandatory = $false, HelpMessage = "Check assignments for specific users")]
     [switch]$CheckUser,
@@ -41,6 +66,9 @@ param(
     [Parameter(Mandatory = $false, HelpMessage = "Show all Administrative Templates")]
     [switch]$ShowAdminTemplates,
     
+    [Parameter(Mandatory = $false, HelpMessage = "Show all failed assignments")]
+    [switch]$ShowFailedAssignments,
+    
     [Parameter(Mandatory = $false, HelpMessage = "Compare assignments between groups")]
     [switch]$CompareGroups,
     
@@ -80,8 +108,8 @@ elseif ($ShowAllDevicesAssignments) { $parameterMode = $true; $selectedOption = 
 elseif ($GenerateHTMLReport) { $parameterMode = $true; $selectedOption = '7' }
 elseif ($ShowPoliciesWithoutAssignments) { $parameterMode = $true; $selectedOption = '8' }
 elseif ($CheckEmptyGroups) { $parameterMode = $true; $selectedOption = '9' }
-elseif ($ShowAdminTemplates) { $parameterMode = $true; $selectedOption = '10' }
-elseif ($CompareGroups) { $parameterMode = $true; $selectedOption = '11' }
+elseif ($CompareGroups) { $parameterMode = $true; $selectedOption = '10' }
+elseif ($ShowFailedAssignments) { $parameterMode = $true; $selectedOption = '11' }
 
 <#
 .SYNOPSIS
@@ -818,6 +846,151 @@ function Get-AssignmentInfo {
     }
 }
 
+function Get-AssignmentFailures {
+    Write-Host "Fetching assignment failures..." -ForegroundColor Green
+    
+    $failedAssignments = [System.Collections.ArrayList]::new()
+    $headers = @{
+        'Authorization' = "Bearer $($global:graphApiToken)"
+        'Content-Type'  = 'application/json'
+    }
+    
+    # 1. Get App Install Failures
+    # Note: App installation status endpoint requires specific permissions and may not be available in all environments
+    <# Temporarily disabled due to endpoint availability
+    Write-Host "Checking app installation failures..." -ForegroundColor Yellow
+    try {
+        $reportBody = @{
+            filter = ""
+            select = @(
+                "DeviceName", "UserPrincipalName", "Platform", "AppVersion",
+                "InstallState", "InstallStateDetail", "ErrorCode", "HexErrorCode",
+                "ApplicationId", "AppInstallState", "AppInstallStateDetails",
+                "LastModifiedDateTime", "DeviceId", "UserId", "UserName"
+            )
+            skip = 0
+            top = 50
+        } | ConvertTo-Json
+        
+        $allAppFailures = @()
+        $skip = 0
+        
+        do {
+            $reportBody = @{
+                filter = ""
+                select = @(
+                    "DeviceName", "UserPrincipalName", "Platform", "AppVersion",
+                    "InstallState", "InstallStateDetail", "ErrorCode", "HexErrorCode",
+                    "ApplicationId", "AppInstallState", "AppInstallStateDetails",
+                    "LastModifiedDateTime", "DeviceId", "UserId", "UserName"
+                )
+                skip = $skip
+                top = 50
+            } | ConvertTo-Json
+            
+            $uri = "https://graph.microsoft.com/beta/deviceManagement/reports/getMobileApplicationManagementAppStatusReport"
+            $response = try {
+                Invoke-MgGraphRequest -Uri $uri -Method POST -Body $reportBody
+            } catch {
+                # If the new endpoint fails, try the alternative endpoint
+                $uri = "https://graph.microsoft.com/beta/deviceManagement/reports/getAppStatusOverviewReport"
+                Invoke-MgGraphRequest -Uri $uri -Method POST -Body $reportBody
+            }
+            
+            if ($response.values) {
+                $appFailures = $response.values | Where-Object {
+                    $_[6] -ne 0 -or  # ErrorCode
+                    $_[4] -eq "failed" -or  # InstallState
+                    $_[9] -eq "failed"  # AppInstallState
+                }
+                
+                foreach ($failure in $appFailures) {
+                    $allAppFailures += [PSCustomObject]@{
+                        Type = "App"
+                        PolicyName = "Application ID: $($failure[8])"  # ApplicationId
+                        Target = if ($failure[1]) { "User: $($failure[1])" } else { "Device: $($failure[0])" }
+                        ErrorCode = if ($failure[7]) { "Error: 0x$($failure[7])" } else { "Error: $($failure[6])" }  # HexErrorCode or ErrorCode
+                        ErrorDescription = if ($failure[5] -and $failure[10]) { "$($failure[5]) - $($failure[10])" } elseif ($failure[5]) { $failure[5] } elseif ($failure[10]) { $failure[10] } else { "Installation failed" }
+                        LastAttempt = $failure[11]  # LastModifiedDateTime
+                    }
+                }
+                $skip += 50
+            }
+        } while ($response.values -and $response.values.Count -eq 50)
+        
+        Write-Host "Found $($allAppFailures.Count) app installation failures" -ForegroundColor Green
+        $failedAssignments.AddRange($allAppFailures)
+    }
+    catch {
+        Write-Host "Error fetching app installation failures: $($_.Exception.Message)" -ForegroundColor Red
+    }
+    #>
+    
+    # 2. Get Device Configuration Policy Failures
+    Write-Host "Checking device configuration policy failures..." -ForegroundColor Yellow
+    try {
+        $configPoliciesUri = "https://graph.microsoft.com/beta/deviceManagement/deviceConfigurations"
+        $configPolicies = (Invoke-MgGraphRequest -Uri $configPoliciesUri -Method GET).value
+        
+        foreach ($policy in $configPolicies) {
+            $statusUri = "https://graph.microsoft.com/beta/deviceManagement/deviceConfigurations('$($policy.id)')/deviceStatuses"
+            $statuses = (Invoke-MgGraphRequest -Uri $statusUri -Method GET).value
+            
+            $failures = $statuses | Where-Object { 
+                $_.status -in @("error", "conflict", "notApplicable") -or
+                $_.complianceGracePeriodExpirationDateTime -and 
+                [DateTime]$_.complianceGracePeriodExpirationDateTime -lt [DateTime]::Now
+            }
+            
+            foreach ($failure in $failures) {
+                $null = $failedAssignments.Add([PSCustomObject]@{
+                        Type             = "Device Configuration"
+                        PolicyName       = $policy.displayName
+                        Target           = "Device: $($failure.deviceDisplayName)"
+                        ErrorCode        = "$($failure.status)"
+                        ErrorDescription = if ($failure.userPrincipalName) { "$($failure.userPrincipalName)" } else { "No additional details" }
+                        LastAttempt      = $failure.lastReportedDateTime
+                    })
+            }
+        }
+    }
+    catch {
+        Write-Host "Error fetching device configuration failures: $($_.Exception.Message)" -ForegroundColor Red
+    }
+    
+    # 3. Get Compliance Policy Failures
+    Write-Host "Checking compliance policy failures..." -ForegroundColor Yellow
+    try {
+        $compliancePoliciesUri = "https://graph.microsoft.com/beta/deviceManagement/deviceCompliancePolicies"
+        $compliancePolicies = (Invoke-MgGraphRequest -Uri $compliancePoliciesUri -Method GET).value
+        
+        foreach ($policy in $compliancePolicies) {
+            $statusUri = "https://graph.microsoft.com/beta/deviceManagement/deviceCompliancePolicies('$($policy.id)')/deviceStatuses"
+            $statuses = (Invoke-MgGraphRequest -Uri $statusUri -Method GET).value
+            
+            $failures = $statuses | Where-Object { 
+                $_.status -in @("error", "conflict", "notApplicable", "nonCompliant")
+            }
+            
+            foreach ($failure in $failures) {
+                $null = $failedAssignments.Add([PSCustomObject]@{
+                        Type             = "Compliance Policy"
+                        PolicyName       = $policy.displayName
+                        Target           = "Device: $($failure.deviceDisplayName)"
+                        ErrorCode        = "$($failure.status)"
+                        ErrorDescription = if ($failure.userPrincipalName) { "$($failure.userPrincipalName)" } else { "No additional details" }
+                        LastAttempt      = $failure.lastReportedDateTime
+                    })
+            }
+        }
+    }
+    catch {
+        Write-Host "Error fetching compliance policy failures: $($_.Exception.Message)" -ForegroundColor Red
+    }
+    
+    return $failedAssignments
+}
+
 function Show-SaveFileDialog {
     param (
         [string]$DefaultFileName
@@ -958,8 +1131,8 @@ function Show-Menu {
     Write-Host "  [7] Generate HTML Report" -ForegroundColor White
     Write-Host "  [8] Show Policies Without Assignments" -ForegroundColor White
     Write-Host "  [9] Check for Empty Groups in Assignments" -ForegroundColor White
-    Write-Host "  [10] Show all Administrative Templates (deprecates in December 2024)" -ForegroundColor Yellow
-    Write-Host "  [11] Compare Assignments Between Groups" -ForegroundColor White
+    Write-Host "  [10] Compare Assignments Between Groups" -ForegroundColor White
+    Write-Host "  [11] Show All Failed Assignments" -ForegroundColor White
     Write-Host ""
     
     Write-Host "System:" -ForegroundColor Cyan
@@ -6702,98 +6875,6 @@ do {
             Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneEmptyGroupAssignments.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath
         }
         '10' {
-            Write-Host "⚠️  WARNING: Administrative Templates will be deprecated in December 2024" -ForegroundColor Yellow
-            Write-Host "Microsoft recommends migrating to Settings Catalog" -ForegroundColor Yellow
-            Write-Host ""
-            Write-Host "Fetching all Administrative Templates..." -ForegroundColor Green
-            $exportData = [System.Collections.ArrayList]::new()
-
-            # Get Administrative Templates
-            $adminTemplates = Get-IntuneEntities -EntityType "groupPolicyConfigurations"
-            
-            if ($adminTemplates.Count -eq 0) {
-                Write-Host "No Administrative Templates found" -ForegroundColor Gray
-            }
-            else {
-                # Process each template and its assignments
-                foreach ($template in $adminTemplates) {
-                    $assignments = Get-IntuneAssignments -EntityType "groupPolicyConfigurations" -EntityId $template.id
-                    $assignmentSummary = $assignments | ForEach-Object {
-                        if ($_.Reason -eq "Group Assignment") {
-                            $groupInfo = Get-GroupInfo -GroupId $_.GroupId
-                            "$($_.Reason) - $($groupInfo.DisplayName)"
-                        }
-                        else {
-                            $_.Reason
-                        }
-                    }
-                    $template | Add-Member -NotePropertyName 'AssignmentSummary' -NotePropertyValue ($assignmentSummary -join "; ") -Force
-                }
-
-                # Display results in a table format
-                Write-Host "`n------- Administrative Templates -------" -ForegroundColor Cyan
-                
-                # Create table header
-                $headerFormat = "{0,-50} {1,-40} {2,-50}" -f "Template Name", "Template ID", "Assignments"
-                $separator = "-" * 140
-                
-                Write-Host $separator
-                Write-Host $headerFormat -ForegroundColor Yellow
-                Write-Host $separator
-                
-                foreach ($template in $adminTemplates) {
-                    $templateName = if ([string]::IsNullOrWhiteSpace($template.name)) { 
-                        $template.displayName 
-                    }
-                    else { 
-                        $template.name 
-                    }
-                    
-                    # Truncate long names and add ellipsis
-                    if ($templateName.Length -gt 47) {
-                        $templateName = $templateName.Substring(0, 44) + "..."
-                    }
-                    
-                    # Format ID
-                    $id = $template.id
-                    if ($id.Length -gt 37) {
-                        $id = $id.Substring(0, 34) + "..."
-                    }
-                    
-                    # Format assignment summary
-                    $assignments = if ($template.AssignmentSummary) { 
-                        $template.AssignmentSummary 
-                    }
-                    else { 
-                        "No Assignments" 
-                    }
-                    if ($assignments.Length -gt 47) {
-                        $assignments = $assignments.Substring(0, 44) + "..."
-                    }
-                    
-                    # Output formatted row
-                    $rowFormat = "{0,-50} {1,-40} {2,-50}" -f $templateName, $id, $assignments
-                    Write-Host $rowFormat -ForegroundColor White
-                    
-                    # Add to export data
-                    Add-ExportData -ExportData $exportData -Category "Administrative Template" -Items @($template) -AssignmentReason $template.AssignmentSummary
-                }
-                
-                Write-Host $separator
-                
-                # Display summary
-                Write-Host "`nSummary:" -ForegroundColor Cyan
-                Write-Host "Total Administrative Templates: $($adminTemplates.Count)" -ForegroundColor White
-                $assignedCount = ($adminTemplates | Where-Object { $_.AssignmentSummary }).Count
-                $unassignedCount = $adminTemplates.Count - $assignedCount
-                Write-Host "Templates with assignments: $assignedCount" -ForegroundColor White
-                Write-Host "Templates without assignments: $unassignedCount" -ForegroundColor White
-                
-                # Export results if requested
-                Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneAdministrativeTemplates.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath
-            }
-        }
-        '11' {
             Write-Host "Compare Group Assignments chosen" -ForegroundColor Green
 
             # Get Group names to compare from parameter or prompt
@@ -7228,6 +7309,50 @@ do {
                     $comparisonResults | Export-Csv -Path $exportPath -NoTypeInformation
                     Write-Host "Results exported to $exportPath" -ForegroundColor Green
                 }
+            }
+        }
+
+        '11' {
+            Write-Host "Fetching all failed assignments..." -ForegroundColor Green
+            $exportData = [System.Collections.ArrayList]::new()
+            
+            # Get all failed assignments
+            $failedAssignments = Get-AssignmentFailures
+            
+            if ($failedAssignments.Count -eq 0) {
+                Write-Host "`nNo assignment failures found!" -ForegroundColor Green
+            }
+            else {
+                Write-Host "`nFound $($failedAssignments.Count) assignment failures:" -ForegroundColor Yellow
+                
+                # Group by type for better display
+                $groupedFailures = $failedAssignments | Group-Object -Property Type
+                
+                foreach ($group in $groupedFailures) {
+                    Write-Host "`n=== $($group.Name) Failures ($($group.Count)) ===" -ForegroundColor Cyan
+                    
+                    foreach ($failure in $group.Group) {
+                        Write-Host "`nPolicy: $($failure.PolicyName)" -ForegroundColor White
+                        Write-Host "Device: $($failure.Target -replace 'Device: ', '')" -ForegroundColor Gray
+                        Write-Host "Reason: $($failure.ErrorCode)" -ForegroundColor White
+                        if ($failure.LastAttempt -and $failure.LastAttempt -ne "01/01/0001 00:00:00") {
+                            Write-Host "Last Attempt: $($failure.LastAttempt)" -ForegroundColor Gray
+                        }
+                        
+                        # Add to export data
+                        $null = $exportData.Add([PSCustomObject]@{
+                                Type             = $failure.Type
+                                PolicyName       = $failure.PolicyName
+                                Target           = $failure.Target
+                                ErrorCode        = $failure.ErrorCode
+                                ErrorDescription = $failure.ErrorDescription
+                                LastAttempt      = $failure.LastAttempt
+                            })
+                    }
+                }
+                
+                # Export if requested
+                Export-ResultsIfRequested -ExportData $exportData -ExportPath $ExportPath -ForceExport:$false
             }
         }
 
