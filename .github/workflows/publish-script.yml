@@ -14,4 +14,4 @@ jobs:
         shell: pwsh
         run: |
           $env:PSGalleryApiKey = "${{ secrets.NUGET_KEY }}"
-          Publish-Script -Path ./IntuneAssignmentChecker_v3.ps1 -Repository PSGallery -NuGetApiKey $env:PSGalleryApiKey
+          Publish-Script -Path ./IntuneAssignmentChecker.ps1 -Repository PSGallery -NuGetApiKey $env:PSGalleryApiKey
