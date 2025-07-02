@@ -3360,7 +3360,7 @@ do {
                     foreach ($assignment in $assignments) {
                         if ($assignment.Reason -ne "All Users" -and
                             ($assignment.Reason -eq "All Devices" -or
-                             ($assignment.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignment.GroupId))) {
+                            ($assignment.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignment.GroupId))) {
                             $config | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignment.Reason -Force
                             $relevantPolicies.DeviceConfigs += $config
                             break
@@ -3376,7 +3376,7 @@ do {
                     foreach ($assignment in $assignments) {
                         if ($assignment.Reason -ne "All Users" -and
                             ($assignment.Reason -eq "All Devices" -or
-                             ($assignment.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignment.GroupId))) {
+                            ($assignment.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignment.GroupId))) {
                             $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignment.Reason -Force
                             $relevantPolicies.SettingsCatalog += $policy
                             break
@@ -3392,7 +3392,7 @@ do {
                     foreach ($assignment in $assignments) {
                         if ($assignment.Reason -ne "All Users" -and
                             ($assignment.Reason -eq "All Devices" -or
-                             ($assignment.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignment.GroupId))) {
+                            ($assignment.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignment.GroupId))) {
                             $template | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignment.Reason -Force
                             $relevantPolicies.AdminTemplates += $template
                             break
@@ -3408,7 +3408,7 @@ do {
                     foreach ($assignment in $assignments) {
                         if ($assignment.Reason -ne "All Users" -and
                             ($assignment.Reason -eq "All Devices" -or
-                             ($assignment.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignment.GroupId))) {
+                            ($assignment.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignment.GroupId))) {
                             $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignment.Reason -Force
                             $relevantPolicies.CompliancePolicies += $policy
                             break
@@ -3489,7 +3489,7 @@ do {
                     foreach ($assignment in $assignments) {
                         if ($assignment.Reason -ne "All Users" -and
                             ($assignment.Reason -eq "All Devices" -or
-                             ($assignment.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignment.GroupId))) {
+                            ($assignment.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignment.GroupId))) {
                             $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignment.Reason -Force
                             $relevantPolicies.AppConfigurationPolicies += $policy
                             break
@@ -3505,7 +3505,7 @@ do {
                     foreach ($assignment in $assignments) {
                         if ($assignment.Reason -ne "All Users" -and
                             ($assignment.Reason -eq "All Devices" -or
-                             ($assignment.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignment.GroupId))) {
+                            ($assignment.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignment.GroupId))) {
                             $script | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignment.Reason -Force
                             $relevantPolicies.PlatformScripts += $script
                             break
@@ -3521,7 +3521,7 @@ do {
                     foreach ($assignment in $assignments) {
                         if ($assignment.Reason -ne "All Users" -and
                             ($assignment.Reason -eq "All Devices" -or
-                             ($assignment.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignment.GroupId))) {
+                            ($assignment.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignment.GroupId))) {
                             $script | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignment.Reason -Force
                             $relevantPolicies.HealthScripts += $script
                             break
