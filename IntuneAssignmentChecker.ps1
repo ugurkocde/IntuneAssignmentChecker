@@ -2,13 +2,16 @@
 #Requires -Modules Microsoft.Graph.Authentication
 
 <#PSScriptInfo
-.VERSION 3.4.0
+.VERSION 3.4.1
 .GUID c6e25ec6-5787-45ef-95af-8abeb8a17daf
 .AUTHOR ugurk
 .PROJECTURI https://github.com/ugurkocde/IntuneAssignmentChecker
 .DESCRIPTION
 This script enables IT administrators to efficiently analyze and audit Intune assignments. It checks assignments for specific users, groups, or devices, displays all policies and their assignments, identifies unassigned policies, detects empty groups in assignments, and searches for specific settings across policies.
 .RELEASENOTES
+Version 3.4.1:
+- Updated release date
+
 Version 3.4.0:
 - NEW: Added "Show All Failed Assignments" feature (option 11) to display policy deployment failures
 - Added support for Windows 365 Cloud PC Provisioning Policies and User Settings
@@ -204,13 +207,6 @@ elseif ($ShowFailedAssignments) { $parameterMode = $true; $selectedOption = '11'
     Sponsor: https://github.com/sponsors/ugurkocde
     Changelog: https://github.com/ugurkocde/IntuneAssignmentChecker/releases
 
-.CHANGELOG
-    v3.4.0 (2025-06-23)
-    - Added support for Windows 365 Cloud PC Provisioning Policies
-    - Added support for Windows 365 Cloud PC User Settings
-    - Updated HTML export to include Windows 365 policies
-    - Both policy types are now fetched and displayed in all assignment checking options
-
 .REQUIRED PERMISSIONS
     - User.Read.All                    (Read user profiles)
     - Group.Read.All                   (Read group information)
@@ -232,12 +228,12 @@ $certThumbprint = if ($CertificateThumbprint) { $CertificateThumbprint } else { 
 ####################################################################################################
 
 # Version of the local script
-$localVersion = "3.4.0"
+$localVersion = "3.4.1"
 
 Write-Host "🔍 INTUNE ASSIGNMENT CHECKER" -ForegroundColor Cyan
 Write-Host "Made by Ugur Koc with" -NoNewline; Write-Host " ❤️  and ☕" -NoNewline
 Write-Host " | Version" -NoNewline; Write-Host " $localVersion" -ForegroundColor Yellow -NoNewline
-Write-Host " | Last updated: " -NoNewline; Write-Host "2025-06-06" -ForegroundColor Magenta
+Write-Host " | Last updated: " -NoNewline; Write-Host "2025-07-02" -ForegroundColor Magenta
 Write-Host ""
 Write-Host "📢 Feedback & Issues: " -NoNewline -ForegroundColor Cyan
 Write-Host "https://github.com/ugurkocde/IntuneAssignmentChecker/issues" -ForegroundColor White
