@@ -78,6 +78,15 @@ param(
     [Parameter(Mandatory = $false, HelpMessage = "Groups to compare assignments between, comma-separated")]
     [string]$CompareGroupNames,
     
+    [Parameter(Mandatory = $false, HelpMessage = "Show app install summary report")]
+    [switch]$ShowAppInstallSummary,
+    
+    [Parameter(Mandatory = $false, HelpMessage = "Show compliance policy device summary")]
+    [switch]$ShowComplianceSummary,
+    
+    [Parameter(Mandatory = $false, HelpMessage = "Show configuration policy device summary")]
+    [switch]$ShowConfigurationSummary,
+    
     [Parameter(Mandatory = $false, HelpMessage = "Export results to CSV")]
     [switch]$ExportToCSV,
     
@@ -113,6 +122,9 @@ elseif ($ShowPoliciesWithoutAssignments) { $parameterMode = $true; $selectedOpti
 elseif ($CheckEmptyGroups) { $parameterMode = $true; $selectedOption = '9' }
 elseif ($CompareGroups) { $parameterMode = $true; $selectedOption = '10' }
 elseif ($ShowFailedAssignments) { $parameterMode = $true; $selectedOption = '11' }
+elseif ($ShowAppInstallSummary) { $parameterMode = $true; $selectedOption = '12' }
+elseif ($ShowComplianceSummary) { $parameterMode = $true; $selectedOption = '14' }
+elseif ($ShowConfigurationSummary) { $parameterMode = $true; $selectedOption = '16' }
 
 <#
 .SYNOPSIS
@@ -987,6 +999,628 @@ function Get-AssignmentFailures {
     return $failedAssignments
 }
 
+# New deployment metrics functions
+function Get-AppsInstallSummaryReport {
+    param (
+        [string]$Search = ""
+    )
+
+    $body = @{
+        search = $Search
+    } | ConvertTo-Json
+    
+    try {
+        $response = Invoke-MgGraphRequest -Uri "beta/deviceManagement/reports/microsoft.graph.getAppsInstallSummaryReport" `
+            -Method "POST" `
+            -ContentType "application/json" `
+            -Body $body `
+            -OutputType HttpResponseMessage `
+            -ErrorAction Stop
+
+        $content = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+        $parsed = $content | ConvertFrom-Json
+                
+        if ($parsed -and $parsed.Values) {
+            $schema = $parsed.Schema
+            $rows = $parsed.Values
+            $results = @()
+                    
+            # Convert rows to objects
+            foreach ($row in $rows) {
+                $props = @{}
+                for ($i = 0; $i -lt $schema.Count; $i++) {
+                    $columnName = $schema[$i].Column
+                    $value = $row[$i]
+                    $props[$columnName] = $value
+                }
+                        
+                # Calculate total devices and success rate for apps
+                $installed = [int64]$props.InstalledDeviceCount
+                $failed = [int64]$props.FailedDeviceCount
+                $pending = [int64]$props.PendingInstallDeviceCount
+                $notInstalled = [int64]$props.NotInstalledDeviceCount
+                $notApplicable = [int64]$props.NotApplicableDeviceCount
+                
+                # Total devices that received the app (excluding NotApplicable)
+                $totalTargeted = $installed + $failed + $pending + $notInstalled
+                
+                $props.TotalCount = $totalTargeted
+                $props.InstalledCount = $installed
+                $props.FailedCount = $failed
+                $props.PendingCount = $pending
+                $props.SuccessRate = if ($totalTargeted -gt 0) {
+                    [Math]::Round(($installed / $totalTargeted) * 100, 2)
+                } else { 0 }
+                        
+                $results += [PSCustomObject]$props
+            }
+            
+            return $results
+        } else {
+            Write-Warning "No data returned from app install summary report"
+            return $null
+        }
+    } catch {
+        Write-Warning "Error returning app install summary report for AppId: $AppId - $($_.Exception.Message)"
+        return $null
+    }
+}
+
+function Get-CompliancePolicyDeviceSummaryReport {
+    param(
+        [string]$CompliancePolicyId,
+        [string]$CompliancePolicyName,
+        [ValidateSet('Windows', 'iOS', 'Android', 'macOS', 'All')]
+        [string]$Platform = 'All',
+        [string]$ExportPath,
+        [switch]$IncludeAllPolicies
+    )
+    
+    try {
+        $objectsToProcess = @()
+        
+        # Get all objects if requested
+        if ($IncludeAllPolicies) {
+            Write-Verbose "Retrieving all compliance objects"
+            $uri = "/beta/deviceManagement/deviceCompliancePolicies"
+            $allPoliciesResponse = Invoke-MgGraphRequest -Method GET -Uri $uri
+            $objectsToProcess = $allPoliciesResponse.value | ForEach-Object {
+                @{
+                    Id = $_.id
+                    Name = $_.displayName
+                    Platform = $_.'@odata.type' -replace '.*\.', ''
+                }
+            }
+        }
+        # Resolve object ID if name is provided
+        elseif ($CompliancePolicyName) {
+            Write-Verbose "Resolving object ID for object name: $CompliancePolicyName"
+            $uri = "$GraphEndpoint/beta/deviceManagement/deviceCompliancePolicies?`$filter=displayName eq '$CompliancePolicyName'"
+            $objectResponse = Invoke-MgGraphRequest -Method GET -Uri $uri
+            
+            if ($objectResponse.value.Count -eq 0) {
+                throw "No compliance object found with name: $CompliancePolicyName"
+            }
+            elseif ($objectResponse.value.Count -gt 1) {
+                throw "Multiple compliance objects found with name: $CompliancePolicyName. Please use CompliancePolicyId parameter instead."
+            }
+            
+            $object = $objectResponse.value[0]
+            $objectsToProcess = @(@{
+                Id = $object.id
+                Name = $object.displayName
+                Platform = $object.'@odata.type' -replace '.*\.', ''
+            })
+        }
+        # Use provided object ID
+        elseif ($CompliancePolicyId) {
+            # Get object details
+            $uri = "$GraphEndpoint/beta/deviceManagement/deviceCompliancePolicies('$CompliancePolicyId')"
+            try {
+                $object = Invoke-MgGraphRequest -Method GET -Uri $uri
+                $objectsToProcess = @(@{
+                    Id = $object.id
+                    Name = $object.displayName
+                    Platform = $object.'@odata.type' -replace '.*\.', ''
+                })
+            }
+            catch {
+                Write-Warning "Could not retrieve object details for ID: $CompliancePolicyId. Will proceed with report."
+                $objectsToProcess = @(@{
+                    Id = $CompliancePolicyId
+                    Name = "Unknown Object"
+                    Platform = "Unknown"
+                })
+            }
+        }
+        else {
+            throw "Please specify either CompliancePolicyId, CompliancePolicyName, or use -IncludeAllPolicies"
+        }
+        
+        # Build platform filter
+        $platformFilter = switch ($Platform) {
+            'Windows' { "((OS eq 'Windows') or (OS eq 'Windows10x') or (OS eq 'WindowsMobile') or (OS eq 'WindowsHolographic'))" }
+            'iOS' { "(OS eq 'iOS')" }
+            'Android' { "((OS eq 'Android') or (OS eq 'AndroidEnterprise') or (OS eq 'AndroidWork'))" }
+            'macOS' { "(OS eq 'macOS')" }
+            'All' { $null }
+        }
+        
+        $allResults = @()
+        
+        foreach ($objectInfo in $objectsToProcess) {
+            Write-Verbose "Processing object: $($objectInfo.Name) ($($objectInfo.Id))"
+            
+            # Build filter
+            $filters = @("(PolicyId eq '$($objectInfo.Id)')")
+            if ($platformFilter) {
+                $filters += $platformFilter
+            }
+            $filter = $filters -join ' and '
+            
+            # Prepare request parameters
+            $params = @{
+                filter = $filter
+                skip = 0
+                top = 50
+                select = @()
+                orderBy = @()
+                search = ""
+            }
+            
+            $body = $params | ConvertTo-Json -Depth 10
+            
+            # Note: The Microsoft URI has a typo in "Compliace" which should be "Compliance" but it's the actual endpoint
+            $response = Invoke-MgGraphRequest -Method POST `
+                -Uri "$GraphEndpoint/beta/deviceManagement/reports/microsoft.graph.getDeviceStatusSummaryByCompliacePolicyReport" `
+                -Body $body `
+                -OutputType HttpResponseMessage
+            
+            $content = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+            $parsed = $content | ConvertFrom-Json
+            
+            if ($parsed -and $parsed.Values) {
+                $schema = $parsed.Schema
+                $rows = $parsed.Values
+                
+                # Convert rows to CompliancePolicy objects
+                foreach ($row in $rows) {
+                    $props = @{
+                        CompliancePolicyName = $objectInfo.Name
+                    }
+                    for ($i = 0; $i -lt $schema.Count; $i++) {
+                        $columnName = $schema[$i].Column
+                        $value = $row[$i]
+                        $props[$columnName] = $value
+                    }
+                    
+                    # Calculate total devices and compliance rate
+                    $compliant = [int64]$props.NumberOfCompliantDevices
+                    $nonCompliant = [int64]$props.NumberOfNonCompliantDevices
+                    $other = [int64]$props.NumberOfOtherDevices
+                    $total = $compliant + $nonCompliant + $other
+                    
+                    $props.TotalDevices = $total
+                    $props.ComplianceRate = if ($total -gt 0) {
+                        [Math]::Round(($compliant / $total) * 100, 2)
+                    } else { 0 }
+                    
+                    $allResults += [PSCustomObject]$props
+                }
+            }
+        }
+        
+        return $allResults
+    }
+    catch {
+        Write-Error "Failed to generate compliance report: $_"
+        return $null
+    }
+}
+
+function Get-ConfigurationPolicyDeviceSummaryReport {
+    [CmdletBinding()]
+    param(
+        [string]$ConfigurationPolicyId,
+        [string]$ConfigurationPolicyName,
+        [ValidateSet('Windows', 'iOS', 'Android', 'macOS', 'All')]
+        [string]$Platform = 'All',
+        [string]$ExportPath,
+        [switch]$IncludeAllPolicies
+    )
+    
+    try {
+        $ConfigurationPoliciesToProcess = @()
+
+        # Get all objects if requested
+        if ($IncludeAllPolicies) {
+            Write-Host "`nPlease wait while retrieving all configuration policies..." -ForegroundColor Yellow
+            $allPolicies = @()
+            
+            # Get Device Configurations using Get-IntuneEntities
+            Write-Verbose "Fetching device configurations"
+            $deviceConfigs = Get-IntuneEntities -EntityType "deviceConfigurations"
+            Write-Verbose "Found $($deviceConfigs.Count) device configurations"
+            foreach ($config in $deviceConfigs) {
+                $allPolicies += @{
+                    Id = $config.id
+                    Name = $config.displayName
+                    Type = "DeviceConfiguration"
+                    Platform = switch -Regex ($config.'@odata.type' -replace '.*\.', '') {
+                        'windows' { 'Windows' }
+                        'macOS' { 'macOS' }
+                        'ios' { 'iOS' }
+                        'android' { 'Android' }
+                        default { 'Unknown' }
+                    }
+                }
+            }
+            
+            # Get Settings Catalog policies using Get-IntuneEntities
+            Write-Verbose "Fetching settings catalog policies"
+            $settingsCatalog = Get-IntuneEntities -EntityType "configurationPolicies"
+            Write-Verbose "Found $($settingsCatalog.Count) settings catalog policies"
+            foreach ($policy in $settingsCatalog) {
+                $allPolicies += @{
+                    Id = $policy.id
+                    Name = $policy.name
+                    Type = "SettingsCatalog"
+                    Platform = switch -Regex ($policy.platforms) {
+                        'windows' { 'Windows' }
+                        'macOS' { 'macOS' }
+                        'iOS' { 'iOS' }
+                        'android' { 'Android' }
+                        default { 'Unknown' }
+                    }
+                }
+            }
+            
+            $ConfigurationPoliciesToProcess = $allPolicies
+            Write-Verbose "Total policies to process: $($ConfigurationPoliciesToProcess.Count)"
+        }
+        # Resolve ConfigurationPolicy ID if name is provided
+        elseif ($ConfigurationPolicyName) {
+            Write-Verbose "Resolving ID for ConfigurationPolicy: $ConfigurationPolicyName"
+            $ConfigurationPolicy = $null
+            $policyType = $null
+            # Try device configurations first
+            Write-Verbose "Searching device configurations for: $ConfigurationPolicyName"
+            $ConfigurationPolicy = @(Get-IntuneEntities -EntityType "deviceConfigurations" -Filter "displayName eq '$ConfigurationPolicyName'")
+            Write-Verbose "Device configurations found: $($ConfigurationPolicy.Count)"
+            $policyType = "DeviceConfiguration"
+            if ($ConfigurationPolicy.Count -eq 0) {
+                # Try settings catalog
+                Write-Verbose "Searching settings catalog for: $ConfigurationPolicyName"
+                $ConfigurationPolicy = @(Get-IntuneEntities -EntityType "configurationPolicies" -Filter "name eq '$ConfigurationPolicyName'")
+                Write-Verbose "Settings catalog policies found: $($ConfigurationPolicy.Count)"
+                $policyType = "SettingsCatalog"
+            } elseif ($ConfigurationPolicy.Count -gt 1) {
+                throw "Multiple configuration policies found with name: $ConfigurationPolicyName. Please use ConfigurationPolicyId parameter instead."
+            }
+            
+            if ($null -eq $ConfigurationPolicy) {
+                throw "No configuration policy found with name: $ConfigurationPolicyName"
+            }
+            
+            Write-Verbose "Found policy: $($ConfigurationPolicy.displayName ?? $ConfigurationPolicy.name) (ID: $($ConfigurationPolicy.id))"
+            $ConfigurationPoliciesToProcess = @(@{
+                Id = $ConfigurationPolicy.id
+                Name = $ConfigurationPolicy.displayName ?? $ConfigurationPolicy.name
+                Type = $policyType
+                Platform = if ($policyType -eq 'SettingsCatalog') {
+                    switch -Regex ($ConfigurationPolicy.platforms) {
+                        'windows' { 'Windows' }
+                        'macOS' { 'macOS' }
+                        'iOS' { 'iOS' }
+                        'android' { 'Android' }
+                        default { 'Unknown' }
+                    }
+                } else {
+                    switch -Regex ($ConfigurationPolicy.'@odata.type' -replace '.*\.', '') {
+                        'windows' { 'Windows' }
+                        'macOS' { 'macOS' }
+                        'ios' { 'iOS' }
+                        'android' { 'Android' }
+                        default { 'Unknown' }
+                    }
+                }
+            })
+            Write-Verbose "Policy type: $($ConfigurationPoliciesToProcess.Type), Platform: $($ConfigurationPoliciesToProcess.Platform)"
+        }elseif ($ConfigurationPolicyId) {
+            Write-Verbose "Looking up configuration policy by ID: $ConfigurationPolicyId"
+            # Try to get ConfigurationPolicy details
+            $ConfigurationPolicy = $null
+            try {
+                $uri = "$GraphEndpoint/beta/deviceManagement/deviceConfigurations('$ConfigurationPolicyId')"
+                Write-Verbose "Trying device configuration endpoint: $uri"
+                $ConfigurationPolicy = Invoke-MgGraphRequest -Method GET -Uri $uri
+                $type = "DeviceConfiguration"
+                Write-Verbose "Found as device configuration"
+            } catch {
+                Write-Verbose "Not found in device configurations, trying settings catalog"
+                # Try settings catalog
+                try {
+                    $uri = "$GraphEndpoint/beta/deviceManagement/configurationPolicies('$ConfigurationPolicyId')"
+                    Write-Verbose "Trying settings catalog endpoint: $uri"
+                    $ConfigurationPolicy = Invoke-MgGraphRequest -Method GET -Uri $uri
+                    $type = "SettingsCatalog"
+                    Write-Verbose "Found as settings catalog policy"
+                } catch {
+                    Write-Verbose "Policy not found in either location"
+                    throw "Configuration policy not found with ID: $ConfigurationPolicyId"
+                }
+            }
+            
+            $ConfigurationPoliciesToProcess = @(@{
+                Id = $ConfigurationPolicy.id
+                Name = $ConfigurationPolicy.displayName ?? $ConfigurationPolicy.name
+                Type = $type
+                Platform = if ($type -eq 'SettingsCatalog') {
+                    switch -Regex ($ConfigurationPolicy.platforms) {
+                        'windows' { 'Windows' }
+                        'macOS' { 'macOS' }
+                        'iOS' { 'iOS' }
+                        'android' { 'Android' }
+                        default { 'Unknown' }
+                    }
+                } else {
+                    $ConfigurationPolicy.'@odata.type' -replace '.*\.', ''
+                }
+            })
+        }else {
+            throw "Please specify either ConfigurationPolicyId, ConfigurationPolicyName, or use -IncludeAllPolicies"
+        }
+        
+        # Filter by platform if specified
+        if ($Platform -ne 'All') {
+            Write-Verbose "Filtering policies by platform: $Platform"
+            $beforeCount = $ConfigurationPoliciesToProcess.Count
+            $ConfigurationPoliciesToProcess = $ConfigurationPoliciesToProcess | Where-Object {
+                $_.Platform -match $Platform
+            }
+            Write-Verbose "Policies after platform filter: $($ConfigurationPoliciesToProcess.Count) (filtered out $($beforeCount - $ConfigurationPoliciesToProcess.Count))"
+        }
+        
+        if ($ConfigurationPoliciesToProcess.Count -eq 0) {
+            Write-Warning "No configuration policies found for the specified criteria"
+            Write-Verbose "Exiting function - no policies to process"
+            return $null
+        }
+        
+        Write-Verbose "Starting to process $($ConfigurationPoliciesToProcess.Count) configuration policies"
+        
+        $allResults = @()
+        
+        foreach ($ConfigurationPolicyInfo in $ConfigurationPoliciesToProcess) {
+            Write-Verbose "Processing policy: $($ConfigurationPolicyInfo.Name) ($($ConfigurationPolicyInfo.Id))"
+            
+            # Build filter based on ConfigurationPolicy type
+            $policyFilter = if ($ConfigurationPolicyInfo.Type -eq 'SettingsCatalog') {
+                "(PolicyBaseTypeName eq 'DeviceManagementConfigurationPolicy')"
+            } else {
+                "((PolicyBaseTypeName eq 'Microsoft.Management.Services.Api.DeviceConfiguration') or (PolicyBaseTypeName eq 'DeviceConfigurationAdmxPolicy'))"
+            }
+            Write-Verbose "Using policy filter: $policyFilter"
+            
+            # Prepare request parameters
+            $params = @{
+                filter = "($policyFilter) and (PolicyId eq '$($ConfigurationPolicyInfo.Id)')"
+                skip = 0
+                top = 50
+                select = @()
+                orderBy = @()
+                search = ""
+            }
+            Write-Verbose "Request filter: $($params.filter)"
+            
+            $body = $params | ConvertTo-Json -Depth 10
+            Write-Verbose "Request body: $body"
+            
+            try {
+                $uri = "$GraphEndpoint/beta/deviceManagement/reports/getConfigurationPolicyDeviceSummaryReport"
+                Write-Verbose "Calling API: $uri"
+                $response = Invoke-MgGraphRequest -Method POST `
+                    -Uri $uri `
+                    -Body $body `
+                    -ContentType "application/json" `
+                    -OutputType HttpResponseMessage
+                
+                if ($null -eq $response) {
+                    Write-Warning "No response received from API for policy: $($ConfigurationPolicyInfo.Name)"
+                    Write-Verbose "Response was null"
+                    continue
+                }
+                
+                Write-Verbose "Response content length: $($response.Length) characters"
+                $parsed = $response | ConvertFrom-Json -Depth 10
+                
+                if ($parsed -and $parsed.Values) {
+                    $schema = $parsed.Schema
+                    $rows = $parsed.Values
+                    Write-Verbose "Retrieved $($rows.Count) rows for policy $($ConfigurationPolicyInfo.Name)"
+                    Write-Verbose "Schema columns: $($schema.Column -join ', ')"
+                    
+                    # Convert rows to ConfigurationPolicys
+                    foreach ($row in $rows) {
+                        $props = @{
+                            ConfigurationPolicyName = $ConfigurationPolicyInfo.Name
+                            ConfigurationPolicyType = $ConfigurationPolicyInfo.Type
+                        }
+                        for ($i = 0; $i -lt $schema.Count; $i++) {
+                            $columnName = $schema[$i].Column
+                            $value = $row[$i]
+                            $props[$columnName] = $value
+                        }
+                        
+                        # Calculate total devices and success rate
+                        $success = [int64]($props.NumberOfCompliantDevices ?? 0)
+                        $errorCount = [int64]($props.NumberOfErrorDevices ?? 0)
+                        $conflict = [int64]($props.NumberOfConflictDevices ?? 0)
+                        $notApplicable = [int64]($props.NumberOfNotApplicableDevices ?? 0)
+                        $pending = [int64]($props.NumberOfInProgressDevices ?? 0)
+                        $nonCompliant = [int64]($props.NumberOfNonCompliantDevices ?? 0)
+                        
+                        Write-Verbose "Device counts - Compliant: $success, NonCompliant: $nonCompliant, Error: $errorCount, Conflict: $conflict, NotApplicable: $notApplicable, InProgress: $pending"
+                        
+                        $total = $success + $nonCompliant + $errorCount + $conflict + $pending
+                        
+                        $props.TotalDevices = $total
+                        $props.SuccessRate = if ($total -gt 0) {
+                            [Math]::Round(($success / $total) * 100, 2)
+                        } else { 0 }
+                        
+                        # Add friendly names for counts
+                        $props.CompliantCount = $success
+                        $props.NonCompliantCount = $nonCompliant
+                        $props.ErrorCount = $errorCount
+                        $props.ConflictCount = $conflict
+                        $props.InProgressCount = $pending
+                        
+                        $allResults += [PSCustomObject]$props
+                    }
+                    Write-Verbose "Processed $($rows.Count) rows for policy $($ConfigurationPolicyInfo.Name)"
+                }
+                else {
+                    Write-Verbose "No data returned for policy $($ConfigurationPolicyInfo.Name)"
+                }
+            } catch {
+                Write-Warning "Failed to get summary for policy $($ConfigurationPolicyInfo.Name): $_"
+            }
+        }
+        
+        Write-Verbose "Completed processing all policies. Total results: $($allResults.Count)"
+        return $allResults
+    } catch {
+        Write-Error "Failed to generate configuration policy summary report: $_"
+        Write-Verbose "Exception details: $($_.Exception.Message)"
+        Write-Verbose "Stack trace: $($_.ScriptStackTrace)"
+        return $null
+    }
+}
+
+# Failure Report Functions (60% failure threshold)
+function Get-AppInstallFailuresReport {
+    param (
+        [string]$Search = "",
+        [decimal]$FailureThreshold = 60
+    )
+    
+    Write-Verbose "Getting app install failures with threshold: $FailureThreshold%"
+    
+    # Get all app install summaries
+    $allApps = Get-AppsInstallSummaryReport -Search $Search
+    
+    if ($null -eq $allApps -or $allApps.Count -eq 0) {
+        Write-Verbose "No apps found"
+        return @()
+    }
+    
+    # Filter apps with failure rate >= threshold
+    # Only consider apps that have devices and calculate failure rate based on FailedCount
+    $failedApps = $allApps | Where-Object {
+        # Skip apps with no devices
+        if ($_.TotalCount -eq 0) {
+            return $false
+        }
+        
+        # Calculate failure rate as: (FailedCount / TotalCount) * 100
+        $failureRate = if ($_.TotalCount -gt 0) {
+            [Math]::Round(($_.FailedCount / $_.TotalCount) * 100, 2)
+        } else { 0 }
+        
+        $failureRate -ge $FailureThreshold
+    } | ForEach-Object {
+        # Add failure rate for easier display based on FailedCount
+        $failureRate = if ($_.TotalCount -gt 0) {
+            [Math]::Round(($_.FailedCount / $_.TotalCount) * 100, 2)
+        } else { 0 }
+        $_ | Add-Member -MemberType NoteProperty -Name "FailureRate" -Value $failureRate -Force
+        $_
+    } | Sort-Object -Property FailureRate -Descending
+    
+    Write-Verbose "Found $($failedApps.Count) apps with failure rate >= $FailureThreshold%"
+    return $failedApps
+}
+
+function Get-CompliancePolicyFailuresReport {
+    param(
+        [string]$CompliancePolicyName,
+        [ValidateSet('Windows', 'iOS', 'Android', 'macOS', 'All')]
+        [string]$Platform = 'All',
+        [switch]$IncludeAllObjects,
+        [decimal]$FailureThreshold = 60
+    )
+    
+    Write-Verbose "Getting compliance policy failures with threshold: $FailureThreshold%"
+    
+    # Get compliance summary based on parameters
+    $params = @{}
+    if ($CompliancePolicyName) { 
+        $params.CompliancePolicyName = $CompliancePolicyName 
+    } else {
+        # If no specific policy name is provided, include all policies
+        $params.IncludeAllPolicies = $true
+    }
+    if ($Platform -ne 'All') { $params.Platform = $Platform }
+    
+    $allPolicies = Get-CompliancePolicyDeviceSummaryReport @params
+    
+    if ($null -eq $allPolicies -or $allPolicies.Count -eq 0) {
+        Write-Verbose "No compliance policies found"
+        return @()
+    }
+    
+    # Filter policies with non-compliance rate >= threshold
+    $failedPolicies = $allPolicies | Where-Object {
+        $nonComplianceRate = 100 - $_.ComplianceRate
+        $nonComplianceRate -ge $FailureThreshold
+    } | ForEach-Object {
+        # Add non-compliance rate for easier display
+        $_ | Add-Member -MemberType NoteProperty -Name "NonComplianceRate" -Value (100 - $_.ComplianceRate) -Force
+        $_
+    } | Sort-Object -Property NonComplianceRate -Descending
+    
+    Write-Verbose "Found $($failedPolicies.Count) policies with non-compliance rate >= $FailureThreshold%"
+    return $failedPolicies
+}
+
+function Get-ConfigurationPolicyFailuresReport {
+    param(
+        [string]$ConfigurationPolicyName,
+        [ValidateSet('Windows', 'iOS', 'Android', 'macOS', 'All')]
+        [string]$Platform = 'All',
+        [switch]$IncludeAllPolicies,
+        [decimal]$FailureThreshold = 60
+    )
+    
+    Write-Verbose "Getting configuration policy failures with threshold: $FailureThreshold%"
+    
+    # Get configuration summary based on parameters
+    $params = @{}
+    if ($ConfigurationPolicyName) { $params.ConfigurationPolicyName = $ConfigurationPolicyName }
+    if ($IncludeAllPolicies) { $params.IncludeAllPolicies = $true }
+    if ($Platform -ne 'All') { $params.Platform = $Platform }
+    
+    $allPolicies = Get-ConfigurationPolicyDeviceSummaryReport @params
+    
+    if ($null -eq $allPolicies -or $allPolicies.Count -eq 0) {
+        Write-Verbose "No configuration policies found"
+        return @()
+    }
+    
+    # Filter policies with failure rate >= threshold
+    $failedPolicies = $allPolicies | Where-Object {
+        $failureRate = 100 - $_.SuccessRate
+        $failureRate -ge $FailureThreshold
+    } | ForEach-Object {
+        # Add failure rate for easier display
+        $_ | Add-Member -MemberType NoteProperty -Name "FailureRate" -Value (100 - $_.SuccessRate) -Force
+        $_
+    } | Sort-Object -Property FailureRate -Descending
+    
+    Write-Verbose "Found $($failedPolicies.Count) policies with failure rate >= $FailureThreshold%"
+    return $failedPolicies
+}
 function Show-SaveFileDialog {
     param (
         [string]$DefaultFileName
@@ -1131,6 +1765,15 @@ function Show-Menu {
     Write-Host "  [11] Show All Failed Assignments" -ForegroundColor White
     Write-Host ""
     
+    Write-Host "Deployment Metrics:" -ForegroundColor Cyan
+    Write-Host "  [12] App Install Summary Report" -ForegroundColor White
+    Write-Host "  [13] App Install Failures (>60% failure rate)" -ForegroundColor White
+    Write-Host "  [14] Compliance Policy Deployment Summary" -ForegroundColor White
+    Write-Host "  [15] Compliance Policy Failures (>60% non-compliance)" -ForegroundColor White
+    Write-Host "  [16] Configuration Policy Deployment Summary" -ForegroundColor White
+    Write-Host "  [17] Configuration Policy Failures (>60% failure rate)" -ForegroundColor White
+    Write-Host ""
+    
     Write-Host "System:" -ForegroundColor Cyan
     Write-Host "  [0] Exit" -ForegroundColor White
     Write-Host "  [98] Support the Project 💝" -ForegroundColor Magenta
@@ -1153,6 +1796,18 @@ function Export-ResultsIfRequested {
         $exportPath = if ($CustomExportPath) {
             $CustomExportPath
         }
+        elseif ($IsMacOS) {
+            # On macOS, use Downloads folder instead of file dialog
+            $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+            $fileName = if ($DefaultFileName) { $DefaultFileName } else { "IntuneReport_$timestamp.csv" }
+            $exportDir = Join-Path ([Environment]::GetFolderPath("UserProfile")) "Downloads/IntuneAssignmentChecker_Reports"
+            if (-not (Test-Path $exportDir)) {
+                New-Item -ItemType Directory -Path $exportDir | Out-Null
+            }
+            $fullPath = Join-Path $exportDir $fileName
+            Write-Host "`nExporting to: $fullPath" -ForegroundColor Yellow
+            $fullPath
+        }
         else {
             Show-SaveFileDialog -DefaultFileName $DefaultFileName
         }
@@ -1164,7 +1819,21 @@ function Export-ResultsIfRequested {
     else {
         $export = Read-Host "`nWould you like to export the results to CSV? (y/n)"
         if ($export -eq 'y') {
-            $exportPath = Show-SaveFileDialog -DefaultFileName $DefaultFileName
+            if ($IsMacOS) {
+                # On macOS, use Downloads folder instead of file dialog
+                $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+                $fileName = if ($DefaultFileName) { $DefaultFileName } else { "IntuneReport_$timestamp.csv" }
+                $exportDir = Join-Path ([Environment]::GetFolderPath("UserProfile")) "Downloads/IntuneAssignmentChecker_Reports"
+                if (-not (Test-Path $exportDir)) {
+                    New-Item -ItemType Directory -Path $exportDir | Out-Null
+                }
+                $exportPath = Join-Path $exportDir $fileName
+                Write-Host "`nExporting to: $exportPath" -ForegroundColor Yellow
+            }
+            else {
+                $exportPath = Show-SaveFileDialog -DefaultFileName $DefaultFileName
+            }
+            
             if ($exportPath) {
                 Export-PolicyData -ExportData $ExportData -FilePath $exportPath
             }
@@ -7351,6 +8020,351 @@ do {
                 Export-ResultsIfRequested -ExportData $exportData -ExportPath $ExportPath -ForceExport:$false
             }
         }
+        
+        '12' {
+            Write-Host "`nApp Install Summary Report" -ForegroundColor Cyan
+            Write-Host "====================================" -ForegroundColor Cyan
+            
+            if ($parameterMode) {
+                # In parameter mode, show all apps
+                $appName = $null
+            }
+            else {
+                $appName = Read-Host "Enter the app name (or press Enter to show all apps)"
+            }
+            
+            try {
+                if ($appName) {
+                    Write-Host "`nSearching for app: $appName" -ForegroundColor Yellow
+                    
+                    # Get app install summary
+                    $results = Get-AppsInstallSummaryReport -Search $appName
+                    if ($results.Count -eq 0) {
+                        Write-Host "`nNo app found with name: $appName" -ForegroundColor Red
+                        continue
+                    }
+                }
+                else {
+                    Write-Host "`nFetching install summary for all apps..." -ForegroundColor Yellow
+                    $results = Get-AppsInstallSummaryReport
+                }
+                
+                if ($results) {
+                    Write-Host "`nApp Install Summary Results:" -ForegroundColor Cyan
+                    Write-Host "====================================" -ForegroundColor Cyan
+                    
+                    foreach ($result in $results) {
+                        Write-Host "`nApp: $($result.DisplayName)" -ForegroundColor White
+                        Write-Host "Platform: $($result.Platform_loc)" -ForegroundColor Gray
+                        Write-Host "Version: $($result.AppVersion)" -ForegroundColor Gray
+                        Write-Host "Total Devices: $($result.TotalCount)" -ForegroundColor White
+                        Write-Host "Success Rate: $($result.SuccessRate)%" -ForegroundColor $(if ($result.SuccessRate -ge 80) { "Green" } elseif ($result.SuccessRate -ge 50) { "Yellow" } else { "Red" })
+                        Write-Host "Installed: $($result.InstalledCount)" -ForegroundColor Green
+                        Write-Host "Failed: $($result.FailedCount)" -ForegroundColor Red
+                        Write-Host "Pending: $($result.PendingCount)" -ForegroundColor Yellow
+                        Write-Host "Not Installed: $($result.NotInstalledDeviceCount)" -ForegroundColor Gray
+                        Write-Host ("-" * 50)
+                    }
+                    
+                    # Export if requested
+                    $exportData = [System.Collections.ArrayList]::new()
+                    $results | ForEach-Object { [void]$exportData.Add($_) }
+                    if ($ExportToCSV) {
+                        Export-ResultsIfRequested -ExportData $exportData -ExportPath $ExportPath -ForceExport:$true -DefaultFileName "AppInstallSummary.csv"
+                    }
+                    else {
+                        Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "AppInstallSummary.csv"
+                    }
+                }
+                else {
+                    Write-Host "`nNo app install data found" -ForegroundColor Yellow
+                }
+            }
+            catch {
+                Write-Host "`nError: Failed to generate app install summary - $($_.Exception.Message)" -ForegroundColor Red
+            }
+        }
+        
+        '13' {
+            Write-Host "`nApp Install Failures Report (>60% failure rate)" -ForegroundColor Cyan
+            Write-Host "====================================" -ForegroundColor Cyan
+            
+            if ($parameterMode) {
+                # In parameter mode, show all apps
+                $appName = $null
+            }
+            else {
+                $appName = Read-Host "Enter the app name (or press Enter to show all apps)"
+            }
+            
+            try {
+                Write-Host "`nSearching for apps with high failure rates..." -ForegroundColor Yellow
+                
+                $failedApps = Get-AppInstallFailuresReport -Search $appName
+                
+                if ($failedApps -and $failedApps.Count -gt 0) {
+                    Write-Host "`nApp Install Failures (>60% failure rate):" -ForegroundColor Cyan
+                    Write-Host "====================================" -ForegroundColor Cyan
+                    
+                    foreach ($app in $failedApps) {
+                        Write-Host "`nApp: $($app.DisplayName)" -ForegroundColor White
+                        Write-Host "Platform: $($app.Platform)" -ForegroundColor Gray
+                        Write-Host "Version: $($app.AppVersion)" -ForegroundColor Gray
+                        Write-Host "Failure Rate: $($app.FailureRate)%" -ForegroundColor Red
+                        Write-Host "Total Devices: $($app.TotalCount)" -ForegroundColor White
+                        Write-Host "Failed: $($app.FailedCount)" -ForegroundColor Red
+                        Write-Host "Installed: $($app.InstalledCount)" -ForegroundColor Green
+                        Write-Host "Pending: $($app.PendingCount)" -ForegroundColor Yellow
+                        Write-Host "Not Installed: $($app.NotInstalledDeviceCount)" -ForegroundColor Gray
+                        Write-Host ("-" * 50)
+                    }
+                    
+                    # Export if requested
+                    $exportData = [System.Collections.ArrayList]::new()
+                    $failedApps | ForEach-Object { [void]$exportData.Add($_) }
+                    if ($ExportToCSV) {
+                        Export-ResultsIfRequested -ExportData $exportData -ExportPath $ExportPath -ForceExport:$true -DefaultFileName "AppInstallFailures.csv"
+                    }
+                    else {
+                        Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "AppInstallFailures.csv"
+                    }
+                }
+                else {
+                    Write-Host "`nNo apps found with failure rate above 60%" -ForegroundColor Green
+                }
+            }
+            catch {
+                Write-Host "`nError: Failed to generate app failure report - $($_.Exception.Message)" -ForegroundColor Red
+            }
+        }
+        
+        '14' {
+            Write-Host "`nCompliance Policy Deployment Summary Report" -ForegroundColor Cyan
+            Write-Host "====================================" -ForegroundColor Cyan
+            
+            if ($parameterMode) {
+                # In parameter mode, show all policies
+                $policyName = $null
+            }
+            else {
+                $policyName = Read-Host "Enter the compliance policy name (or press Enter to show all policies)"
+            }
+            
+            try {
+                if ($policyName) {
+                    Write-Host "`nSearching for compliance policy: $policyName" -ForegroundColor Yellow
+                    $results = Get-CompliancePolicyDeviceSummaryReport -CompliancePolicyName $policyName
+                }
+                else {
+                    Write-Host "`nFetching all compliance policies..." -ForegroundColor Yellow
+                    $results = Get-CompliancePolicyDeviceSummaryReport -IncludeAllPolicies
+                }
+                
+                if ($results) {
+                    Write-Host "`nCompliance Policy Summary Results:" -ForegroundColor Cyan
+                    Write-Host "====================================" -ForegroundColor Cyan
+                    
+                    foreach ($policy in $results) {
+                        Write-Host "`nPolicy: $($policy.CompliancePolicyName)" -ForegroundColor White
+                        Write-Host "Platform: $($policy.OS ?? 'All')" -ForegroundColor Gray
+                        Write-Host "Compliance Rate: $($policy.ComplianceRate)%" -ForegroundColor $(if ($policy.ComplianceRate -ge 80) { 'Green' } elseif ($policy.ComplianceRate -ge 60) { 'Yellow' } else { 'Red' })
+                        Write-Host "Total Devices: $($policy.TotalDevices)" -ForegroundColor White
+                        Write-Host "Compliant: $($policy.NumberOfCompliantDevices)" -ForegroundColor Green
+                        Write-Host "Non-Compliant: $($policy.NumberOfNonCompliantDevices)" -ForegroundColor Red
+                        Write-Host "Other: $($policy.NumberOfOtherDevices)" -ForegroundColor Yellow
+                        Write-Host ("-" * 50)
+                    }
+                    
+                    # Export if requested
+                    $exportData = [System.Collections.ArrayList]::new()
+                    $results | ForEach-Object { [void]$exportData.Add($_) }
+                    if ($ExportToCSV) {
+                        Export-ResultsIfRequested -ExportData $exportData -ExportPath $ExportPath -ForceExport:$true -DefaultFileName "CompliancePolicySummary.csv"
+                    }
+                    else {
+                        Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "CompliancePolicySummary.csv"
+                    }
+                }
+                else {
+                    Write-Host "`nNo compliance policy summary data found" -ForegroundColor Yellow
+                }
+            }
+            catch {
+                Write-Host "`nError: Failed to generate compliance policy summary report - $($_.Exception.Message)" -ForegroundColor Red
+            }
+        }
+        
+        '15' {
+            Write-Host "`nCompliance Policy Failures Report (>60% non-compliance)" -ForegroundColor Cyan
+            Write-Host "====================================" -ForegroundColor Cyan
+            
+            if ($parameterMode) {
+                # In parameter mode, show all policies
+                $policyName = $null
+            }
+            else {
+                $policyName = Read-Host "Enter the compliance policy name (or press Enter to show all policies)"
+            }
+            
+            try {
+                Write-Host "`nSearching for compliance policies with high non-compliance rates..." -ForegroundColor Yellow
+                
+                $params = @{}
+                if ($policyName) { $params.CompliancePolicyName = $policyName }
+                else { $params.IncludeAllObjects = $true }
+                
+                $failedPolicies = Get-CompliancePolicyFailuresReport @params
+                
+                if ($failedPolicies -and $failedPolicies.Count -gt 0) {
+                    Write-Host "`nCompliance Policy Failures (>60% non-compliance):" -ForegroundColor Cyan
+                    Write-Host "====================================" -ForegroundColor Cyan
+                    
+                    foreach ($policy in $failedPolicies) {
+                        Write-Host "`nPolicy: $($policy.CompliancePolicyName)" -ForegroundColor White
+                        Write-Host "Platform: $($policy.OS ?? 'All')" -ForegroundColor Gray
+                        Write-Host "Non-Compliance Rate: $($policy.NonComplianceRate)%" -ForegroundColor Red
+                        Write-Host "Total Devices: $($policy.TotalDevices)" -ForegroundColor White
+                        Write-Host "Non-Compliant: $($policy.NumberOfNonCompliantDevices)" -ForegroundColor Red
+                        Write-Host "Compliant: $($policy.NumberOfCompliantDevices)" -ForegroundColor Green
+                        Write-Host "Other: $($policy.NumberOfOtherDevices)" -ForegroundColor Yellow
+                        Write-Host ("-" * 50)
+                    }
+                    
+                    # Export if requested
+                    $exportData = [System.Collections.ArrayList]::new()
+                    $failedPolicies | ForEach-Object { [void]$exportData.Add($_) }
+                    if ($ExportToCSV) {
+                        Export-ResultsIfRequested -ExportData $exportData -ExportPath $ExportPath -ForceExport:$true -DefaultFileName "CompliancePolicyFailures.csv"
+                    }
+                    else {
+                        Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "CompliancePolicyFailures.csv"
+                    }
+                }
+                else {
+                    Write-Host "`nNo compliance policies found with non-compliance rate above 60%" -ForegroundColor Green
+                }
+            }
+            catch {
+                Write-Host "`nError: Failed to generate compliance failure report - $($_.Exception.Message)" -ForegroundColor Red
+            }
+        }
+        
+        '16' {
+            # This is the old section 14 - Configuration Policy Device Summary
+            Write-Host "`nConfiguration Policy Device Summary Report" -ForegroundColor Cyan
+            Write-Host "====================================" -ForegroundColor Cyan
+            
+            if ($parameterMode) {
+                # In parameter mode, show all policies
+                $policyName = $null
+            }
+            else {
+                $policyName = Read-Host "Enter the configuration policy name (or press Enter to show all policies)"
+            }
+            
+            try {
+                if ($policyName) {
+                    Write-Host "`nSearching for configuration policy: $policyName" -ForegroundColor Yellow
+                    $results = Get-ConfigurationPolicyDeviceSummaryReport -ConfigurationPolicyName $policyName
+                }
+                else {
+                    Write-Host "`nFetching all configuration policies..." -ForegroundColor Yellow
+                    $results = Get-ConfigurationPolicyDeviceSummaryReport -IncludeAllPolicies
+                }
+                
+                if ($results) {
+                    Write-Host "`nConfiguration Policy Summary Results:" -ForegroundColor Cyan
+                    Write-Host "====================================" -ForegroundColor Cyan
+                    
+                    foreach ($result in $results) {
+                        Write-Host "`nPolicy: $($result.ConfigurationPolicyName)" -ForegroundColor White
+                        Write-Host "Type: $($result.ConfigurationPolicyType)" -ForegroundColor Gray
+                        Write-Host "Platform: $($result.UnifiedPolicyPlatformType_loc ?? 'Unknown')" -ForegroundColor Gray
+                        Write-Host "Total Devices: $($result.TotalDevices)" -ForegroundColor White
+                        Write-Host "Success Rate: $($result.SuccessRate)%" -ForegroundColor $(if ($result.SuccessRate -ge 80) { "Green" } elseif ($result.SuccessRate -ge 50) { "Yellow" } else { "Red" })
+                        Write-Host "Compliant: $($result.CompliantCount)" -ForegroundColor Green
+                        Write-Host "Non-Compliant: $($result.NonCompliantCount)" -ForegroundColor Red
+                        Write-Host "Error: $($result.ErrorCount)" -ForegroundColor Red
+                        Write-Host "Conflict: $($result.ConflictCount)" -ForegroundColor Yellow
+                        Write-Host "In Progress: $($result.InProgressCount)" -ForegroundColor Yellow
+                        Write-Host ("-" * 50)
+                    }
+                    
+                    # Export if requested
+                    $exportData = [System.Collections.ArrayList]::new()
+                    $results | ForEach-Object { [void]$exportData.Add($_) }
+                    if ($ExportToCSV) {
+                        Export-ResultsIfRequested -ExportData $exportData -ExportPath $ExportPath -ForceExport:$true -DefaultFileName "ConfigurationPolicySummary.csv"
+                    }
+                    else {
+                        Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "ConfigurationPolicySummary.csv"
+                    }
+                }
+                else {
+                    Write-Host "`nNo configuration policy data found" -ForegroundColor Yellow
+                }
+            }
+            catch {
+                Write-Host "`nError: Failed to generate configuration policy summary - $($_.Exception.Message)" -ForegroundColor Red
+            }
+        }
+        
+        '17' {
+            Write-Host "`nConfiguration Policy Failures Report (>60% failure rate)" -ForegroundColor Cyan
+            Write-Host "====================================" -ForegroundColor Cyan
+            
+            if ($parameterMode) {
+                # In parameter mode, show all policies
+                $policyName = $null
+            }
+            else {
+                $policyName = Read-Host "Enter the configuration policy name (or press Enter to show all policies)"
+            }
+            
+            try {
+                Write-Host "`nSearching for configuration policies with high failure rates..." -ForegroundColor Yellow
+                
+                $params = @{}
+                if ($policyName) { $params.ConfigurationPolicyName = $policyName }
+                else { $params.IncludeAllPolicies = $true }
+                
+                $failedPolicies = Get-ConfigurationPolicyFailuresReport @params
+                
+                if ($failedPolicies -and $failedPolicies.Count -gt 0) {
+                    Write-Host "`nConfiguration Policy Failures (>60% failure rate):" -ForegroundColor Cyan
+                    Write-Host "====================================" -ForegroundColor Cyan
+                    
+                    foreach ($policy in $failedPolicies) {
+                        Write-Host "`nPolicy: $($policy.ConfigurationPolicyName)" -ForegroundColor White
+                        Write-Host "Type: $($policy.ConfigurationPolicyType)" -ForegroundColor Gray
+                        Write-Host "Platform: $($policy.UnifiedPolicyPlatformType_loc ?? 'Unknown')" -ForegroundColor Gray
+                        Write-Host "Failure Rate: $($policy.FailureRate)%" -ForegroundColor Red
+                        Write-Host "Total Devices: $($policy.TotalDevices)" -ForegroundColor White
+                        Write-Host "Failed: $($policy.NonCompliantCount + $policy.ErrorCount)" -ForegroundColor Red
+                        Write-Host "Success: $($policy.CompliantCount)" -ForegroundColor Green
+                        Write-Host "Conflict: $($policy.ConflictCount)" -ForegroundColor Yellow
+                        Write-Host "In Progress: $($policy.InProgressCount)" -ForegroundColor Yellow
+                        Write-Host ("-" * 50)
+                    }
+                    
+                    # Export if requested
+                    $exportData = [System.Collections.ArrayList]::new()
+                    $failedPolicies | ForEach-Object { [void]$exportData.Add($_) }
+                    if ($ExportToCSV) {
+                        Export-ResultsIfRequested -ExportData $exportData -ExportPath $ExportPath -ForceExport:$true -DefaultFileName "ConfigurationPolicyFailures.csv"
+                    }
+                    else {
+                        Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "ConfigurationPolicyFailures.csv"
+                    }
+                }
+                else {
+                    Write-Host "`nNo configuration policies found with failure rate above 60%" -ForegroundColor Green
+                }
+            }
+            catch {
+                Write-Host "`nError: Failed to generate configuration failure report - $($_.Exception.Message)" -ForegroundColor Red
+            }
+        }
 
         '0' {
             Write-Host "Disconnecting from Microsoft Graph..." -ForegroundColor Yellow
@@ -7371,7 +8385,7 @@ do {
             Start-Process "https://github.com/ugurkocde/IntuneAssignmentChecker"
         }
         default {
-            Write-Host "Invalid choice, please select 1-11, 98, 99, or 0." -ForegroundColor Red
+            Write-Host "Invalid choice, please select 1-17, 98, 99, or 0." -ForegroundColor Red
         }
     }
 
