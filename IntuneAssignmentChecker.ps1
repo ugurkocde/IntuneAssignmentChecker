@@ -1625,18 +1625,38 @@ function Show-SaveFileDialog {
     param (
         [string]$DefaultFileName
     )
-    
-    Add-Type -AssemblyName System.Windows.Forms
-    $saveFileDialog = New-Object System.Windows.Forms.SaveFileDialog
-    $saveFileDialog.Filter = "Excel files (*.xlsx)|*.xlsx|CSV files (*.csv)|*.csv|All files (*.*)|*.*"
-    $saveFileDialog.FileName = $DefaultFileName
-    $saveFileDialog.Title = "Save Policy Report"
-    
-    if ($saveFileDialog.ShowDialog() -eq 'OK') {
-        return $saveFileDialog.FileName
+
+    # If running PowerShell 7 or newer, use cross‐platform Read-Host prompt first
+    if ($PSVersionTable.PSVersion.Major -ge 7) {
+        # Use the user’s Temp folder as default directory
+        $defaultDir  = $env:TEMP
+        $defaultPath = Join-Path -Path $defaultDir -ChildPath $DefaultFileName
+        $prompt      = "Enter file path to save (default: $defaultPath)"
+        $path        = Read-Host $prompt
+        # If the user just presses Enter, return the temp‐folder path
+        if ([string]::IsNullOrWhiteSpace($path)) {
+            return $defaultPath
+        }
+        return $path
+    }
+    # Fallback to Windows SaveFileDialog if on Windows
+    if ($IsWindows) {
+        try {
+            Add-Type -AssemblyName System.Windows.Forms
+            $saveFileDialog = New-Object System.Windows.Forms.SaveFileDialog
+            $saveFileDialog.Filter = "Excel files (*.xlsx)|*.xlsx|CSV files (*.csv)|*.csv|All files (*.*)|*.*"
+            $saveFileDialog.FileName = $DefaultFileName
+            $saveFileDialog.Title = "Save Policy Report"
+            if ($saveFileDialog.ShowDialog() -eq 'OK') {
+                return $saveFileDialog.FileName
+            }
+        } catch {
+            Write-Warning "Unable to show file dialog: $_"
+        }
     }
     return $null
 }
+
 
 function Export-PolicyData {
     param (
