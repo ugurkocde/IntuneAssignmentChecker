@@ -8108,7 +8108,7 @@ do {
                     
                     foreach ($app in $failedApps) {
                         Write-Host "`nApp: $($app.DisplayName)" -ForegroundColor White
-                        Write-Host "Platform: $($app.Platform)" -ForegroundColor Gray
+                        Write-Host "Platform: $($app.Platform_loc)" -ForegroundColor Gray
                         Write-Host "Version: $($app.AppVersion)" -ForegroundColor Gray
                         Write-Host "Failure Rate: $($app.FailureRate)%" -ForegroundColor Red
                         Write-Host "Total Devices: $($app.TotalCount)" -ForegroundColor White
