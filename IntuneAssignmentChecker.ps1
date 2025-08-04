@@ -1626,6 +1626,17 @@ function Show-SaveFileDialog {
         [string]$DefaultFileName
     )
 
+    # If running on macOS, auto-save to a default temp directory
+    if ($IsMacOS) {
+        $reportDir = Join-Path -Path ([Environment]::GetFolderPath("UserProfile")) -ChildPath "Downloads/IntuneAssignmentChecker_Reports"
+        if (-not (Test-Path $reportDir)) {
+            New-Item -ItemType Directory -Path $reportDir | Out-Null
+        }
+        $filePath = Join-Path -Path $reportDir -ChildPath $DefaultFileName
+        Write-Host "Saving report to: $filePath" -ForegroundColor Yellow
+        return $filePath
+    }
+
     # If running on macOS, auto‐save to a default temp directory
     if ($IsMacOS) {
         $reportDir = Join-Path -Path ([Environment]::GetFolderPath("UserProfile")) -ChildPath "Downloads/IntuneAssignmentChecker_Reports"
@@ -1637,14 +1648,14 @@ function Show-SaveFileDialog {
         return $filePath
     }
 
-    # If running PowerShell 7 or newer, use cross‐platform Read-Host prompt first
+    # If running PowerShell 7 or newer, use cross-platform Read-Host prompt first
     if ($PSVersionTable.PSVersion.Major -ge 7) {
         # Use the user’s Temp folder as default directory
         $defaultDir  = $env:TEMP
         $defaultPath = Join-Path -Path $defaultDir -ChildPath $DefaultFileName
         $prompt      = "Enter file path to save (default: $defaultPath)"
         $path        = Read-Host $prompt
-        # If the user just presses Enter, return the temp‐folder path
+        # If the user just presses Enter, return the temp-folder path
         if ([string]::IsNullOrWhiteSpace($path)) {
             return $defaultPath
         }
