@@ -1626,7 +1626,7 @@ function Show-SaveFileDialog {
         [string]$DefaultFileName
     )
 
-    # If running PowerShell 7 or newer, use cross‐platform Read-Host prompt first
+    # If running PowerShell 7 or newer, use cross-platform Read-Host prompt first
     if ($PSVersionTable.PSVersion.Major -ge 7) {
         # Use the user’s Temp folder as default directory
         $defaultDir  = $env:TEMP
