@@ -1524,16 +1524,12 @@ function Get-AppInstallFailuresReport {
         }
         
         # Calculate failure rate as: (FailedCount / TotalCount) * 100
-        $failureRate = if ($_.TotalCount -gt 0) {
-            [Math]::Round(($_.FailedCount / $_.TotalCount) * 100, 2)
-        } else { 0 }
+        $failureRate = Get-FailureRate $_
         
         $failureRate -ge $FailureThreshold
     } | ForEach-Object {
         # Add failure rate for easier display based on FailedCount
-        $failureRate = if ($_.TotalCount -gt 0) {
-            [Math]::Round(($_.FailedCount / $_.TotalCount) * 100, 2)
-        } else { 0 }
+        $failureRate = Get-FailureRate $_
         $_ | Add-Member -MemberType NoteProperty -Name "FailureRate" -Value $failureRate -Force
         $_
     } | Sort-Object -Property FailureRate -Descending
