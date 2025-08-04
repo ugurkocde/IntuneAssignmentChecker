@@ -1633,7 +1633,7 @@ function Show-SaveFileDialog {
         $defaultPath = Join-Path -Path $defaultDir -ChildPath $DefaultFileName
         $prompt      = "Enter file path to save (default: $defaultPath)"
         $path        = Read-Host $prompt
-        # If the user just presses Enter, return the temp‐folder path
+        # If the user just presses Enter, return the temp-folder path
         if ([string]::IsNullOrWhiteSpace($path)) {
             return $defaultPath
         }
