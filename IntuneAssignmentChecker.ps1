@@ -1626,6 +1626,17 @@ function Show-SaveFileDialog {
         [string]$DefaultFileName
     )
 
+    # If running on macOS, auto‐save to a default temp directory
+    if ($IsMacOS) {
+        $reportDir = Join-Path -Path ([Environment]::GetFolderPath("UserProfile")) -ChildPath "Downloads/IntuneAssignmentChecker_Reports"
+        if (-not (Test-Path $reportDir)) {
+            New-Item -ItemType Directory -Path $reportDir | Out-Null
+        }
+        $filePath = Join-Path -Path $reportDir -ChildPath $DefaultFileName
+        Write-Host "Saving report to: $filePath" -ForegroundColor Yellow
+        return $filePath
+    }
+
     # If running PowerShell 7 or newer, use cross‐platform Read-Host prompt first
     if ($PSVersionTable.PSVersion.Major -ge 7) {
         # Use the user’s Temp folder as default directory
@@ -1639,14 +1650,15 @@ function Show-SaveFileDialog {
         }
         return $path
     }
+
     # Fallback to Windows SaveFileDialog if on Windows
     if ($IsWindows) {
         try {
             Add-Type -AssemblyName System.Windows.Forms
             $saveFileDialog = New-Object System.Windows.Forms.SaveFileDialog
-            $saveFileDialog.Filter = "Excel files (*.xlsx)|*.xlsx|CSV files (*.csv)|*.csv|All files (*.*)|*.*"
+            $saveFileDialog.Filter   = "Excel files (*.xlsx)|*.xlsx|CSV files (*.csv)|*.csv|All files (*.*)|*.*"
             $saveFileDialog.FileName = $DefaultFileName
-            $saveFileDialog.Title = "Save Policy Report"
+            $saveFileDialog.Title    = "Save Policy Report"
             if ($saveFileDialog.ShowDialog() -eq 'OK') {
                 return $saveFileDialog.FileName
             }
@@ -1654,6 +1666,7 @@ function Show-SaveFileDialog {
             Write-Warning "Unable to show file dialog: $_"
         }
     }
+
     return $null
 }
 
