@@ -1170,7 +1170,7 @@ function Get-CompliancePolicyDeviceSummaryReport {
             
             $body = $params | ConvertTo-Json -Depth 10
             
-            # Note: The Microsoft URI has a typo in "Compliace" which should be "Compliance" but it's the actual endpoint
+            # Note: The Microsoft URI uses "Compliace" (not "Compliance")—this is intentionally matching Microsoft's official endpoint spelling.
             $response = Invoke-MgGraphRequest -Method POST `
                 -Uri "$GraphEndpoint/beta/deviceManagement/reports/microsoft.graph.getDeviceStatusSummaryByCompliacePolicyReport" `
                 -Body $body `
