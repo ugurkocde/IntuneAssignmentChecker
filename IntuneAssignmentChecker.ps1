@@ -1061,7 +1061,7 @@ function Get-AppsInstallSummaryReport {
             return $null
         }
     } catch {
-        Write-Warning "Error returning app install summary report for AppId: $AppId - $($_.Exception.Message)"
+        Write-Warning "Error returning app install summary report for Search: $Search - $($_.Exception.Message)"
         return $null
     }
 }
