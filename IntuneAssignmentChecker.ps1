@@ -6061,7 +6061,7 @@ do {
 
             # Download html-export.ps1 from GitHub
             $htmlExportUrl = "https://raw.githubusercontent.com/ugurkocde/IntuneAssignmentChecker/main/html-export.ps1"
-            $scriptPath = Join-Path $env:TEMP 'html-export.ps1'
+            $scriptPath = Join-Path ([System.IO.Path]::GetTempPath()) 'html-export.ps1'
             
             try {
                 Write-Host "Downloading html-export.ps1 from GitHub..." -ForegroundColor Yellow
@@ -6077,7 +6077,13 @@ do {
                 # Ask if user wants to open the report
                 $openReport = Read-Host "Would you like to open the report now? (y/n)"
                 if ($openReport -eq 'y') {
-                    Start-Process $filePath
+                    if ($IsWindows) {
+                        Start-Process $filePath
+                    } elseif ($IsMacOS) {
+                        & open $filePath
+                    } else {
+                        Write-Host "Cannot determine OS to open the file automatically. Please open $filePath manually." -ForegroundColor Yellow
+                    }
                 }
 
             }
