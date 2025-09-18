@@ -2,13 +2,20 @@
 #Requires -Modules Microsoft.Graph.Authentication
 
 <#PSScriptInfo
-.VERSION 3.4.2
+.VERSION 3.4.3
 .GUID c6e25ec6-5787-45ef-95af-8abeb8a17daf
 .AUTHOR ugurk
 .PROJECTURI https://github.com/ugurkocde/IntuneAssignmentChecker
 .DESCRIPTION
 This script enables IT administrators to efficiently analyze and audit Intune assignments. It checks assignments for specific users, groups, or devices, displays all policies and their assignments, identifies unassigned policies, detects empty groups in assignments, and searches for specific settings across policies.
 .RELEASENOTES
+Version 3.4.3:
+- Fixed critical assignment accuracy issues affecting group policy checks (Fixes #79, #80)
+- Resolved Settings Catalog policies not showing in group assignments (Fixes #80)
+- Fixed Compare Groups to properly detect and display excluded assignments with [EXCLUDED] tag (Fixes #44)
+- Improved assignment processing to handle ALL assignments instead of just first one
+- Enhanced exclusion detection in group comparison feature
+
 Version 3.4.2:
 - Fixed Android policy detection - now properly identifies and displays Android platform policies (Fixes #86)
 - Fixed assignment accuracy - now shows ALL assigned groups instead of just the first one (Fixes #87)
@@ -2978,9 +2985,16 @@ do {
                             # For group queries, Get-IntuneAssignments will return only direct assignments/exclusions
                             $directAssignments = Get-IntuneAssignments -EntityType "deviceAppManagement/managedAppPolicies" -EntityId $policy.id -GroupId $groupId
                             if ($directAssignments.Count -gt 0) {
-                                $assignmentReason = $directAssignments[0].Reason
-                                if ($assignmentReason -eq "Direct Assignment" -or $assignmentReason -eq "Direct Exclusion") {
-                                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentReason -Force
+                                # Process all assignments for this group
+                                $assignmentReasons = @()
+                                foreach ($assignment in $directAssignments) {
+                                    if ($assignment.Reason -eq "Direct Assignment" -or $assignment.Reason -eq "Direct Exclusion") {
+                                        $assignmentReasons += $assignment.Reason
+                                    }
+                                }
+
+                                if ($assignmentReasons.Count -gt 0) {
+                                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue ($assignmentReasons -join "; ") -Force
                                     $relevantPolicies.AppProtectionPolicies += $policy
                                 }
                             }
@@ -2997,9 +3011,16 @@ do {
                 foreach ($policy in $appConfigPolicies) {
                     $directAssignments = Get-IntuneAssignments -EntityType "mobileAppConfigurations" -EntityId $policy.id -GroupId $groupId
                     if ($directAssignments.Count -gt 0) {
-                        $assignmentReason = $directAssignments[0].Reason
-                        if ($assignmentReason -eq "Direct Assignment" -or $assignmentReason -eq "Direct Exclusion") {
-                            $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentReason -Force
+                        # Process all assignments for this group
+                        $assignmentReasons = @()
+                        foreach ($assignment in $directAssignments) {
+                            if ($assignment.Reason -eq "Direct Assignment" -or $assignment.Reason -eq "Direct Exclusion") {
+                                $assignmentReasons += $assignment.Reason
+                            }
+                        }
+
+                        if ($assignmentReasons.Count -gt 0) {
+                            $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue ($assignmentReasons -join "; ") -Force
                             $relevantPolicies.AppConfigurationPolicies += $policy
                         }
                     }
@@ -3035,9 +3056,18 @@ do {
                             if ($processedEsPolicyIds.Add($policy.id)) {
                                 $directAssignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id -GroupId $groupId
                                 if ($directAssignments.Count -gt 0) {
-                                    $assignmentReason = $directAssignments[0].Reason
-                                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentReason -Force
-                                    $relevantPolicies[$esCategory.Key] += $policy
+                                    # Process all assignments for this group
+                                    $assignmentReasons = @()
+                                    foreach ($assignment in $directAssignments) {
+                                        if ($assignment.Reason -eq "Direct Assignment" -or $assignment.Reason -eq "Direct Exclusion") {
+                                            $assignmentReasons += $assignment.Reason
+                                        }
+                                    }
+
+                                    if ($assignmentReasons.Count -gt 0) {
+                                        $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue ($assignmentReasons -join "; ") -Force
+                                        $relevantPolicies[$esCategory.Key] += $policy
+                                    }
                                 }
                             }
                         }
@@ -3148,9 +3178,16 @@ do {
                 foreach ($script in $platformScripts) {
                     $directAssignments = Get-IntuneAssignments -EntityType "deviceManagementScripts" -EntityId $script.id -GroupId $groupId
                     if ($directAssignments.Count -gt 0) {
-                        $assignmentReason = $directAssignments[0].Reason
-                        if ($assignmentReason -eq "Direct Assignment" -or $assignmentReason -eq "Direct Exclusion") {
-                            $script | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentReason -Force
+                        # Process all assignments for this group
+                        $assignmentReasons = @()
+                        foreach ($assignment in $directAssignments) {
+                            if ($assignment.Reason -eq "Direct Assignment" -or $assignment.Reason -eq "Direct Exclusion") {
+                                $assignmentReasons += $assignment.Reason
+                            }
+                        }
+
+                        if ($assignmentReasons.Count -gt 0) {
+                            $script | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue ($assignmentReasons -join "; ") -Force
                             $relevantPolicies.PlatformScripts += $script
                         }
                     }
@@ -3162,9 +3199,16 @@ do {
                 foreach ($script in $healthScripts) {
                     $directAssignments = Get-IntuneAssignments -EntityType "deviceHealthScripts" -EntityId $script.id -GroupId $groupId
                     if ($directAssignments.Count -gt 0) {
-                        $assignmentReason = $directAssignments[0].Reason
-                        if ($assignmentReason -eq "Direct Assignment" -or $assignmentReason -eq "Direct Exclusion") {
-                            $script | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentReason -Force
+                        # Process all assignments for this group
+                        $assignmentReasons = @()
+                        foreach ($assignment in $directAssignments) {
+                            if ($assignment.Reason -eq "Direct Assignment" -or $assignment.Reason -eq "Direct Exclusion") {
+                                $assignmentReasons += $assignment.Reason
+                            }
+                        }
+
+                        if ($assignmentReasons.Count -gt 0) {
+                            $script | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue ($assignmentReasons -join "; ") -Force
                             $relevantPolicies.HealthScripts += $script
                         }
                     }
@@ -3176,9 +3220,16 @@ do {
                 foreach ($profile in $autoProfiles) {
                     $directAssignments = Get-IntuneAssignments -EntityType "windowsAutopilotDeploymentProfiles" -EntityId $profile.id -GroupId $groupId
                     if ($directAssignments.Count -gt 0) {
-                        $assignmentReason = $directAssignments[0].Reason
-                        if ($assignmentReason -eq "Direct Assignment" -or $assignmentReason -eq "Direct Exclusion") {
-                            $profile | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentReason -Force
+                        # Process all assignments for this group
+                        $assignmentReasons = @()
+                        foreach ($assignment in $directAssignments) {
+                            if ($assignment.Reason -eq "Direct Assignment" -or $assignment.Reason -eq "Direct Exclusion") {
+                                $assignmentReasons += $assignment.Reason
+                            }
+                        }
+
+                        if ($assignmentReasons.Count -gt 0) {
+                            $profile | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue ($assignmentReasons -join "; ") -Force
                             $relevantPolicies.DeploymentProfiles += $profile
                         }
                     }
@@ -3191,9 +3242,16 @@ do {
                 foreach ($esp in $espProfiles) {
                     $directAssignments = Get-IntuneAssignments -EntityType "deviceEnrollmentConfigurations" -EntityId $esp.id -GroupId $groupId
                     if ($directAssignments.Count -gt 0) {
-                        $assignmentReason = $directAssignments[0].Reason
-                        if ($assignmentReason -eq "Direct Assignment" -or $assignmentReason -eq "Direct Exclusion") {
-                            $esp | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentReason -Force
+                        # Process all assignments for this group
+                        $assignmentReasons = @()
+                        foreach ($assignment in $directAssignments) {
+                            if ($assignment.Reason -eq "Direct Assignment" -or $assignment.Reason -eq "Direct Exclusion") {
+                                $assignmentReasons += $assignment.Reason
+                            }
+                        }
+
+                        if ($assignmentReasons.Count -gt 0) {
+                            $esp | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue ($assignmentReasons -join "; ") -Force
                             $relevantPolicies.ESPProfiles += $esp
                         }
                     }
@@ -3206,9 +3264,16 @@ do {
                     foreach ($policy in $cloudPCProvisioningPolicies) {
                         $directAssignments = Get-IntuneAssignments -EntityType "virtualEndpoint/provisioningPolicies" -EntityId $policy.id -GroupId $groupId
                         if ($directAssignments.Count -gt 0) {
-                            $assignmentReason = $directAssignments[0].Reason
-                            if ($assignmentReason -eq "Direct Assignment" -or $assignmentReason -eq "Direct Exclusion") {
-                                $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentReason -Force
+                            # Process all assignments for this group
+                            $assignmentReasons = @()
+                            foreach ($assignment in $directAssignments) {
+                                if ($assignment.Reason -eq "Direct Assignment" -or $assignment.Reason -eq "Direct Exclusion") {
+                                    $assignmentReasons += $assignment.Reason
+                                }
+                            }
+
+                            if ($assignmentReasons.Count -gt 0) {
+                                $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue ($assignmentReasons -join "; ") -Force
                                 $relevantPolicies.CloudPCProvisioningPolicies += $policy
                             }
                         }
@@ -3225,9 +3290,16 @@ do {
                     foreach ($setting in $cloudPCUserSettings) {
                         $directAssignments = Get-IntuneAssignments -EntityType "virtualEndpoint/userSettings" -EntityId $setting.id -GroupId $groupId
                         if ($directAssignments.Count -gt 0) {
-                            $assignmentReason = $directAssignments[0].Reason
-                            if ($assignmentReason -eq "Direct Assignment" -or $assignmentReason -eq "Direct Exclusion") {
-                                $setting | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentReason -Force
+                            # Process all assignments for this group
+                            $assignmentReasons = @()
+                            foreach ($assignment in $directAssignments) {
+                                if ($assignment.Reason -eq "Direct Assignment" -or $assignment.Reason -eq "Direct Exclusion") {
+                                    $assignmentReasons += $assignment.Reason
+                                }
+                            }
+
+                            if ($assignmentReasons.Count -gt 0) {
+                                $setting | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue ($assignmentReasons -join "; ") -Force
                                 $relevantPolicies.CloudPCUserSettings += $setting
                             }
                         }
@@ -7160,8 +7232,23 @@ do {
                     $assignmentsUri = "$GraphEndpoint/beta/deviceManagement/deviceConfigurations('$configId')/assignments"
                     $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
             
-                    if ($assignmentResponse.value | Where-Object { $_.target.groupId -eq $groupId }) {
-                        [void]$groupAssignments[$groupName].DeviceConfigs.Add($config.displayName)
+                    # Check for both inclusion and exclusion assignments
+                    $hasAssignment = $assignmentResponse.value | Where-Object {
+                        $_.target.groupId -eq $groupId -and
+                        ($_.target.'@odata.type' -eq '#microsoft.graph.groupAssignmentTarget' -or
+                         $_.target.'@odata.type' -eq '#microsoft.graph.exclusionGroupAssignmentTarget')
+                    }
+                    if ($hasAssignment) {
+                        # Check if it's an exclusion
+                        $isExclusion = $hasAssignment | Where-Object {
+                            $_.target.'@odata.type' -eq '#microsoft.graph.exclusionGroupAssignmentTarget'
+                        }
+                        $displayName = if ($isExclusion) {
+                            "$($config.displayName) [EXCLUDED]"
+                        } else {
+                            $config.displayName
+                        }
+                        [void]$groupAssignments[$groupName].DeviceConfigs.Add($displayName)
                     }
                 }
                 Write-Host "`rFetching Device Configuration $totalDeviceConfigs of $totalDeviceConfigs" -NoNewline
@@ -7177,8 +7264,23 @@ do {
                     $assignmentsUri = "$GraphEndpoint/beta/deviceManagement/configurationPolicies('$policyId')/assignments"
                     $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
 
-                    if ($assignmentResponse.value | Where-Object { $_.target.groupId -eq $groupId }) {
-                        [void]$groupAssignments[$groupName].SettingsCatalog.Add($policy.name)
+                    # Check for both inclusion and exclusion assignments
+                    $hasAssignment = $assignmentResponse.value | Where-Object {
+                        $_.target.groupId -eq $groupId -and
+                        ($_.target.'@odata.type' -eq '#microsoft.graph.groupAssignmentTarget' -or
+                         $_.target.'@odata.type' -eq '#microsoft.graph.exclusionGroupAssignmentTarget')
+                    }
+                    if ($hasAssignment) {
+                        # Check if it's an exclusion
+                        $isExclusion = $hasAssignment | Where-Object {
+                            $_.target.'@odata.type' -eq '#microsoft.graph.exclusionGroupAssignmentTarget'
+                        }
+                        $displayName = if ($isExclusion) {
+                            "$($policy.name) [EXCLUDED]"
+                        } else {
+                            $policy.name
+                        }
+                        [void]$groupAssignments[$groupName].SettingsCatalog.Add($displayName)
                     }
                 }
 
@@ -7205,8 +7307,23 @@ do {
                     $assignmentsUri = "$GraphEndpoint/beta/deviceManagement/deviceCompliancePolicies('$policyId')/assignments"
                     $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
 
-                    if ($assignmentResponse.value | Where-Object { $_.target.groupId -eq $groupId }) {
-                        [void]$groupAssignments[$groupName].CompliancePolicies.Add($policy.displayName)
+                    # Check for both inclusion and exclusion assignments
+                    $hasAssignment = $assignmentResponse.value | Where-Object {
+                        $_.target.groupId -eq $groupId -and
+                        ($_.target.'@odata.type' -eq '#microsoft.graph.groupAssignmentTarget' -or
+                         $_.target.'@odata.type' -eq '#microsoft.graph.exclusionGroupAssignmentTarget')
+                    }
+                    if ($hasAssignment) {
+                        # Check if it's an exclusion
+                        $isExclusion = $hasAssignment | Where-Object {
+                            $_.target.'@odata.type' -eq '#microsoft.graph.exclusionGroupAssignmentTarget'
+                        }
+                        $displayName = if ($isExclusion) {
+                            "$($policy.displayName) [EXCLUDED]"
+                        } else {
+                            $policy.displayName
+                        }
+                        [void]$groupAssignments[$groupName].CompliancePolicies.Add($displayName)
                     }
                 }
 
