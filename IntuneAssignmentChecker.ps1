@@ -2,13 +2,21 @@
 #Requires -Modules Microsoft.Graph.Authentication
 
 <#PSScriptInfo
-.VERSION 3.4.1
+.VERSION 3.4.2
 .GUID c6e25ec6-5787-45ef-95af-8abeb8a17daf
 .AUTHOR ugurk
 .PROJECTURI https://github.com/ugurkocde/IntuneAssignmentChecker
 .DESCRIPTION
 This script enables IT administrators to efficiently analyze and audit Intune assignments. It checks assignments for specific users, groups, or devices, displays all policies and their assignments, identifies unassigned policies, detects empty groups in assignments, and searches for specific settings across policies.
 .RELEASENOTES
+Version 3.4.2:
+- Fixed Android policy detection - now properly identifies and displays Android platform policies (Fixes #86)
+- Fixed assignment accuracy - now shows ALL assigned groups instead of just the first one (Fixes #87)
+- Fixed exclusion group names - now displays actual group names instead of generic "Group Exclusion" (Fixes #63, #84)
+- Added platform detection for all device configuration and compliance policies
+- Improved assignment processing to handle multiple assignments correctly
+- Enhanced group name resolution for all assignment types
+
 Version 3.4.1:
 - Updated release date
 
@@ -32,30 +40,33 @@ Version 3.3.2:
 param(
     [Parameter(Mandatory = $false, HelpMessage = "Check assignments for specific users")]
     [switch]$CheckUser,
-    
+
     [Parameter(Mandatory = $false, HelpMessage = "User Principal Names to check, comma-separated")]
     [string]$UserPrincipalNames,
-    
+
     [Parameter(Mandatory = $false, HelpMessage = "Check assignments for specific groups")]
     [switch]$CheckGroup,
-    
+
     [Parameter(Mandatory = $false, HelpMessage = "Group names or IDs to check, comma-separated")]
     [string]$GroupNames,
-    
+
     [Parameter(Mandatory = $false, HelpMessage = "Check assignments for specific devices")]
     [switch]$CheckDevice,
-    
+
     [Parameter(Mandatory = $false, HelpMessage = "Device names to check, comma-separated")]
     [string]$DeviceNames,
-    
+
     [Parameter(Mandatory = $false, HelpMessage = "Show all policies and their assignments")]
     [switch]$ShowAllPolicies,
-    
+
     [Parameter(Mandatory = $false, HelpMessage = "Show all 'All Users' assignments")]
     [switch]$ShowAllUsersAssignments,
-    
+
     [Parameter(Mandatory = $false, HelpMessage = "Show all 'All Devices' assignments")]
     [switch]$ShowAllDevicesAssignments,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Skip execution - used for testing")]
+    [switch]$SkipExecution,
     
     [Parameter(Mandatory = $false, HelpMessage = "Generate HTML report")]
     [switch]$GenerateHTMLReport,
@@ -393,6 +404,11 @@ function Set-Environment {
     } while ($selection -ne '0')
 }
 
+# Skip execution if SkipExecution flag is set (for testing)
+if ($SkipExecution) {
+    return
+}
+
 # Connect to Microsoft Graph using certificate-based authentication
 
 try {
@@ -711,6 +727,72 @@ function Get-IntuneEntities {
     return $entities
 }
 
+function Get-PolicyPlatform {
+    param (
+        [Parameter(Mandatory = $true)]
+        [PSObject]$Policy
+    )
+
+    # Get the platform based on the @odata.type
+    $odataType = $Policy.'@odata.type'
+
+    if ($null -eq $odataType) {
+        return "Unknown"
+    }
+
+    switch -Regex ($odataType) {
+        "android" {
+            if ($odataType -like "*WorkProfile*") {
+                return "Android Work Profile"
+            }
+            elseif ($odataType -like "*DeviceOwner*") {
+                return "Android Enterprise"
+            }
+            else {
+                return "Android"
+            }
+        }
+        "ios|iPad|iPhone" {
+            if ($odataType -like "*macOS*") {
+                return "macOS"
+            }
+            else {
+                return "iOS/iPadOS"
+            }
+        }
+        "windows" {
+            if ($odataType -like "*windows10*" -or $odataType -like "*windows81*") {
+                return "Windows"
+            }
+            elseif ($odataType -like "*windowsPhone*") {
+                return "Windows Phone"
+            }
+            else {
+                return "Windows"
+            }
+        }
+        "macOS|mac" {
+            return "macOS"
+        }
+        "aosp" {
+            return "Android (AOSP)"
+        }
+        default {
+            # For Settings Catalog and other generic types, try to determine from other properties
+            if ($Policy.platforms) {
+                return $Policy.platforms -join ", "
+            }
+            elseif ($Policy.technologies) {
+                # Settings catalog might have technologies property
+                return "Settings Catalog"
+            }
+            else {
+                return "Multi-Platform"
+            }
+        }
+    }
+}
+
 function Get-GroupInfo {
     param (
         [Parameter(Mandatory = $true)]
@@ -797,6 +879,46 @@ function Get-GroupMemberships {
     $response = Invoke-MgGraphRequest -Uri $uri -Method Get
     
     return $response.value
+}
+
+function Process-MultipleAssignments {
+    param (
+        [Parameter(Mandatory = $true)]
+        [Array]$Assignments,
+
+        [Parameter(Mandatory = $false)]
+        [string]$TargetGroupId = $null
+    )
+
+    $processedAssignments = [System.Collections.ArrayList]::new()
+
+    foreach ($assignment in $Assignments) {
+        $assignmentInfo = @{
+            Reason = $assignment.Reason
+            GroupId = $assignment.GroupId
+            GroupName = $null
+        }
+
+        # Get group name for both assignments and exclusions
+        if ($assignment.GroupId) {
+            $groupInfo = Get-GroupInfo -GroupId $assignment.GroupId
+            if ($groupInfo.Success) {
+                $assignmentInfo.GroupName = $groupInfo.DisplayName
+            }
+        }
+
+        # If we're checking for a specific group
+        if ($TargetGroupId) {
+            if ($assignment.GroupId -eq $TargetGroupId) {
+                $null = $processedAssignments.Add($assignmentInfo)
+            }
+        }
+        else {
+            $null = $processedAssignments.Add($assignmentInfo)
+        }
+    }
+
+    return $processedAssignments
 }
 
 function Get-AssignmentInfo {
@@ -1913,29 +2035,34 @@ do {
                 }
                 else {
                     # Create table header
-                    $headerFormat = "{0,-50} {1,-40} {2,-30}" -f "Configuration Name", "Configuration ID", "Assignment"
+                    $headerFormat = "{0,-45} {1,-20} {2,-35} {3,-20}" -f "Configuration Name", "Platform", "Configuration ID", "Assignment"
                     $separator = "-" * 120
                     Write-Host $separator
                     Write-Host $headerFormat -ForegroundColor Yellow
                     Write-Host $separator
-                    
+
                     foreach ($config in $relevantPolicies.DeviceConfigs) {
                         $configName = if ([string]::IsNullOrWhiteSpace($config.name)) { $config.displayName } else { $config.name }
-                        if ($configName.Length -gt 47) {
-                            $configName = $configName.Substring(0, 44) + "..."
+                        if ($configName.Length -gt 42) {
+                            $configName = $configName.Substring(0, 39) + "..."
                         }
-                        
+
+                        $platform = Get-PolicyPlatform -Policy $config
+                        if ($platform.Length -gt 17) {
+                            $platform = $platform.Substring(0, 14) + "..."
+                        }
+
                         $configId = $config.id
-                        if ($configId.Length -gt 37) {
-                            $configId = $configId.Substring(0, 34) + "..."
+                        if ($configId.Length -gt 32) {
+                            $configId = $configId.Substring(0, 29) + "..."
                         }
-                        
+
                         $assignment = $config.AssignmentReason
-                        if ($assignment.Length -gt 27) {
-                            $assignment = $assignment.Substring(0, 24) + "..."
+                        if ($assignment.Length -gt 17) {
+                            $assignment = $assignment.Substring(0, 14) + "..."
                         }
-                        
-                        $rowFormat = "{0,-50} {1,-40} {2,-30}" -f $configName, $configId, $assignment
+
+                        $rowFormat = "{0,-45} {1,-20} {2,-35} {3,-20}" -f $configName, $platform, $configId, $assignment
                         if ($assignment -eq "Excluded") {
                             Write-Host $rowFormat -ForegroundColor Red
                         }
@@ -2751,9 +2878,16 @@ do {
                 foreach ($config in $deviceConfigs) {
                     $directAssignments = Get-IntuneAssignments -EntityType "deviceConfigurations" -EntityId $config.id -GroupId $groupId
                     if ($directAssignments.Count -gt 0) {
-                        $assignmentReason = $directAssignments[0].Reason
-                        if ($assignmentReason -eq "Direct Assignment" -or $assignmentReason -eq "Direct Exclusion") {
-                            $config | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentReason -Force
+                        # Process all assignments for this group
+                        $assignmentReasons = @()
+                        foreach ($assignment in $directAssignments) {
+                            if ($assignment.Reason -eq "Direct Assignment" -or $assignment.Reason -eq "Direct Exclusion") {
+                                $assignmentReasons += $assignment.Reason
+                            }
+                        }
+
+                        if ($assignmentReasons.Count -gt 0) {
+                            $config | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue ($assignmentReasons -join "; ") -Force
                             $relevantPolicies.DeviceConfigs += $config
                         }
                     }
@@ -2769,9 +2903,16 @@ do {
                     }
                     $directAssignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id -GroupId $groupId
                     if ($directAssignments.Count -gt 0) {
-                        $assignmentReason = $directAssignments[0].Reason
-                        if ($assignmentReason -eq "Direct Assignment" -or $assignmentReason -eq "Direct Exclusion") {
-                            $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentReason -Force
+                        # Process all assignments for this group
+                        $assignmentReasons = @()
+                        foreach ($assignment in $directAssignments) {
+                            if ($assignment.Reason -eq "Direct Assignment" -or $assignment.Reason -eq "Direct Exclusion") {
+                                $assignmentReasons += $assignment.Reason
+                            }
+                        }
+
+                        if ($assignmentReasons.Count -gt 0) {
+                            $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue ($assignmentReasons -join "; ") -Force
                             $relevantPolicies.SettingsCatalog += $policy
                         }
                     }
@@ -2783,9 +2924,16 @@ do {
                 foreach ($template in $adminTemplates) {
                     $directAssignments = Get-IntuneAssignments -EntityType "groupPolicyConfigurations" -EntityId $template.id -GroupId $groupId
                     if ($directAssignments.Count -gt 0) {
-                        $assignmentReason = $directAssignments[0].Reason
-                        if ($assignmentReason -eq "Direct Assignment" -or $assignmentReason -eq "Direct Exclusion") {
-                            $template | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentReason -Force
+                        # Process all assignments for this group
+                        $assignmentReasons = @()
+                        foreach ($assignment in $directAssignments) {
+                            if ($assignment.Reason -eq "Direct Assignment" -or $assignment.Reason -eq "Direct Exclusion") {
+                                $assignmentReasons += $assignment.Reason
+                            }
+                        }
+
+                        if ($assignmentReasons.Count -gt 0) {
+                            $template | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue ($assignmentReasons -join "; ") -Force
                             $relevantPolicies.AdminTemplates += $template
                         }
                     }
@@ -2797,9 +2945,16 @@ do {
                 foreach ($policy in $compliancePolicies) {
                     $directAssignments = Get-IntuneAssignments -EntityType "deviceCompliancePolicies" -EntityId $policy.id -GroupId $groupId
                     if ($directAssignments.Count -gt 0) {
-                        $assignmentReason = $directAssignments[0].Reason
-                        if ($assignmentReason -eq "Direct Assignment" -or $assignmentReason -eq "Direct Exclusion") {
-                            $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentReason -Force
+                        # Process all assignments for this group
+                        $assignmentReasons = @()
+                        foreach ($assignment in $directAssignments) {
+                            if ($assignment.Reason -eq "Direct Assignment" -or $assignment.Reason -eq "Direct Exclusion") {
+                                $assignmentReasons += $assignment.Reason
+                            }
+                        }
+
+                        if ($assignmentReasons.Count -gt 0) {
+                            $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue ($assignmentReasons -join "; ") -Force
                             $relevantPolicies.CompliancePolicies += $policy
                         }
                     }
@@ -3106,25 +3261,28 @@ do {
                     }
 
                     # Create table header
-                    $headerFormat = "{0,-50} {1,-40} {2,-30}" -f "Policy Name", "ID", "Assignment"
-                    
+                    $headerFormat = "{0,-45} {1,-20} {2,-35} {3,-20}" -f "Policy Name", "Platform", "ID", "Assignment"
+
                     Write-Host $headerFormat -ForegroundColor Yellow
                     Write-Host $localTableSeparator -ForegroundColor Gray
-                    
+
                     # Display each policy
                     foreach ($policy in $Policies) {
                         $name = & $GetName $policy
                         $extra = & $GetExtra $policy
-                        
-                        if ($name.Length -gt 47) { $name = $name.Substring(0, 44) + "..." }
-                        
+
+                        if ($name.Length -gt 42) { $name = $name.Substring(0, 39) + "..." }
+
+                        $platform = Get-PolicyPlatform -Policy $policy
+                        if ($platform.Length -gt 17) { $platform = $platform.Substring(0, 14) + "..." }
+
                         $id = $policy.id
-                        if ($id.Length -gt 37) { $id = $id.Substring(0, 34) + "..." }
-                        
+                        if ($id.Length -gt 32) { $id = $id.Substring(0, 29) + "..." }
+
                         $assignment = if ($policy.AssignmentReason) { $policy.AssignmentReason } else { "N/A" }
-                        if ($assignment.Length -gt 27) { $assignment = $assignment.Substring(0, 24) + "..." }
-                        
-                        $rowFormat = "{0,-50} {1,-40} {2,-30}" -f $name, $id, $assignment
+                        if ($assignment.Length -gt 17) { $assignment = $assignment.Substring(0, 14) + "..." }
+
+                        $rowFormat = "{0,-45} {1,-20} {2,-35} {3,-20}" -f $name, $platform, $id, $assignment
                         if ($assignment -eq "Direct Exclusion") {
                             Write-Host $rowFormat -ForegroundColor Red
                         }
@@ -4268,7 +4426,7 @@ do {
             foreach ($config in $deviceConfigs) {
                 $assignments = Get-IntuneAssignments -EntityType "deviceConfigurations" -EntityId $config.id
                 $assignmentSummary = $assignments | ForEach-Object {
-                    if ($_.Reason -eq "Group Assignment") {
+                    if ($_.Reason -eq "Group Assignment" -or $_.Reason -eq "Group Exclusion") {
                         $groupInfo = Get-GroupInfo -GroupId $_.GroupId
                         "$($_.Reason) - $($groupInfo.DisplayName)"
                     }
@@ -4286,7 +4444,7 @@ do {
             foreach ($policy in $settingsCatalog) {
                 $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
                 $assignmentSummary = $assignments | ForEach-Object {
-                    if ($_.Reason -eq "Group Assignment") {
+                    if ($_.Reason -eq "Group Assignment" -or $_.Reason -eq "Group Exclusion") {
                         $groupInfo = Get-GroupInfo -GroupId $_.GroupId
                         "$($_.Reason) - $($groupInfo.DisplayName)"
                     }
@@ -4304,7 +4462,7 @@ do {
             foreach ($template in $adminTemplates) {
                 $assignments = Get-IntuneAssignments -EntityType "groupPolicyConfigurations" -EntityId $template.id
                 $assignmentSummary = $assignments | ForEach-Object {
-                    if ($_.Reason -eq "Group Assignment") {
+                    if ($_.Reason -eq "Group Assignment" -or $_.Reason -eq "Group Exclusion") {
                         $groupInfo = Get-GroupInfo -GroupId $_.GroupId
                         "$($_.Reason) - $($groupInfo.DisplayName)"
                     }
@@ -4322,7 +4480,7 @@ do {
             foreach ($policy in $compliancePolicies) {
                 $assignments = Get-IntuneAssignments -EntityType "deviceCompliancePolicies" -EntityId $policy.id
                 $assignmentSummary = $assignments | ForEach-Object {
-                    if ($_.Reason -eq "Group Assignment") {
+                    if ($_.Reason -eq "Group Assignment" -or $_.Reason -eq "Group Exclusion") {
                         $groupInfo = Get-GroupInfo -GroupId $_.GroupId
                         "$($_.Reason) - $($groupInfo.DisplayName)"
                     }
@@ -4352,18 +4510,23 @@ do {
                         $assignments = @()
                         foreach ($assignment in $assignmentResponse.value) {
                             $assignmentReason = $null
+                            $groupId = $null
                             switch ($assignment.target.'@odata.type') {
                                 '#microsoft.graph.allLicensedUsersAssignmentTarget' {
                                     $assignmentReason = "All Users"
                                 }
                                 '#microsoft.graph.groupAssignmentTarget' {
-                                    if (!$GroupId -or $assignment.target.groupId -eq $GroupId) {
-                                        $assignmentReason = "Group Assignment"
+                                    $groupId = $assignment.target.groupId
+                                    if (!$GroupId -or $groupId -eq $GroupId) {
+                                        $groupInfo = Get-GroupInfo -GroupId $groupId
+                                        $assignmentReason = "Group Assignment - $($groupInfo.DisplayName)"
                                     }
                                 }
                                 '#microsoft.graph.exclusionGroupAssignmentTarget' {
-                                    if (!$GroupId -or $assignment.target.groupId -eq $GroupId) {
-                                        $assignmentReason = "Group Exclusion"
+                                    $groupId = $assignment.target.groupId
+                                    if (!$GroupId -or $groupId -eq $GroupId) {
+                                        $groupInfo = Get-GroupInfo -GroupId $groupId
+                                        $assignmentReason = "Group Exclusion - $($groupInfo.DisplayName)"
                                     }
                                 }
                             }
@@ -4390,7 +4553,7 @@ do {
             foreach ($policy in $appConfigPolicies) {
                 $assignments = Get-IntuneAssignments -EntityType "mobileAppConfigurations" -EntityId $policy.id
                 $assignmentSummary = $assignments | ForEach-Object {
-                    if ($_.Reason -eq "Group Assignment") {
+                    if ($_.Reason -eq "Group Assignment" -or $_.Reason -eq "Group Exclusion") {
                         $groupInfo = Get-GroupInfo -GroupId $_.GroupId
                         "$($_.Reason) - $($groupInfo.DisplayName)"
                     }
@@ -4408,7 +4571,7 @@ do {
             foreach ($script in $platformScripts) {
                 $assignments = Get-IntuneAssignments -EntityType "deviceManagementScripts" -EntityId $script.id
                 $assignmentSummary = $assignments | ForEach-Object {
-                    if ($_.Reason -eq "Group Assignment") {
+                    if ($_.Reason -eq "Group Assignment" -or $_.Reason -eq "Group Exclusion") {
                         $groupInfo = Get-GroupInfo -GroupId $_.GroupId
                         "$($_.Reason) - $($groupInfo.DisplayName)"
                     }
@@ -4426,7 +4589,7 @@ do {
             foreach ($script in $healthScripts) {
                 $assignments = Get-IntuneAssignments -EntityType "deviceHealthScripts" -EntityId $script.id
                 $assignmentSummary = $assignments | ForEach-Object {
-                    if ($_.Reason -eq "Group Assignment") {
+                    if ($_.Reason -eq "Group Assignment" -or $_.Reason -eq "Group Exclusion") {
                         $groupInfo = Get-GroupInfo -GroupId $_.GroupId
                         "$($_.Reason) - $($groupInfo.DisplayName)"
                     }
@@ -5205,7 +5368,8 @@ do {
             else {
                 foreach ($config in $allUsersAssignments.DeviceConfigs) {
                     $configName = if ([string]::IsNullOrWhiteSpace($config.name)) { $config.displayName } else { $config.name }
-                    Write-Host "Device Configuration Name: $configName, Configuration ID: $($config.id)" -ForegroundColor White
+                    $platform = Get-PolicyPlatform -Policy $config
+                    Write-Host "Device Configuration Name: $configName, Platform: $platform, Configuration ID: $($config.id)" -ForegroundColor White
                     Add-ExportData -ExportData $exportData -Category "Device Configuration" -Items @($config) -AssignmentReason "All Users"
                 }
             }
@@ -5244,7 +5408,8 @@ do {
             else {
                 foreach ($policy in $allUsersAssignments.CompliancePolicies) {
                     $policyName = if ([string]::IsNullOrWhiteSpace($policy.name)) { $policy.displayName } else { $policy.name }
-                    Write-Host "Compliance Policy Name: $policyName, Policy ID: $($policy.id)" -ForegroundColor White
+                    $platform = Get-PolicyPlatform -Policy $policy
+                    Write-Host "Compliance Policy Name: $policyName, Platform: $platform, Policy ID: $($policy.id)" -ForegroundColor White
                     Add-ExportData -ExportData $exportData -Category "Compliance Policy" -Items @($policy) -AssignmentReason "All Users"
                 }
             }
@@ -5825,7 +5990,8 @@ do {
             else {
                 foreach ($config in $allDevicesAssignments.DeviceConfigs) {
                     $configName = if ([string]::IsNullOrWhiteSpace($config.name)) { $config.displayName } else { $config.name }
-                    Write-Host "Device Configuration Name: $configName, Configuration ID: $($config.id)" -ForegroundColor White
+                    $platform = Get-PolicyPlatform -Policy $config
+                    Write-Host "Device Configuration Name: $configName, Platform: $platform, Configuration ID: $($config.id)" -ForegroundColor White
                     Add-ExportData -ExportData $exportData -Category "Device Configuration" -Items @($config) -AssignmentReason "All Devices"
                 }
             }
@@ -5864,7 +6030,8 @@ do {
             else {
                 foreach ($policy in $allDevicesAssignments.CompliancePolicies) {
                     $policyName = if ([string]::IsNullOrWhiteSpace($policy.name)) { $policy.displayName } else { $policy.name }
-                    Write-Host "Compliance Policy Name: $policyName, Policy ID: $($policy.id)" -ForegroundColor White
+                    $platform = Get-PolicyPlatform -Policy $policy
+                    Write-Host "Compliance Policy Name: $policyName, Platform: $platform, Policy ID: $($policy.id)" -ForegroundColor White
                     Add-ExportData -ExportData $exportData -Category "Compliance Policy" -Items @($policy) -AssignmentReason "All Devices"
                 }
             }
@@ -6279,7 +6446,8 @@ do {
             else {
                 foreach ($config in $unassignedPolicies.DeviceConfigs) {
                     $configName = if ([string]::IsNullOrWhiteSpace($config.name)) { $config.displayName } else { $config.name }
-                    Write-Host "Device Configuration Name: $configName, Configuration ID: $($config.id)" -ForegroundColor White
+                    $platform = Get-PolicyPlatform -Policy $config
+                    Write-Host "Device Configuration Name: $configName, Platform: $platform, Configuration ID: $($config.id)" -ForegroundColor White
                     Add-ExportData -ExportData $exportData -Category "Device Configuration" -Items @($config) -AssignmentReason "No Assignment"
                 }
             }
@@ -6318,7 +6486,8 @@ do {
             else {
                 foreach ($policy in $unassignedPolicies.CompliancePolicies) {
                     $policyName = if ([string]::IsNullOrWhiteSpace($policy.name)) { $policy.displayName } else { $policy.name }
-                    Write-Host "Compliance Policy Name: $policyName, Policy ID: $($policy.id)" -ForegroundColor White
+                    $platform = Get-PolicyPlatform -Policy $policy
+                    Write-Host "Compliance Policy Name: $policyName, Platform: $platform, Policy ID: $($policy.id)" -ForegroundColor White
                     Add-ExportData -ExportData $exportData -Category "Compliance Policy" -Items @($policy) -AssignmentReason "No Assignment"
                 }
             }
@@ -6666,7 +6835,9 @@ do {
             else {
                 foreach ($config in $emptyGroupAssignments.DeviceConfigs) {
                     $configName = if ([string]::IsNullOrWhiteSpace($config.name)) { $config.displayName } else { $config.name }
+                    $platform = Get-PolicyPlatform -Policy $config
                     Write-Host "Device Configuration Name: $configName" -ForegroundColor White
+                    Write-Host "Platform: $platform" -ForegroundColor Gray
                     Write-Host "Configuration ID: $($config.id)" -ForegroundColor Gray
                     Write-Host "$($config.EmptyGroupInfo)" -ForegroundColor Yellow
                     Write-Host ""
@@ -6714,7 +6885,9 @@ do {
             else {
                 foreach ($policy in $emptyGroupAssignments.CompliancePolicies) {
                     $policyName = if ([string]::IsNullOrWhiteSpace($policy.name)) { $policy.displayName } else { $policy.name }
+                    $platform = Get-PolicyPlatform -Policy $policy
                     Write-Host "Compliance Policy Name: $policyName" -ForegroundColor White
+                    Write-Host "Platform: $platform" -ForegroundColor Gray
                     Write-Host "Policy ID: $($policy.id)" -ForegroundColor Gray
                     Write-Host "$($policy.EmptyGroupInfo)" -ForegroundColor Yellow
                     Write-Host ""
