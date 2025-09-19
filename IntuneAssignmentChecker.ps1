@@ -2,13 +2,16 @@
 #Requires -Modules Microsoft.Graph.Authentication
 
 <#PSScriptInfo
-.VERSION 3.4.3
+.VERSION 3.4.4
 .GUID c6e25ec6-5787-45ef-95af-8abeb8a17daf
 .AUTHOR ugurk
 .PROJECTURI https://github.com/ugurkocde/IntuneAssignmentChecker
 .DESCRIPTION
 This script enables IT administrators to efficiently analyze and audit Intune assignments. It checks assignments for specific users, groups, or devices, displays all policies and their assignments, identifies unassigned policies, detects empty groups in assignments, and searches for specific settings across policies.
 .RELEASENOTES
+Version 3.4.4:
+- Fix Permission Error for Health Scripts
+
 Version 3.4.3:
 - Fixed critical assignment accuracy issues affecting group policy checks (Fixes #79, #80)
 - Resolved Settings Catalog policies not showing in group assignments (Fixes #80)
@@ -246,7 +249,7 @@ $certThumbprint = if ($CertificateThumbprint) { $CertificateThumbprint } else { 
 ####################################################################################################
 
 # Version of the local script
-$localVersion = "3.4.3"
+$localVersion = "3.4.4"
 
 Write-Host "🔍 INTUNE ASSIGNMENT CHECKER" -ForegroundColor Cyan
 Write-Host "Made by Ugur Koc with" -NoNewline; Write-Host " ❤️  and ☕" -NoNewline
@@ -444,6 +447,10 @@ try {
         @{
             Permission = "Device.Read.All"
             Reason     = "Needed to read device information from Entra ID"
+        },
+        @{
+            Permission = "DeviceManagementScripts.ReadWrite.All"
+            Reason     = "Needed to read and write device management and health scripts"
         }
     )
 
