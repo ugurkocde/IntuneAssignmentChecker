@@ -1,0 +1,288 @@
+name: PSScriptAnalyzer
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '**.ps1'
+      - '.github/workflows/psscriptanalyzer.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - '**.ps1'
+      - '.github/workflows/psscriptanalyzer.yml'
+  workflow_dispatch:
+
+jobs:
+  analyze:
+    name: PSScriptAnalyzer
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-Module -Name PSScriptAnalyzer -Force -Scope CurrentUser
+          Write-Host "PSScriptAnalyzer version: $(Get-Module -Name PSScriptAnalyzer -ListAvailable | Select-Object -ExpandProperty Version)"
+
+      - name: Run PSScriptAnalyzer
+        id: analysis
+        shell: pwsh
+        run: |
+          # Initialize counters
+          $errorCount = 0
+          $warningCount = 0
+          $infoCount = 0
+
+          Write-Host "============================================"
+          Write-Host "Running PSScriptAnalyzer on IntuneAssignmentChecker.ps1"
+          Write-Host "============================================"
+          Write-Host ""
+
+          # Run the analysis
+          $results = Invoke-ScriptAnalyzer -Path ./IntuneAssignmentChecker.ps1 -IncludeDefaultRules -RecurseCustomRulePath
+
+          if ($results) {
+              # Group by severity
+              $grouped = $results | Group-Object -Property Severity
+
+              # Count by severity
+              foreach ($group in $grouped) {
+                  switch ($group.Name) {
+                      'Error' { $errorCount = $group.Count }
+                      'Warning' { $warningCount = $group.Count }
+                      'Information' { $infoCount = $group.Count }
+                  }
+              }
+
+              Write-Host "📊 Analysis Summary"
+              Write-Host "==================="
+              Write-Host "❌ Errors: $errorCount"
+              Write-Host "⚠️  Warnings: $warningCount"
+              Write-Host "ℹ️  Information: $infoCount"
+              Write-Host ""
+
+              # Display errors first
+              $errors = $results | Where-Object { $_.Severity -eq 'Error' }
+              if ($errors) {
+                  Write-Host "❌ ERRORS" -ForegroundColor Red
+                  Write-Host "========" -ForegroundColor Red
+                  foreach ($error in $errors) {
+                      Write-Host "Line $($error.Line): [$($error.RuleName)] $($error.Message)" -ForegroundColor Red
+                  }
+                  Write-Host ""
+              }
+
+              # Display warnings
+              $warnings = $results | Where-Object { $_.Severity -eq 'Warning' }
+              if ($warnings) {
+                  Write-Host "⚠️  WARNINGS" -ForegroundColor Yellow
+                  Write-Host "==========" -ForegroundColor Yellow
+
+                  # Group warnings by rule for better readability
+                  $warningGroups = $warnings | Group-Object -Property RuleName | Sort-Object Count -Descending
+
+                  foreach ($group in $warningGroups) {
+                      Write-Host ""
+                      Write-Host "  Rule: $($group.Name) (Count: $($group.Count))" -ForegroundColor Cyan
+
+                      # Show first 5 examples of each warning type
+                      $examples = $group.Group | Select-Object -First 5
+                      foreach ($warning in $examples) {
+                          Write-Host "    Line $($warning.Line): $($warning.Message)" -ForegroundColor Yellow
+                      }
+
+                      if ($group.Count -gt 5) {
+                          Write-Host "    ... and $($group.Count - 5) more instances" -ForegroundColor DarkGray
+                      }
+                  }
+                  Write-Host ""
+              }
+
+              # Display information
+              $info = $results | Where-Object { $_.Severity -eq 'Information' }
+              if ($info -and $env:SHOW_INFO -eq 'true') {
+                  Write-Host "ℹ️  INFORMATION" -ForegroundColor Blue
+                  Write-Host "=============" -ForegroundColor Blue
+                  foreach ($item in $info) {
+                      Write-Host "Line $($item.Line): [$($item.RuleName)] $($item.Message)" -ForegroundColor Blue
+                  }
+                  Write-Host ""
+              }
+
+              # Export results for artifact
+              $results | ConvertTo-Json -Depth 5 | Out-File -FilePath analysis-results.json
+
+              # Set outputs for later steps
+              echo "error_count=$errorCount" >> $env:GITHUB_OUTPUT
+              echo "warning_count=$warningCount" >> $env:GITHUB_OUTPUT
+              echo "info_count=$infoCount" >> $env:GITHUB_OUTPUT
+              echo "has_errors=$($errorCount -gt 0)" >> $env:GITHUB_OUTPUT
+
+              # Exit with error if errors found (configurable)
+              if ($errorCount -gt 0 -and $env:FAIL_ON_ERROR -eq 'true') {
+                  Write-Host "❌ Analysis failed due to errors" -ForegroundColor Red
+                  exit 1
+              }
+          } else {
+              Write-Host "✅ No issues found! The script passes all PSScriptAnalyzer rules." -ForegroundColor Green
+              echo "error_count=0" >> $env:GITHUB_OUTPUT
+              echo "warning_count=0" >> $env:GITHUB_OUTPUT
+              echo "info_count=0" >> $env:GITHUB_OUTPUT
+              echo "has_errors=false" >> $env:GITHUB_OUTPUT
+          }
+        env:
+          FAIL_ON_ERROR: false  # Set to true if you want the workflow to fail on errors
+          SHOW_INFO: false      # Set to true to show information level issues
+
+      - name: Generate Detailed Report
+        if: always()
+        shell: pwsh
+        run: |
+          # Generate a detailed markdown report
+          $reportContent = @"
+          # PSScriptAnalyzer Report
+
+          **Script:** IntuneAssignmentChecker.ps1
+          **Date:** $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
+          **Analyzer Version:** $(Get-Module -Name PSScriptAnalyzer -ListAvailable | Select-Object -ExpandProperty Version)
+
+          ## Summary
+
+          | Severity | Count |
+          |----------|-------|
+          | ❌ Errors | ${{ steps.analysis.outputs.error_count }} |
+          | ⚠️ Warnings | ${{ steps.analysis.outputs.warning_count }} |
+          | ℹ️ Information | ${{ steps.analysis.outputs.info_count }} |
+
+          "@
+
+          if (Test-Path analysis-results.json) {
+              $results = Get-Content analysis-results.json | ConvertFrom-Json
+
+              if ($results) {
+                  # Add detailed findings grouped by rule
+                  $reportContent += "`n## Detailed Findings by Rule`n`n"
+
+                  $grouped = $results | Group-Object -Property RuleName, Severity
+
+                  foreach ($group in ($grouped | Sort-Object { $_.Group[0].Severity }, Name)) {
+                      $severity = $group.Group[0].Severity
+                      $icon = switch ($severity) {
+                          'Error' { '❌' }
+                          'Warning' { '⚠️' }
+                          'Information' { 'ℹ️' }
+                          default { '❓' }
+                      }
+
+                      $reportContent += "### $icon $($group.Name -replace ',.*') ($($group.Count) instances)`n`n"
+
+                      # Show up to 10 examples
+                      $examples = $group.Group | Select-Object -First 10
+                      $reportContent += "| Line | Message |`n|------|---------|`n"
+
+                      foreach ($item in $examples) {
+                          $message = $item.Message -replace '\|', '\|' -replace '\n', ' '
+                          if ($message.Length -gt 100) {
+                              $message = $message.Substring(0, 97) + "..."
+                          }
+                          $reportContent += "| $($item.Line) | $message |`n"
+                      }
+
+                      if ($group.Count -gt 10) {
+                          $reportContent += "`n*... and $($group.Count - 10) more instances*`n"
+                      }
+
+                      $reportContent += "`n"
+                  }
+              } else {
+                  $reportContent += "`n## ✅ No Issues Found`n`nThe script passes all PSScriptAnalyzer rules!`n"
+              }
+          }
+
+          # Write report to file
+          $reportContent | Out-File -FilePath analysis-report.md
+
+          # Also output to job summary
+          $reportContent >> $env:GITHUB_STEP_SUMMARY
+
+      - name: Upload Analysis Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: psscriptanalyzer-results
+          path: |
+            analysis-results.json
+            analysis-report.md
+          retention-days: 30
+
+      - name: Comment PR (if applicable)
+        if: github.event_name == 'pull_request' && always()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{secrets.GITHUB_TOKEN}}
+          script: |
+            const fs = require('fs');
+
+            // Read the report
+            let report = '## PSScriptAnalyzer Results\n\n';
+
+            const errorCount = '${{ steps.analysis.outputs.error_count }}';
+            const warningCount = '${{ steps.analysis.outputs.warning_count }}';
+
+            if (errorCount === '0' && warningCount === '0') {
+              report += '✅ **All checks passed!** No issues found.';
+            } else {
+              report += `Found **${errorCount}** error(s) and **${warningCount}** warning(s).\n\n`;
+              report += 'See the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.';
+            }
+
+            // Find and update or create comment
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const botComment = comments.find(comment =>
+              comment.user.type === 'Bot' &&
+              comment.body.includes('PSScriptAnalyzer Results')
+            );
+
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: report
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: report
+              });
+            }
+
+      - name: Set Status Check
+        if: always()
+        shell: pwsh
+        run: |
+          $hasErrors = "${{ steps.analysis.outputs.has_errors }}"
+          $errorCount = "${{ steps.analysis.outputs.error_count }}"
+          $warningCount = "${{ steps.analysis.outputs.warning_count }}"
+
+          if ($hasErrors -eq 'true') {
+              Write-Host "❌ Status: Failed - Found $errorCount error(s)" -ForegroundColor Red
+              # Uncomment the next line to fail the workflow on errors
+              # exit 1
+          } elseif ($warningCount -gt 0) {
+              Write-Host "⚠️  Status: Passed with warnings - Found $warningCount warning(s)" -ForegroundColor Yellow
+          } else {
+              Write-Host "✅ Status: Passed - No issues found" -ForegroundColor Green
+          }
