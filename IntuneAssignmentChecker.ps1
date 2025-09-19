@@ -246,12 +246,12 @@ $certThumbprint = if ($CertificateThumbprint) { $CertificateThumbprint } else { 
 ####################################################################################################
 
 # Version of the local script
-$localVersion = "3.4.1"
+$localVersion = "3.4.3"
 
 Write-Host "🔍 INTUNE ASSIGNMENT CHECKER" -ForegroundColor Cyan
 Write-Host "Made by Ugur Koc with" -NoNewline; Write-Host " ❤️  and ☕" -NoNewline
 Write-Host " | Version" -NoNewline; Write-Host " $localVersion" -ForegroundColor Yellow -NoNewline
-Write-Host " | Last updated: " -NoNewline; Write-Host "2025-07-02" -ForegroundColor Magenta
+Write-Host " | Last updated: " -NoNewline; Write-Host "2025-09-19" -ForegroundColor Magenta
 Write-Host ""
 Write-Host "📢 Feedback & Issues: " -NoNewline -ForegroundColor Cyan
 Write-Host "https://github.com/ugurkocde/IntuneAssignmentChecker/issues" -ForegroundColor White
@@ -901,8 +901,8 @@ function Process-MultipleAssignments {
 
     foreach ($assignment in $Assignments) {
         $assignmentInfo = @{
-            Reason = $assignment.Reason
-            GroupId = $assignment.GroupId
+            Reason    = $assignment.Reason
+            GroupId   = $assignment.GroupId
             GroupName = $null
         }
 
@@ -7236,7 +7236,7 @@ do {
                     $hasAssignment = $assignmentResponse.value | Where-Object {
                         $_.target.groupId -eq $groupId -and
                         ($_.target.'@odata.type' -eq '#microsoft.graph.groupAssignmentTarget' -or
-                         $_.target.'@odata.type' -eq '#microsoft.graph.exclusionGroupAssignmentTarget')
+                        $_.target.'@odata.type' -eq '#microsoft.graph.exclusionGroupAssignmentTarget')
                     }
                     if ($hasAssignment) {
                         # Check if it's an exclusion
@@ -7245,7 +7245,8 @@ do {
                         }
                         $displayName = if ($isExclusion) {
                             "$($config.displayName) [EXCLUDED]"
-                        } else {
+                        }
+                        else {
                             $config.displayName
                         }
                         [void]$groupAssignments[$groupName].DeviceConfigs.Add($displayName)
@@ -7268,7 +7269,7 @@ do {
                     $hasAssignment = $assignmentResponse.value | Where-Object {
                         $_.target.groupId -eq $groupId -and
                         ($_.target.'@odata.type' -eq '#microsoft.graph.groupAssignmentTarget' -or
-                         $_.target.'@odata.type' -eq '#microsoft.graph.exclusionGroupAssignmentTarget')
+                        $_.target.'@odata.type' -eq '#microsoft.graph.exclusionGroupAssignmentTarget')
                     }
                     if ($hasAssignment) {
                         # Check if it's an exclusion
@@ -7277,7 +7278,8 @@ do {
                         }
                         $displayName = if ($isExclusion) {
                             "$($policy.name) [EXCLUDED]"
-                        } else {
+                        }
+                        else {
                             $policy.name
                         }
                         [void]$groupAssignments[$groupName].SettingsCatalog.Add($displayName)
@@ -7311,7 +7313,7 @@ do {
                     $hasAssignment = $assignmentResponse.value | Where-Object {
                         $_.target.groupId -eq $groupId -and
                         ($_.target.'@odata.type' -eq '#microsoft.graph.groupAssignmentTarget' -or
-                         $_.target.'@odata.type' -eq '#microsoft.graph.exclusionGroupAssignmentTarget')
+                        $_.target.'@odata.type' -eq '#microsoft.graph.exclusionGroupAssignmentTarget')
                     }
                     if ($hasAssignment) {
                         # Check if it's an exclusion
@@ -7320,7 +7322,8 @@ do {
                         }
                         $displayName = if ($isExclusion) {
                             "$($policy.displayName) [EXCLUDED]"
-                        } else {
+                        }
+                        else {
                             $policy.displayName
                         }
                         [void]$groupAssignments[$groupName].CompliancePolicies.Add($displayName)
@@ -7572,7 +7575,7 @@ do {
                     }
                 }
             }
-            
+
             # Export results if requested
             if ($ExportToCSV -or -not $parameterMode) {
                 $exportPath = if ($ExportPath) {
