@@ -1637,17 +1637,6 @@ function Show-SaveFileDialog {
         return $filePath
     }
 
-    # If running on macOS, auto‐save to a default temp directory
-    if ($IsMacOS) {
-        $reportDir = Join-Path -Path ([Environment]::GetFolderPath("UserProfile")) -ChildPath "Downloads/IntuneAssignmentChecker_Reports"
-        if (-not (Test-Path $reportDir)) {
-            New-Item -ItemType Directory -Path $reportDir | Out-Null
-        }
-        $filePath = Join-Path -Path $reportDir -ChildPath $DefaultFileName
-        Write-Host "Saving report to: $filePath" -ForegroundColor Yellow
-        return $filePath
-    }
-
     # If running PowerShell 7 or newer, use cross-platform Read-Host prompt first
     if ($PSVersionTable.PSVersion.Major -ge 7) {
         # Use the user’s Temp folder as default directory
@@ -1886,6 +1875,9 @@ function Export-ResultsIfRequested {
 }
 
 # Move this code to the beginning of the script, right after the param block
+
+# Define valid menu options
+$validMenuOptions = @('1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12', '13', '14', '15', '16', '17', '98', '99', '0')
 
 # Main script logic
 do {
@@ -8429,7 +8421,7 @@ do {
             Start-Process "https://github.com/ugurkocde/IntuneAssignmentChecker"
         }
         default {
-            Write-Host "Invalid choice, please select 1-17, 98, 99, or 0." -ForegroundColor Red
+            Write-Host ("Invalid choice, please select one of: " + ($validMenuOptions -join ', ') + ".") -ForegroundColor Red
         }
     }
 
