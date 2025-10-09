@@ -819,6 +819,19 @@ function Get-PolicyPlatform {
     }
 }
 
+function Get-FailureRate {
+    param (
+        [Parameter(Mandatory = $true)]
+        [object]$Object
+    )
+
+    if ($Object.TotalCount -eq 0) {
+        return 0
+    }
+
+    return [math]::Round(($Object.FailedCount / $Object.TotalCount) * 100, 2)
+}
+
 function Get-GroupInfo {
     param (
         [Parameter(Mandatory = $true)]
