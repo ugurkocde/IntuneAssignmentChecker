@@ -1580,9 +1580,8 @@ function Get-ConfigurationPolicyDeviceSummaryReport {
                     continue
                 }
                 
-                $responseContent = $response.Content.ReadAsStringAsync().Result
-                Write-Verbose "Response content length: $($responseContent.Length) characters"
-                $parsed = $responseContent | ConvertFrom-Json -Depth 10
+                Write-Verbose "Response content length: $($response.Length) characters"
+                $parsed = $response | ConvertFrom-Json -Depth 10
                 
                 if ($parsed -and $parsed.Values) {
                     $schema = $parsed.Schema
