@@ -1771,7 +1771,7 @@ function Show-SaveFileDialog {
         [string]$DefaultFileName
     )
 
-    # If running on macOS, auto-save to a default temp directory
+    # If running on macOS, auto-save to the Downloads/IntuneAssignmentChecker_Reports directory under the user's profile
     if ($IsMacOS) {
         $reportDir = Join-Path -Path ([Environment]::GetFolderPath("UserProfile")) -ChildPath "Downloads/IntuneAssignmentChecker_Reports"
         if (-not (Test-Path $reportDir)) {
