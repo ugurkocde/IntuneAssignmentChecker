@@ -2,13 +2,16 @@
 #Requires -Modules Microsoft.Graph.Authentication
 
 <#PSScriptInfo
-.VERSION 3.4.4
+.VERSION 3.4.5
 .GUID c6e25ec6-5787-45ef-95af-8abeb8a17daf
 .AUTHOR ugurk
 .PROJECTURI https://github.com/ugurkocde/IntuneAssignmentChecker
 .DESCRIPTION
 This script enables IT administrators to efficiently analyze and audit Intune assignments. It checks assignments for specific users, groups, or devices, displays all policies and their assignments, identifies unassigned policies, detects empty groups in assignments, and searches for specific settings across policies.
 .RELEASENOTES
+Version 3.4.5:
+- Added a check to see if Graph is already connected
+
 Version 3.4.4:
 - Fix Permission Error for Health Scripts
 
@@ -454,16 +457,44 @@ try {
         }
     )
 
-    # Check if any of the variables are not set or contain placeholder values
-    if (-not $appid -or $appid -eq '<YourAppIdHere>' -or
-        -not $tenantid -or $tenantid -eq '<YourTenantIdHere>' -or
-        -not $certThumbprint -or $certThumbprint -eq '<YourCertificateThumbprintHere>') {
-        Write-Host "App ID, Tenant ID, or Certificate Thumbprint is missing or not set correctly." -ForegroundColor Red
-        $manualConnection = Read-Host "Would you like to attempt a manual interactive connection? (y/n)"
-        if ($manualConnection -eq 'y') {
-            # Manual connection using interactive login
-            Write-Host "Attempting manual interactive connection (you need privileges to consent permissions)..." -ForegroundColor Yellow
-            $permissionsList = ($requiredPermissions | ForEach-Object { $_.Permission }) -join ', '
+    # Check if Microsoft Graph is already connected
+    $graphContext = Get-MgContext -ErrorAction SilentlyContinue
+
+    if ($null -ne $graphContext) {
+        Write-Host "Microsoft Graph is already connected, continuing to check permissions." -ForegroundColor Green
+    }
+    else {
+        Write-Host "No existing Microsoft Graph connection found. Attempting connection..." -ForegroundColor Yellow
+
+        # Check if any of the variables are not set or contain placeholder values
+        if (-not $appid -or $appid -eq '<YourAppIdHere>' -or
+            -not $tenantid -or $tenantid -eq '<YourTenantIdHere>' -or
+            -not $certThumbprint -or $certThumbprint -eq '<YourCertificateThumbprintHere>') {
+
+            Write-Host "App ID, Tenant ID, or Certificate Thumbprint is missing or not set correctly." -ForegroundColor Red
+            $manualConnection = Read-Host "Would you like to attempt a manual interactive connection? (y/n)"
+            if ($manualConnection -eq 'y') {
+                # Manual connection using interactive login
+                Write-Host "Attempting manual interactive connection (you need privileges to consent permissions)..." -ForegroundColor Yellow
+                $permissionsList = ($requiredPermissions | ForEach-Object { $_.Permission }) -join ', '
+
+                # In parameter mode, use the Environment parameter (which defaults to Global)
+                # In interactive mode, always prompt for environment selection
+                if ($parameterMode) {
+                    Set-Environment -EnvironmentName $Environment
+                }
+                else {
+                    Set-Environment  # Prompt for environment selection in interactive mode
+                }
+
+                $connectionResult = Connect-MgGraph -Scopes $permissionsList -Environment $script:GraphEnvironment -NoWelcome -ErrorAction Stop
+            }
+            else {
+                Write-Host "Script execution cancelled by user." -ForegroundColor Red
+                exit
+            }
+        }
+        else {
             # In parameter mode, use the Environment parameter (which defaults to Global)
             # In interactive mode, always prompt for environment selection
             if ($parameterMode) {
@@ -472,25 +503,12 @@ try {
             else {
                 Set-Environment  # Prompt for environment selection in interactive mode
             }
-            $connectionResult = Connect-MgGraph -Scopes $permissionsList -Environment $script:GraphEnvironment -NoWelcome -ErrorAction Stop
+
+            $connectionResult = Connect-MgGraph -ClientId $appid -TenantId $tenantid -Environment $script:GraphEnvironment -CertificateThumbprint $certThumbprint -NoWelcome -ErrorAction Stop
         }
-        else {
-            Write-Host "Script execution cancelled by user." -ForegroundColor Red
-            exit
-        }
+
+        Write-Host "Successfully connected to Microsoft Graph" -ForegroundColor Green
     }
-    else {
-        # In parameter mode, use the Environment parameter (which defaults to Global)
-        # In interactive mode, always prompt for environment selection
-        if ($parameterMode) {
-            Set-Environment -EnvironmentName $Environment
-        }
-        else {
-            Set-Environment  # Prompt for environment selection in interactive mode
-        }
-        $connectionResult = Connect-MgGraph -ClientId $appid -TenantId $tenantid -Environment $script:GraphEnvironment -CertificateThumbprint $certThumbprint -NoWelcome -ErrorAction Stop
-    }
-    Write-Host "Successfully connected to Microsoft Graph" -ForegroundColor Green
 
     # Check and display the current permissions
     $context = Get-MgContext
