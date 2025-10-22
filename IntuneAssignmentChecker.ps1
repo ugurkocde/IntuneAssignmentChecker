@@ -2,13 +2,18 @@
 #Requires -Modules Microsoft.Graph.Authentication
 
 <#PSScriptInfo
-.VERSION 3.4.4
+.VERSION 3.4.5
 .GUID c6e25ec6-5787-45ef-95af-8abeb8a17daf
 .AUTHOR ugurk
 .PROJECTURI https://github.com/ugurkocde/IntuneAssignmentChecker
 .DESCRIPTION
 This script enables IT administrators to efficiently analyze and audit Intune assignments. It checks assignments for specific users, groups, or devices, displays all policies and their assignments, identifies unassigned policies, detects empty groups in assignments, and searches for specific settings across policies.
 .RELEASENOTES
+Version 3.4.5:
+- Added tenant switching capability - users can now disconnect and connect to a different tenant without restarting the script
+- Menu now displays current connected tenant name and logged-in user
+- New menu option [12] to switch between tenants mid-session
+
 Version 3.4.4:
 - Fix Permission Error for Health Scripts
 
@@ -249,7 +254,7 @@ $certThumbprint = if ($CertificateThumbprint) { $CertificateThumbprint } else { 
 ####################################################################################################
 
 # Version of the local script
-$localVersion = "3.4.4"
+$localVersion = "3.4.5"
 
 Write-Host "🔍 INTUNE ASSIGNMENT CHECKER" -ForegroundColor Cyan
 Write-Host "Made by Ugur Koc with" -NoNewline; Write-Host " ❤️  and ☕" -NoNewline
@@ -332,6 +337,9 @@ catch {
 # Script-level variables
 $script:GraphEndpoint = $null
 $script:GraphEnvironment = $null
+$script:CurrentTenantId = $null
+$script:CurrentTenantName = $null
+$script:CurrentUserUPN = $null
 
 # Ask user to select the Intune environment
 function Set-Environment {
@@ -495,6 +503,24 @@ try {
     # Check and display the current permissions
     $context = Get-MgContext
     $currentPermissions = $context.Scopes
+
+    # Store tenant information
+    if ($context) {
+        $script:CurrentTenantId = $context.TenantId
+        $script:CurrentUserUPN = $context.Account
+
+        # Try to get tenant display name
+        try {
+            $org = Invoke-MgGraphRequest -Method GET -Uri "$script:GraphEndpoint/v1.0/organization" -ErrorAction SilentlyContinue
+            if ($org.value -and $org.value.Count -gt 0) {
+                $script:CurrentTenantName = $org.value[0].displayName
+            }
+        }
+        catch {
+            # If we can't get the display name, use tenant ID
+            $script:CurrentTenantName = $context.TenantId
+        }
+    }
 
     Write-Host "Checking required permissions:" -ForegroundColor Cyan
     $missingPermissions = @()
@@ -1246,7 +1272,26 @@ function Add-AppExportData {
     }
 }
 
-function Show-Menu {    
+function Show-Menu {
+    # Display current connection status
+    if ($script:CurrentTenantName -and $script:CurrentUserUPN) {
+        Write-Host "Connected to: " -ForegroundColor Green -NoNewline
+        Write-Host "$script:CurrentTenantName" -ForegroundColor White
+        Write-Host "Logged in as: " -ForegroundColor Green -NoNewline
+        Write-Host "$script:CurrentUserUPN" -ForegroundColor White
+        Write-Host ""
+    }
+    elseif ($script:CurrentUserUPN) {
+        Write-Host "Logged in as: " -ForegroundColor Green -NoNewline
+        Write-Host "$script:CurrentUserUPN" -ForegroundColor White
+        Write-Host ""
+    }
+    else {
+        Write-Host "Status: " -ForegroundColor Yellow -NoNewline
+        Write-Host "Not Connected" -ForegroundColor Red
+        Write-Host ""
+    }
+
     Write-Host "Assignment Checks:" -ForegroundColor Cyan
     Write-Host "  [1] Check User(s) Assignments" -ForegroundColor White
     Write-Host "  [2] Check Group(s) Assignments" -ForegroundColor White
@@ -1266,14 +1311,72 @@ function Show-Menu {
     Write-Host "  [10] Compare Assignments Between Groups" -ForegroundColor White
     Write-Host "  [11] Show All Failed Assignments" -ForegroundColor White
     Write-Host ""
-    
+
     Write-Host "System:" -ForegroundColor Cyan
+    Write-Host "  [12] Disconnect and Connect to Different Tenant" -ForegroundColor White
     Write-Host "  [0] Exit" -ForegroundColor White
     Write-Host "  [98] Support the Project 💝" -ForegroundColor Magenta
     Write-Host "  [99] Report a Bug or Request a Feature" -ForegroundColor White
     Write-Host ""
     
     Write-Host "Select an option: " -ForegroundColor Yellow -NoNewline
+}
+
+# Function to switch tenants
+function Switch-Tenant {
+    Write-Host "`nDisconnecting from current tenant..." -ForegroundColor Yellow
+
+    try {
+        # Disconnect from current Graph session
+        Disconnect-MgGraph -ErrorAction SilentlyContinue | Out-Null
+
+        # Clear tenant variables
+        $script:CurrentTenantId = $null
+        $script:CurrentTenantName = $null
+        $script:CurrentUserUPN = $null
+
+        Write-Host "Disconnected successfully." -ForegroundColor Green
+        Write-Host ""
+
+        # Prompt for new connection
+        Write-Host "Please log in to connect to a different tenant..." -ForegroundColor Cyan
+
+        # Get required permissions
+        $permissionsList = ($requiredPermissions | ForEach-Object { $_.Permission }) -join ', '
+
+        # Prompt for environment selection
+        Set-Environment
+
+        # Attempt new connection
+        $connectionResult = Connect-MgGraph -Scopes $permissionsList -Environment $script:GraphEnvironment -NoWelcome -ErrorAction Stop
+
+        # Get and store new tenant context
+        $context = Get-MgContext
+        if ($context) {
+            $script:CurrentTenantId = $context.TenantId
+            $script:CurrentUserUPN = $context.Account
+
+            # Try to get tenant display name
+            try {
+                $org = Invoke-MgGraphRequest -Method GET -Uri "$script:GraphEndpoint/v1.0/organization" -ErrorAction SilentlyContinue
+                if ($org.value -and $org.value.Count -gt 0) {
+                    $script:CurrentTenantName = $org.value[0].displayName
+                }
+            }
+            catch {
+                # If we can't get the display name, use tenant ID
+                $script:CurrentTenantName = $context.TenantId
+            }
+
+            Write-Host "`nSuccessfully connected to new tenant!" -ForegroundColor Green
+            Write-Host "Tenant: $script:CurrentTenantName" -ForegroundColor White
+            Write-Host "User: $script:CurrentUserUPN" -ForegroundColor White
+        }
+    }
+    catch {
+        Write-Host "Failed to connect to new tenant: $_" -ForegroundColor Red
+        Write-Host "You may need to reconnect manually." -ForegroundColor Yellow
+    }
 }
 
 # Function to handle export
@@ -7652,6 +7755,10 @@ do {
             }
         }
 
+        '12' {
+            Switch-Tenant
+        }
+
         '0' {
             Write-Host "Disconnecting from Microsoft Graph..." -ForegroundColor Yellow
             Disconnect-MgGraph | Out-Null
@@ -7671,7 +7778,7 @@ do {
             Start-Process "https://github.com/ugurkocde/IntuneAssignmentChecker"
         }
         default {
-            Write-Host "Invalid choice, please select 1-11, 98, 99, or 0." -ForegroundColor Red
+            Write-Host "Invalid choice, please select 1-12, 98, 99, or 0." -ForegroundColor Red
         }
     }
 
