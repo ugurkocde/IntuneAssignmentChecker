@@ -112,7 +112,9 @@ Your Entra ID application registration needs these permissions:
 | DeviceManagementApps.Read.All | Application | Read Microsoft Intune apps |
 | DeviceManagementConfiguration.Read.All | Application | Read Microsoft Intune device configuration and policies |
 | DeviceManagementManagedDevices.Read.All | Application | Read Microsoft Intune devices |
-| DeviceManagementServiceConfig.Read.All | Application | 	Read Microsoft Intune configuration |
+| DeviceManagementServiceConfig.Read.All | Application | Read Microsoft Intune configuration |
+| DeviceManagementScripts.Read.All | Application | Read device management and health scripts |
+| CloudPC.Read.All | Application | Read Windows 365 Cloud PC provisioning policies and settings |
 
 ## 🔐 Authentication Options
 

@@ -240,6 +240,8 @@ elseif ($ShowFailedAssignments) { $parameterMode = $true; $selectedOption = '11'
     - DeviceManagementApps.Read.All    (Read app management data)
     - DeviceManagementConfiguration.Read.All    (Read device configurations)
     - DeviceManagementManagedDevices.Read.All   (Read device management data)
+    - DeviceManagementScripts.Read.All (Read device management and health scripts)
+    - CloudPC.Read.All                 (Read Windows 365 Cloud PC provisioning policies and settings)
 #>
 
 ################################ Prerequisites #####################################################
@@ -457,8 +459,12 @@ try {
             Reason     = "Needed to read device information from Entra ID"
         },
         @{
-            Permission = "DeviceManagementScripts.ReadWrite.All"
-            Reason     = "Needed to read and write device management and health scripts"
+            Permission = "DeviceManagementScripts.Read.All"
+            Reason     = "Needed to read device management and health scripts"
+        },
+        @{
+            Permission = "CloudPC.Read.All"
+            Reason     = "Required to read Windows 365 Cloud PC provisioning policies and settings"
         }
     )
 
@@ -625,6 +631,11 @@ function Get-IntuneAssignments {
         # Example: deviceAppManagement/iosManagedAppProtections
         $actualAssignmentsUri = "$GraphEndpoint/beta/$EntityType('$EntityId')/assignments" # EntityType already includes deviceAppManagement
     }
+    elseif ($EntityType -like "virtualEndpoint/*") {
+        # Windows 365 Cloud PC policies use forward slash format instead of OData parentheses
+        # Example: virtualEndpoint/provisioningPolicies or virtualEndpoint/userSettings
+        $actualAssignmentsUri = "$GraphEndpoint/beta/deviceManagement/$EntityType/$EntityId/assignments"
+    }
     else {
         # General device management entities
         $actualAssignmentsUri = "$GraphEndpoint/beta/deviceManagement/$EntityType('$EntityId')/assignments"
@@ -698,7 +709,7 @@ function Get-IntuneAssignments {
             }
             
             if ($currentAssignmentReason) {
-                $null = $assignmentsToReturn.Add(@{
+                $null = $assignmentsToReturn.Add([PSCustomObject]@{
                         Reason  = $currentAssignmentReason
                         GroupId = $currentTargetGroupId
                         Apps    = $null # 'Apps' property is not directly available from general assignments endpoint
@@ -3014,9 +3025,19 @@ do {
                 Write-Host "Fetching Settings Catalog Policies..." -ForegroundColor Yellow
                 $settingsCatalog = Get-IntuneEntities -EntityType "configurationPolicies"
                 foreach ($policy in $settingsCatalog) {
-                    # Exclude Endpoint Security policies from this generic Settings Catalog fetch for group view
+                    # Exclude Endpoint Security policies that are Windows-only from this generic Settings Catalog fetch
+                    # Keep cross-platform policies (e.g., macOS endpoint security policies)
                     if ($policy.templateReference -and $policy.templateReference.templateFamily -like "endpointSecurity*") {
-                        continue
+                        # Check if this is a Windows-only policy
+                        if ($policy.platforms -and
+                            (($policy.platforms -contains "windows10" -or $policy.platforms -contains "windows11") -and
+                             $policy.platforms -notcontains "macOS" -and
+                             $policy.platforms -notcontains "iOS" -and
+                             $policy.platforms -notcontains "android")) {
+                            # Windows-only endpoint security policy - exclude it
+                            continue
+                        }
+                        # For macOS or other cross-platform endpoint security policies, don't exclude them
                     }
                     $directAssignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id -GroupId $groupId
                     if ($directAssignments.Count -gt 0) {
@@ -3081,37 +3102,26 @@ do {
                 Write-Host "Fetching App Protection Policies..." -ForegroundColor Yellow
                 $appProtectionPolicies = Get-IntuneEntities -EntityType "deviceAppManagement/managedAppPolicies"
                 foreach ($policy in $appProtectionPolicies) {
-                    $policyType = $policy.'@odata.type'
-                    $assignmentsUri = switch ($policyType) {
-                        "#microsoft.graph.androidManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/androidManagedAppProtections('$($policy.id)')/assignments" }
-                        "#microsoft.graph.iosManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/iosManagedAppProtections('$($policy.id)')/assignments" }
-                        "#microsoft.graph.windowsManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/windowsManagedAppProtections('$($policy.id)')/assignments" }
-                        default { $null }
-                    }
-
-                    if ($assignmentsUri) {
-                        try {
-                            $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
-                            # For group queries, Get-IntuneAssignments will return only direct assignments/exclusions
-                            $directAssignments = Get-IntuneAssignments -EntityType "deviceAppManagement/managedAppPolicies" -EntityId $policy.id -GroupId $groupId
-                            if ($directAssignments.Count -gt 0) {
-                                # Process all assignments for this group
-                                $assignmentReasons = @()
-                                foreach ($assignment in $directAssignments) {
-                                    if ($assignment.Reason -eq "Direct Assignment" -or $assignment.Reason -eq "Direct Exclusion") {
-                                        $assignmentReasons += $assignment.Reason
-                                    }
-                                }
-
-                                if ($assignmentReasons.Count -gt 0) {
-                                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue ($assignmentReasons -join "; ") -Force
-                                    $relevantPolicies.AppProtectionPolicies += $policy
+                    try {
+                        # Get-IntuneAssignments will handle the policy type resolution and return group-specific assignments
+                        $directAssignments = Get-IntuneAssignments -EntityType "deviceAppManagement/managedAppPolicies" -EntityId $policy.id -GroupId $groupId
+                        if ($directAssignments.Count -gt 0) {
+                            # Process all assignments for this group
+                            $assignmentReasons = @()
+                            foreach ($assignment in $directAssignments) {
+                                if ($assignment.Reason -eq "Direct Assignment" -or $assignment.Reason -eq "Direct Exclusion") {
+                                    $assignmentReasons += $assignment.Reason
                                 }
                             }
+
+                            if ($assignmentReasons.Count -gt 0) {
+                                $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue ($assignmentReasons -join "; ") -Force
+                                $relevantPolicies.AppProtectionPolicies += $policy
+                            }
                         }
-                        catch {
-                            Write-Host "Error fetching assignments for policy $($policy.displayName): $($_.Exception.Message)" -ForegroundColor Red
-                        }
+                    }
+                    catch {
+                        Write-Host "Error fetching assignments for App Protection policy $($policy.displayName): $($_.Exception.Message)" -ForegroundColor Red
                     }
                 }
 
@@ -6419,14 +6429,37 @@ do {
                 
                 . $scriptPath
 
-                # Generate the report with a fixed filename in the same directory
-                $filePath = Join-Path (Get-Location) "IntuneAssignmentReport.html"
+                # Generate the report with a cross-platform default path
+                # Try Documents folder first, fall back to home directory to avoid permission issues
+                $defaultReportPath = $HOME
+                if ($IsWindows -or $env:OS -match "Windows") {
+                    $documentsPath = [Environment]::GetFolderPath('MyDocuments')
+                    if ($documentsPath -and (Test-Path $documentsPath)) {
+                        $defaultReportPath = $documentsPath
+                    }
+                }
+                elseif (Test-Path "$HOME/Documents") {
+                    $defaultReportPath = "$HOME/Documents"
+                }
+
+                $filePath = Join-Path $defaultReportPath "IntuneAssignmentReport.html"
+                Write-Host "Report will be saved to: $filePath" -ForegroundColor Cyan
                 Export-HTMLReport -FilePath $filePath
 
                 # Ask if user wants to open the report
                 $openReport = Read-Host "Would you like to open the report now? (y/n)"
                 if ($openReport -eq 'y') {
-                    Start-Process $filePath
+                    if ($IsWindows -or $env:OS -match "Windows") {
+                        Start-Process $filePath
+                    }
+                    elseif ($IsMacOS -or $IsLinux) {
+                        if ($IsMacOS) {
+                            & open $filePath
+                        }
+                        else {
+                            & xdg-open $filePath 2>/dev/null
+                        }
+                    }
                 }
 
             }

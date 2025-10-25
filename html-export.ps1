@@ -521,9 +521,19 @@ function Export-HTMLReport {
     Write-Host "Fetching Settings Catalog Policies..." -ForegroundColor Yellow
     $settingsCatalog = Get-IntuneEntities -EntityType "configurationPolicies"
     foreach ($policy in $settingsCatalog) {
-        # Exclude Endpoint Security policies from this generic Settings Catalog fetch
+        # Exclude Endpoint Security policies that are Windows-only from this generic Settings Catalog fetch
+        # Keep cross-platform policies (e.g., macOS endpoint security policies)
         if ($policy.templateReference -and $policy.templateReference.templateFamily -like "endpointSecurity*") {
-            continue
+            # Check if this is a Windows-only policy
+            if ($policy.platforms -and
+                (($policy.platforms -contains "windows10" -or $policy.platforms -contains "windows11") -and
+                 $policy.platforms -notcontains "macOS" -and
+                 $policy.platforms -notcontains "iOS" -and
+                 $policy.platforms -notcontains "android")) {
+                # Windows-only endpoint security policy - exclude it
+                continue
+            }
+            # For macOS or other cross-platform endpoint security policies, don't exclude them
         }
         $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
         $assignmentInfo = Get-AssignmentInfo -Assignments $assignments
