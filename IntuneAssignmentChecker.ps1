@@ -874,22 +874,87 @@ function Get-DeviceInfo {
         [string]$DeviceName
     )
 
+    # First try to get from Entra ID devices
     $deviceUri = "$GraphEndpoint/v1.0/devices?`$filter=displayName eq '$DeviceName'"
     $deviceResponse = Invoke-MgGraphRequest -Uri $deviceUri -Method Get
-    
+
     if ($deviceResponse.value) {
+        $deviceId = $deviceResponse.value[0].id
+
+        # Try to get OS information from Intune managed devices
+        $operatingSystem = $null
+        try {
+            $managedDeviceUri = "$GraphEndpoint/beta/deviceManagement/managedDevices?`$filter=azureADDeviceId eq '$deviceId'"
+            $managedDeviceResponse = Invoke-MgGraphRequest -Uri $managedDeviceUri -Method Get
+            if ($managedDeviceResponse.value -and $managedDeviceResponse.value.Count -gt 0) {
+                $operatingSystem = $managedDeviceResponse.value[0].operatingSystem
+            }
+        }
+        catch {
+            Write-Host "Warning: Could not fetch OS information from Intune managed devices" -ForegroundColor Yellow
+        }
+
         return @{
-            Id          = $deviceResponse.value[0].id
-            DisplayName = $deviceResponse.value[0].displayName
-            Success     = $true
+            Id              = $deviceId
+            DisplayName     = $deviceResponse.value[0].displayName
+            OperatingSystem = $operatingSystem
+            Success         = $true
         }
     }
-    
+
     return @{
-        Id          = $null
-        DisplayName = $DeviceName
-        Success     = $false
+        Id              = $null
+        DisplayName     = $DeviceName
+        OperatingSystem = $null
+        Success         = $false
     }
+}
+
+function Test-PolicyPlatformMatch {
+    param (
+        [Parameter(Mandatory = $true)]
+        $Policy,
+        [Parameter(Mandatory = $false)]
+        [string]$DeviceOS
+    )
+
+    # If device OS is not available, include all policies
+    if ([string]::IsNullOrWhiteSpace($DeviceOS)) {
+        return $true
+    }
+
+    # Normalize OS names
+    $normalizedDeviceOS = switch -Regex ($DeviceOS) {
+        "^Windows" { "Windows" }
+        "^Android" { "Android" }
+        "^iOS|^iPadOS" { "iOS" }
+        "^macOS" { "macOS" }
+        default { $DeviceOS }
+    }
+
+    # Check if policy has platform information
+    if ($Policy.platforms -and $Policy.platforms.Count -gt 0) {
+        # Check if device OS matches any of the policy platforms
+        $platformMatch = $Policy.platforms | Where-Object {
+            $_ -match $normalizedDeviceOS -or
+            ($normalizedDeviceOS -eq "Windows" -and ($_ -eq "windows10" -or $_ -eq "windows11"))
+        }
+        return ($null -ne $platformMatch)
+    }
+
+    # Check @odata.type for platform-specific policies
+    if ($Policy.'@odata.type') {
+        $odataType = $Policy.'@odata.type'
+        switch ($normalizedDeviceOS) {
+            "Windows" { return $odataType -match "windows|win10" }
+            "Android" { return $odataType -match "android" }
+            "iOS" { return $odataType -match "ios|ipad" }
+            "macOS" { return $odataType -match "mac" }
+        }
+    }
+
+    # If no platform info, include the policy (could be cross-platform)
+    return $true
 }
 
 function Get-UserInfo {
@@ -2043,7 +2108,7 @@ do {
 
                 # 1. Check configurationPolicies
                 $configPoliciesForASR = Get-IntuneEntities -EntityType "configurationPolicies"
-                $matchingConfigPoliciesASR = $configPoliciesForASR | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReductionRules' }
+                $matchingConfigPoliciesASR = $configPoliciesForASR | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReduction' }
 
                 if ($matchingConfigPoliciesASR) {
                     foreach ($policy in $matchingConfigPoliciesASR) {
@@ -2068,7 +2133,7 @@ do {
 
                 # 2. Check deviceManagement/intents
                 $allIntentsForASR = Get-IntuneEntities -EntityType "deviceManagement/intents"
-                $matchingIntentsASR = $allIntentsForASR | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReductionRules' }
+                $matchingIntentsASR = $allIntentsForASR | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReduction' }
 
                 if ($matchingIntentsASR) {
                     foreach ($policy in $matchingIntentsASR) {
@@ -3161,7 +3226,7 @@ do {
                     @{ Name = "Disk Encryption"; Key = "DiskEncryptionProfiles"; TemplateFamily = "endpointSecurityDiskEncryption"; UserFriendlyType = "Disk Encryption Profile" },
                     @{ Name = "Firewall"; Key = "FirewallProfiles"; TemplateFamily = "endpointSecurityFirewall"; UserFriendlyType = "Firewall Profile" },
                     @{ Name = "Endpoint Detection and Response"; Key = "EndpointDetectionProfiles"; TemplateFamily = "endpointSecurityEndpointDetectionAndResponse"; UserFriendlyType = "EDR Profile" },
-                    @{ Name = "Attack Surface Reduction"; Key = "AttackSurfaceProfiles"; TemplateFamily = "endpointSecurityAttackSurfaceReductionRules"; UserFriendlyType = "ASR Profile" }
+                    @{ Name = "Attack Surface Reduction"; Key = "AttackSurfaceProfiles"; TemplateFamily = "endpointSecurityAttackSurfaceReduction"; UserFriendlyType = "ASR Profile" }
                 )
 
                 foreach ($esCategory in $endpointSecurityCategories) {
@@ -3675,6 +3740,12 @@ do {
                 }
 
                 Write-Host "Fetching Intune Profiles and Applications for the device ... (this takes a few seconds)" -ForegroundColor Yellow
+                if ($deviceInfo.OperatingSystem) {
+                    Write-Host "Device OS: $($deviceInfo.OperatingSystem) - Filtering policies by platform" -ForegroundColor Cyan
+                }
+                else {
+                    Write-Host "Note: Device OS information not available - showing all policies" -ForegroundColor Yellow
+                }
 
                 # Initialize collections for relevant policies
                 $relevantPolicies = @{
@@ -3702,6 +3773,11 @@ do {
                 Write-Host "Fetching Device Configurations..." -ForegroundColor Yellow
                 $deviceConfigs = Get-IntuneEntities -EntityType "deviceConfigurations"
                 foreach ($config in $deviceConfigs) {
+                    # Filter by platform
+                    if (-not (Test-PolicyPlatformMatch -Policy $config -DeviceOS $deviceInfo.OperatingSystem)) {
+                        continue
+                    }
+
                     $assignments = Get-IntuneAssignments -EntityType "deviceConfigurations" -EntityId $config.id
                     foreach ($assignment in $assignments) {
                         if ($assignment.Reason -ne "All Users" -and
@@ -3718,6 +3794,11 @@ do {
                 Write-Host "Fetching Settings Catalog Policies..." -ForegroundColor Yellow
                 $settingsCatalog = Get-IntuneEntities -EntityType "configurationPolicies"
                 foreach ($policy in $settingsCatalog) {
+                    # Filter by platform
+                    if (-not (Test-PolicyPlatformMatch -Policy $policy -DeviceOS $deviceInfo.OperatingSystem)) {
+                        continue
+                    }
+
                     $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
                     foreach ($assignment in $assignments) {
                         if ($assignment.Reason -ne "All Users" -and
@@ -3750,6 +3831,11 @@ do {
                 Write-Host "Fetching Compliance Policies..." -ForegroundColor Yellow
                 $compliancePolicies = Get-IntuneEntities -EntityType "deviceCompliancePolicies"
                 foreach ($policy in $compliancePolicies) {
+                    # Filter by platform
+                    if (-not (Test-PolicyPlatformMatch -Policy $policy -DeviceOS $deviceInfo.OperatingSystem)) {
+                        continue
+                    }
+
                     $assignments = Get-IntuneAssignments -EntityType "deviceCompliancePolicies" -EntityId $policy.id
                     foreach ($assignment in $assignments) {
                         if ($assignment.Reason -ne "All Users" -and
@@ -4239,7 +4325,7 @@ do {
 
                 # 1. Check configurationPolicies
                 $configPoliciesForASRDevice = Get-IntuneEntities -EntityType "configurationPolicies"
-                $matchingConfigPoliciesASRDevice = $configPoliciesForASRDevice | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReductionRules' }
+                $matchingConfigPoliciesASRDevice = $configPoliciesForASRDevice | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReduction' }
 
                 if ($matchingConfigPoliciesASRDevice) {
                     foreach ($policy in $matchingConfigPoliciesASRDevice) {
@@ -4264,7 +4350,7 @@ do {
 
                 # 2. Check deviceManagement/intents
                 $allIntentsForASRDevice = Get-IntuneEntities -EntityType "deviceManagement/intents"
-                $matchingIntentsASRDevice = $allIntentsForASRDevice | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReductionRules' }
+                $matchingIntentsASRDevice = $allIntentsForASRDevice | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReduction' }
 
                 if ($matchingIntentsASRDevice) {
                     foreach ($policy in $matchingIntentsASRDevice) {
@@ -5079,7 +5165,7 @@ do {
 
             # 1. Check configurationPolicies
             $configPoliciesForASRAll = Get-IntuneEntities -EntityType "configurationPolicies"
-            $matchingConfigPoliciesASRAll = $configPoliciesForASRAll | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReductionRules' }
+            $matchingConfigPoliciesASRAll = $configPoliciesForASRAll | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReduction' }
 
             if ($matchingConfigPoliciesASRAll) {
                 foreach ($policy in $matchingConfigPoliciesASRAll) {
@@ -5100,7 +5186,7 @@ do {
 
             # 2. Check deviceManagement/intents
             $allIntentsForASRAll = Get-IntuneEntities -EntityType "deviceManagement/intents"
-            $matchingIntentsASRAll = $allIntentsForASRAll | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReductionRules' }
+            $matchingIntentsASRAll = $allIntentsForASRAll | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReduction' }
 
             if ($matchingIntentsASRAll) {
                 foreach ($policy in $matchingIntentsASRAll) {
@@ -5495,7 +5581,7 @@ do {
 
             # 1. Check configurationPolicies
             $configPoliciesForASR_AllUsers = Get-IntuneEntities -EntityType "configurationPolicies"
-            $matchingConfigPoliciesASR_AllUsers = $configPoliciesForASR_AllUsers | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReductionRules' }
+            $matchingConfigPoliciesASR_AllUsers = $configPoliciesForASR_AllUsers | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReduction' }
 
             if ($matchingConfigPoliciesASR_AllUsers) {
                 foreach ($policy in $matchingConfigPoliciesASR_AllUsers) {
@@ -5511,7 +5597,7 @@ do {
 
             # 2. Check deviceManagement/intents
             $allIntentsForASR_AllUsers = Get-IntuneEntities -EntityType "deviceManagement/intents"
-            $matchingIntentsASR_AllUsers = $allIntentsForASR_AllUsers | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReductionRules' }
+            $matchingIntentsASR_AllUsers = $allIntentsForASR_AllUsers | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReduction' }
 
             if ($matchingIntentsASR_AllUsers) {
                 foreach ($policy in $matchingIntentsASR_AllUsers) {
@@ -6142,7 +6228,7 @@ do {
 
             # 1. Check configurationPolicies for ASR
             $configPoliciesForASR_AllDevices = Get-IntuneEntities -EntityType "configurationPolicies"
-            $matchingConfigPoliciesASR_AllDevices = $configPoliciesForASR_AllDevices | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReductionRules' }
+            $matchingConfigPoliciesASR_AllDevices = $configPoliciesForASR_AllDevices | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReduction' }
             if ($matchingConfigPoliciesASR_AllDevices) {
                 foreach ($policy in $matchingConfigPoliciesASR_AllDevices) {
                     if ($processedASRIds_AllDevices.Add($policy.id)) {
@@ -6157,7 +6243,7 @@ do {
 
             # 2. Check deviceManagement/intents for ASR
             $allIntentsForASR_AllDevices = Get-IntuneEntities -EntityType "deviceManagement/intents"
-            $matchingIntentsASR_AllDevices = $allIntentsForASR_AllDevices | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReductionRules' }
+            $matchingIntentsASR_AllDevices = $allIntentsForASR_AllDevices | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReduction' }
             if ($matchingIntentsASR_AllDevices) {
                 foreach ($policy in $matchingIntentsASR_AllDevices) {
                     if ($processedASRIds_AllDevices.Add($policy.id)) {
@@ -6640,7 +6726,7 @@ do {
             # Get Endpoint Security - Attack Surface Reduction Policies
             Write-Host "Fetching ASR Policies..." -ForegroundColor Yellow
             $allIntentsForASRUnassigned = Get-IntuneEntities -EntityType "deviceManagement/intents"
-            $asrPolicies = $allIntentsForASRUnassigned | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReductionRules' }
+            $asrPolicies = $allIntentsForASRUnassigned | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReduction' }
             if ($asrPolicies) {
                 foreach ($policy in $asrPolicies) {
                     $assignments = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
@@ -7473,30 +7559,59 @@ do {
                     }
                 }
 
-                # Process Apps
+                # Process Apps with pagination and progress
+                Write-Host "`rFetching Applications..." -NoNewline
                 $appUri = "$GraphEndpoint/beta/deviceAppManagement/mobileApps?`$filter=isAssigned eq true"
-                $appResponse = Invoke-MgGraphRequest -Uri $appUri -Method Get
+                $allApps = [System.Collections.ArrayList]::new()
 
-                foreach ($app in $appResponse.value) {
+                do {
+                    try {
+                        $appResponse = Invoke-MgGraphRequest -Uri $appUri -Method Get
+                        if ($appResponse.value) {
+                            $allApps.AddRange($appResponse.value)
+                        }
+                        $appUri = $appResponse.'@odata.nextLink'
+                    }
+                    catch {
+                        Write-Host "`nWarning: Error fetching apps: $($_.Exception.Message)" -ForegroundColor Yellow
+                        break
+                    }
+                } while ($appUri)
+
+                $totalApps = $allApps.Count
+                $currentApp = 0
+
+                foreach ($app in $allApps) {
                     # Skip built-in and Microsoft apps
                     if ($app.isFeatured -or $app.isBuiltIn) {
                         continue
                     }
 
-                    $appId = $app.id
-                    $assignmentsUri = "$GraphEndpoint/beta/deviceAppManagement/mobileApps('$appId')/assignments"
-                    $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
+                    $currentApp++
+                    Write-Host "`rProcessing Application $currentApp of $totalApps" -NoNewline
 
-                    foreach ($assignment in $assignmentResponse.value) {
-                        if ($assignment.target.groupId -eq $groupId) {
-                            switch ($assignment.intent) {
-                                "required" { [void]$groupAssignments[$groupName].RequiredApps.Add($app.displayName) }
-                                "available" { [void]$groupAssignments[$groupName].AvailableApps.Add($app.displayName) }
-                                "uninstall" { [void]$groupAssignments[$groupName].UninstallApps.Add($app.displayName) }
+                    try {
+                        $appId = $app.id
+                        $assignmentsUri = "$GraphEndpoint/beta/deviceAppManagement/mobileApps('$appId')/assignments"
+                        $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
+
+                        foreach ($assignment in $assignmentResponse.value) {
+                            if ($assignment.target.groupId -eq $groupId) {
+                                switch ($assignment.intent) {
+                                    "required" { [void]$groupAssignments[$groupName].RequiredApps.Add($app.displayName) }
+                                    "available" { [void]$groupAssignments[$groupName].AvailableApps.Add($app.displayName) }
+                                    "uninstall" { [void]$groupAssignments[$groupName].UninstallApps.Add($app.displayName) }
+                                }
                             }
                         }
                     }
+                    catch {
+                        Write-Host "`nWarning: Error fetching assignments for app '$($app.displayName)': $($_.Exception.Message)" -ForegroundColor Yellow
+                    }
                 }
+                Write-Host "`rProcessing Application $totalApps of $totalApps" -NoNewline
+                Start-Sleep -Milliseconds 100
+                Write-Host ""  # Move to next line
 
                 # Process Platform Scripts (PowerShell)
                 $scriptsUri = "$GraphEndpoint/beta/deviceManagement/deviceManagementScripts"
@@ -7591,7 +7706,7 @@ do {
 
                 # Get Endpoint Security - Attack Surface Reduction Policies
                 $allIntentsForASRCompare = Get-IntuneEntities -EntityType "deviceManagement/intents"
-                $asrPolicies = $allIntentsForASRCompare | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReductionRules' }
+                $asrPolicies = $allIntentsForASRCompare | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReduction' }
                 if ($asrPolicies) {
                     foreach ($policy in $asrPolicies) {
                         $assignments = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
