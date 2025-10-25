@@ -24,6 +24,7 @@
 
 - [🚀 Quick Start](#-quick-start)
 - [✨ Features](#-features)
+- [🏗️ Architecture](#️-architecture)
 - [📋 Prerequisites](#-prerequisites)
 - [🔐 Authentication Options](#-authentication-options)
 - [📖 Usage](#-usage)
@@ -80,12 +81,43 @@ Install-Module Microsoft.Graph.Authentication -Scope CurrentUser
 
 <div align="center">
       <a href="https://www.youtube.com/watch?v=uHBIGfa8mIM">
-     <img 
-      src="https://img.youtube.com/vi/uHBIGfa8mIM/maxresdefault.jpg" 
-      alt="IntuneAssignmentChecker" 
+     <img
+      src="https://img.youtube.com/vi/uHBIGfa8mIM/maxresdefault.jpg"
+      alt="IntuneAssignmentChecker"
       style="width:100%;">
       </a>
 </div>
+
+## 🏗️ Architecture
+
+IntuneAssignmentChecker has been refactored into a modular PowerShell module structure for better maintainability and code organization.
+
+### Module Structure
+
+```
+IntuneAssignmentChecker/
+├── IntuneAssignmentChecker.ps1           # Main script
+├── Modules/
+│   └── IntuneAssignmentChecker/
+│       ├── IntuneAssignmentChecker.psd1  # Module manifest
+│       ├── IntuneAssignmentChecker.psm1  # Main module file
+│       ├── Private/                       # Internal helper functions
+│       │   ├── Core.ps1                  # Core helper functions
+│       │   ├── GraphAPI.ps1              # Graph API interactions
+│       │   └── Assignments.ps1           # Assignment processing
+│       └── Public/                        # Exported functions
+│           ├── Export.ps1                # Data export functions
+│           └── UI.ps1                    # User interface functions
+```
+
+### Benefits of Modular Design
+
+- **Maintainability** - Functions are organized by purpose and easier to locate
+- **Reusability** - Functions can be used independently in other scripts
+- **Testability** - Individual functions can be unit tested
+- **Scalability** - New features can be added without bloating a single file
+
+For detailed module documentation, see [Modules/IntuneAssignmentChecker/README.md](Modules/IntuneAssignmentChecker/README.md)
 
 ## 📋 Prerequisites
 

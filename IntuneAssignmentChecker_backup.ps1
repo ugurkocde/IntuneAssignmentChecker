@@ -341,11 +341,86 @@ $script:CurrentTenantId = $null
 $script:CurrentTenantName = $null
 $script:CurrentUserUPN = $null
 
+# Ask user to select the Intune environment
+function Set-Environment {
+    param (
+        [Parameter(Mandatory = $false)]
+        [string]$EnvironmentName
+    )
+    
+    if ($EnvironmentName) {
+        switch ($EnvironmentName) {
+            'Global' {
+                $script:GraphEndpoint = "https://graph.microsoft.com"
+                $script:GraphEnvironment = "Global"
+                Write-Host "Environment set to Global" -ForegroundColor Green
+                return $script:GraphEnvironment
+            }
+            'USGov' {
+                $script:GraphEndpoint = "https://graph.microsoft.us"
+                $script:GraphEnvironment = "USGov"
+                Write-Host "Environment set to USGov" -ForegroundColor Green
+                return $script:GraphEnvironment
+            }
+            'USGovDoD' {
+                $script:GraphEndpoint = "https://dod-graph.microsoft.us"
+                $script:GraphEnvironment = "USGovDoD"
+                Write-Host "Environment set to USGovDoD" -ForegroundColor Green
+                return $script:GraphEnvironment
+            }
+            default {
+                Write-Host "Invalid environment name. Using interactive selection." -ForegroundColor Yellow
+                # Fall through to interactive selection
+            }
+        }
+    }
+    
+    # Interactive selection if no valid environment name was provided
+    do {
+        Write-Host "Select Intune Tenant Environment:" -ForegroundColor Cyan
+        Write-Host "  [1] Global" -ForegroundColor White
+        Write-Host "  [2] USGov" -ForegroundColor White
+        Write-Host "  [3] USGovDoD" -ForegroundColor White
+        Write-Host ""
+        Write-Host "  [0] Exit" -ForegroundColor White
+        Write-Host ""
+        Write-Host "Select an option: " -ForegroundColor Yellow -NoNewline
 
-# Import the IntuneAssignmentChecker module
-$modulePath = Join-Path $PSScriptRoot "Modules\IntuneAssignmentChecker\IntuneAssignmentChecker.psd1"
-Import-Module $modulePath -Force -Verbose
+        $selection = Read-Host
 
+        switch ($selection) {
+            '1' {
+                $script:GraphEndpoint = "https://graph.microsoft.com"
+                $script:GraphEnvironment = "Global"
+                Write-Host "Environment set to Global" -ForegroundColor Green
+                return $script:GraphEnvironment
+            }
+            '2' {
+                $script:GraphEndpoint = "https://graph.microsoft.us"
+                $script:GraphEnvironment = "USGov"
+                Write-Host "Environment set to USGov" -ForegroundColor Green
+                return $script:GraphEnvironment
+            }
+            '3' {
+                $script:GraphEndpoint = "https://dod-graph.microsoft.us"
+                $script:GraphEnvironment = "USGovDoD"
+                Write-Host "Environment set to USGovDoD" -ForegroundColor Green
+                return $script:GraphEnvironment
+            }
+            '0' {
+                Write-Host "Thank you for using IntuneAssignmentChecker! 👋" -ForegroundColor Green
+                Write-Host "If you found this tool helpful, please consider:" -ForegroundColor Cyan
+                Write-Host "- Starring the repository: https://github.com/ugurkocde/IntuneAssignmentChecker" -ForegroundColor White
+                Write-Host "- Supporting the project: https://github.com/sponsors/ugurkocde" -ForegroundColor White
+                Write-Host ""
+                exit
+            }
+            default {
+                Write-Host "Invalid choice, please select 1,2,3, or 0" -ForegroundColor Red
+            }
+        }
+    } while ($selection -ne '0')
+}
 
 # Skip execution if SkipExecution flag is set (for testing)
 if ($SkipExecution) {
@@ -500,6 +575,841 @@ catch {
     exit
 }
 
+# Common Functions
+function Get-IntuneAssignments {
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$EntityType,
+        
+        [Parameter(Mandatory = $true)]
+        [string]$EntityId,
+        
+        [Parameter(Mandatory = $false)]
+        [string]$GroupId = $null
+    )
+
+    # Determine the correct assignments URI based on EntityType
+    $actualAssignmentsUri = $null
+    # $isResolvedAppProtectionPolicy = $false # Flag if we resolved a generic App Protection Policy. Not strictly needed with current logic.
+
+    if ($EntityType -eq "deviceAppManagement/managedAppPolicies") {
+        # For generic App Protection Policies, determine the specific policy type first
+        $policyDetailsUri = "$GraphEndpoint/beta/deviceAppManagement/managedAppPolicies/$EntityId"
+        try {
+            $policyDetailsResponse = Invoke-MgGraphRequest -Uri $policyDetailsUri -Method Get
+            $policyODataType = $policyDetailsResponse.'@odata.type'
+            $specificPolicyTypePath = switch ($policyODataType) {
+                "#microsoft.graph.androidManagedAppProtection" { "androidManagedAppProtections" }
+                "#microsoft.graph.iosManagedAppProtection" { "iosManagedAppProtections" }
+                "#microsoft.graph.windowsManagedAppProtection" { "windowsManagedAppProtections" }
+                default { $null }
+            }
+            if ($specificPolicyTypePath) {
+                $actualAssignmentsUri = "$GraphEndpoint/beta/deviceAppManagement/$specificPolicyTypePath('$EntityId')/assignments"
+            }
+            else {
+                Write-Warning "Could not determine specific App Protection Policy type for $EntityId from OData type '$policyODataType'."
+                return [System.Collections.ArrayList]::new() # Return empty ArrayList
+            }
+        }
+        catch {
+            Write-Warning "Error fetching details for App Protection Policy '$EntityId': $($_.Exception.Message)"
+            return [System.Collections.ArrayList]::new() # Return empty ArrayList
+        }
+    }
+    elseif ($EntityType -eq "mobileAppConfigurations") {
+        $actualAssignmentsUri = "$GraphEndpoint/beta/deviceAppManagement/mobileAppConfigurations('$EntityId')/assignments"
+    }
+    elseif ($EntityType -like "deviceAppManagement/*ManagedAppProtections") {
+        # Already specific App Protection Policy type
+        # Example: deviceAppManagement/iosManagedAppProtections
+        $actualAssignmentsUri = "$GraphEndpoint/beta/$EntityType('$EntityId')/assignments" # EntityType already includes deviceAppManagement
+    }
+    else {
+        # General device management entities
+        $actualAssignmentsUri = "$GraphEndpoint/beta/deviceManagement/$EntityType('$EntityId')/assignments"
+    }
+
+    if (-not $actualAssignmentsUri) {
+        # This case should ideally be covered by the logic above, but as a fallback:
+        Write-Warning "Could not determine a valid assignments URI for EntityType '$EntityType' and EntityId '$EntityId'."
+        return [System.Collections.ArrayList]::new() # Return empty ArrayList
+    }
+
+    $assignmentsToReturn = [System.Collections.ArrayList]::new()
+    try {
+        $allAssignmentsForEntity = [System.Collections.ArrayList]::new()
+        $currentAssignmentsPageUri = $actualAssignmentsUri
+        do {
+            $pagedAssignmentResponse = Invoke-MgGraphRequest -Uri $currentAssignmentsPageUri -Method Get
+            if ($pagedAssignmentResponse -and $null -ne $pagedAssignmentResponse.value) {
+                $allAssignmentsForEntity.AddRange($pagedAssignmentResponse.value)
+            }
+            $currentAssignmentsPageUri = $pagedAssignmentResponse.'@odata.nextLink'
+        } while (![string]::IsNullOrEmpty($currentAssignmentsPageUri))
+
+        # Ensure $allAssignmentsForEntity is not null before trying to iterate
+        $assignmentList = if ($allAssignmentsForEntity) { $allAssignmentsForEntity } else { @() }
+
+        foreach ($assignment in $assignmentList) {
+            $currentAssignmentReason = $null
+            $currentTargetGroupId = $null # Initialize to null
+
+            if ($assignment.target -and $assignment.target.'@odata.type') {
+                $odataType = $assignment.target.'@odata.type'
+                
+                if ($odataType -eq '#microsoft.graph.groupAssignmentTarget') {
+                    $currentTargetGroupId = $assignment.target.groupId
+                    if ($GroupId) {
+                        # Specific group check requested
+                        if ($currentTargetGroupId -eq $GroupId) {
+                            $currentAssignmentReason = "Direct Assignment"
+                        }
+                    }
+                    else {
+                        # No specific group, list all group assignments
+                        $currentAssignmentReason = "Group Assignment"
+                    }
+                }
+                elseif ($odataType -eq '#microsoft.graph.exclusionGroupAssignmentTarget') {
+                    $currentTargetGroupId = $assignment.target.groupId
+                    if ($GroupId) {
+                        # Specific group check requested
+                        if ($currentTargetGroupId -eq $GroupId) {
+                            $currentAssignmentReason = "Direct Exclusion"
+                        }
+                    }
+                    else {
+                        # No specific group, list all group exclusions
+                        $currentAssignmentReason = "Group Exclusion"
+                    }
+                }
+                elseif (-not $GroupId) {
+                    # Only consider non-group assignments if NOT querying for a specific group
+                    $currentAssignmentReason = switch ($odataType) {
+                        '#microsoft.graph.allLicensedUsersAssignmentTarget' { "All Users" }
+                        '#microsoft.graph.allDevicesAssignmentTarget' { "All Devices" }
+                        default { $null }
+                    }
+                }
+            }
+            else {
+                Write-Warning "Assignment item for EntityId '$EntityId' (URI: $actualAssignmentsUri) is missing 'target' or 'target.@odata.type' property. Assignment data: $($assignment | ConvertTo-Json -Depth 3)"
+            }
+            
+            if ($currentAssignmentReason) {
+                $null = $assignmentsToReturn.Add(@{
+                        Reason  = $currentAssignmentReason
+                        GroupId = $currentTargetGroupId
+                        Apps    = $null # 'Apps' property is not directly available from general assignments endpoint
+                    })
+            }
+        }
+    }
+    catch {
+        Write-Warning "Error fetching assignments from '$actualAssignmentsUri': $($_.Exception.Message)"
+    }
+    
+    return $assignmentsToReturn
+}
+
+function Get-IntuneEntities {
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$EntityType,
+        
+        [Parameter(Mandatory = $false)]
+        [string]$Filter = "",
+        
+        [Parameter(Mandatory = $false)]
+        [string]$Select = "",
+        
+        [Parameter(Mandatory = $false)]
+        [string]$Expand = ""
+    )
+
+    # Handle special cases for app management and specific deviceManagement endpoints
+    if ($EntityType -like "deviceAppManagement/*" -or $EntityType -eq "deviceManagement/templates" -or $EntityType -eq "deviceManagement/intents") {
+        $baseUri = "$GraphEndpoint/beta"
+        $actualEntityType = $EntityType
+    }
+    else {
+        $baseUri = "$GraphEndpoint/beta/deviceManagement"
+        $actualEntityType = "$EntityType"
+    }
+    
+    $currentUri = "$baseUri/$actualEntityType"
+    if ($Filter) { $currentUri += "?`$filter=$Filter" }
+    if ($Select) { $currentUri += $(if ($Filter) { "&" }else { "?" }) + "`$select=$Select" }
+    if ($Expand) { $currentUri += $(if ($Filter -or $Select) { "&" }else { "?" }) + "`$expand=$Expand" }
+
+    $entities = [System.Collections.ArrayList]::new() # Initialize as ArrayList
+
+    do {
+        try {
+            $response = Invoke-MgGraphRequest -Uri $currentUri -Method Get -ErrorAction Stop
+            if ($null -ne $response -and $null -ne $response.value) {
+                if ($response.value -is [array]) {
+                    $entities.AddRange($response.value)
+                }
+                else {
+                    $entities.Add($response.value)
+                }
+            }
+            $currentUri = $response.'@odata.nextLink'
+        }
+        catch {
+            Write-Warning "Error fetching entities for $EntityType from $currentUri : $($_.Exception.Message)"
+            $currentUri = $null # Stop pagination on error
+        }
+    } while ($currentUri)
+
+    return $entities
+}
+
+function Get-PolicyPlatform {
+    param (
+        [Parameter(Mandatory = $true)]
+        [PSObject]$Policy
+    )
+
+    # Get the platform based on the @odata.type
+    $odataType = $Policy.'@odata.type'
+
+    if ($null -eq $odataType) {
+        return "Unknown"
+    }
+
+    switch -Regex ($odataType) {
+        "android" {
+            if ($odataType -like "*WorkProfile*") {
+                return "Android Work Profile"
+            }
+            elseif ($odataType -like "*DeviceOwner*") {
+                return "Android Enterprise"
+            }
+            else {
+                return "Android"
+            }
+        }
+        "ios|iPad|iPhone" {
+            if ($odataType -like "*macOS*") {
+                return "macOS"
+            }
+            else {
+                return "iOS/iPadOS"
+            }
+        }
+        "windows" {
+            if ($odataType -like "*windows10*" -or $odataType -like "*windows81*") {
+                return "Windows"
+            }
+            elseif ($odataType -like "*windowsPhone*") {
+                return "Windows Phone"
+            }
+            else {
+                return "Windows"
+            }
+        }
+        "macOS|mac" {
+            return "macOS"
+        }
+        "aosp" {
+            return "Android (AOSP)"
+        }
+        default {
+            # For Settings Catalog and other generic types, try to determine from other properties
+            if ($Policy.platforms) {
+                return $Policy.platforms -join ", "
+            }
+            elseif ($Policy.technologies) {
+                # Settings catalog might have technologies property
+                return "Settings Catalog"
+            }
+            else {
+                return "Multi-Platform"
+            }
+        }
+    }
+}
+
+function Get-GroupInfo {
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$GroupId
+    )
+
+    try {
+        $groupUri = "$GraphEndpoint/v1.0/groups/$GroupId"
+        $group = Invoke-MgGraphRequest -Uri $groupUri -Method Get
+        return @{
+            Id          = $group.id
+            DisplayName = $group.displayName
+            Success     = $true
+        }
+    }
+    catch {
+        return @{
+            Id          = $GroupId
+            DisplayName = "Unknown Group"
+            Success     = $false
+        }
+    }
+}
+
+function Get-DeviceInfo {
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$DeviceName
+    )
+
+    $deviceUri = "$GraphEndpoint/v1.0/devices?`$filter=displayName eq '$DeviceName'"
+    $deviceResponse = Invoke-MgGraphRequest -Uri $deviceUri -Method Get
+    
+    if ($deviceResponse.value) {
+        return @{
+            Id          = $deviceResponse.value[0].id
+            DisplayName = $deviceResponse.value[0].displayName
+            Success     = $true
+        }
+    }
+    
+    return @{
+        Id          = $null
+        DisplayName = $DeviceName
+        Success     = $false
+    }
+}
+
+function Get-UserInfo {
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$UserPrincipalName
+    )
+
+    try {
+        $userUri = "$GraphEndpoint/v1.0/users/$UserPrincipalName"
+        $user = Invoke-MgGraphRequest -Uri $userUri -Method Get
+        return @{
+            Id                = $user.id
+            UserPrincipalName = $user.userPrincipalName
+            Success           = $true
+        }
+    }
+    catch {
+        return @{
+            Id                = $null
+            UserPrincipalName = $UserPrincipalName
+            Success           = $false
+        }
+    }
+}
+
+function Get-GroupMemberships {
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$ObjectId,
+        
+        [Parameter(Mandatory = $true)]
+        [ValidateSet("User", "Device")]
+        [string]$ObjectType
+    )
+
+    $uri = "$GraphEndpoint/v1.0/$($ObjectType.ToLower())s/$ObjectId/transitiveMemberOf?`$select=id,displayName"
+    $response = Invoke-MgGraphRequest -Uri $uri -Method Get
+    
+    return $response.value
+}
+
+function Process-MultipleAssignments {
+    param (
+        [Parameter(Mandatory = $true)]
+        [Array]$Assignments,
+
+        [Parameter(Mandatory = $false)]
+        [string]$TargetGroupId = $null
+    )
+
+    $processedAssignments = [System.Collections.ArrayList]::new()
+
+    foreach ($assignment in $Assignments) {
+        $assignmentInfo = @{
+            Reason    = $assignment.Reason
+            GroupId   = $assignment.GroupId
+            GroupName = $null
+        }
+
+        # Get group name for both assignments and exclusions
+        if ($assignment.GroupId) {
+            $groupInfo = Get-GroupInfo -GroupId $assignment.GroupId
+            if ($groupInfo.Success) {
+                $assignmentInfo.GroupName = $groupInfo.DisplayName
+            }
+        }
+
+        # If we're checking for a specific group
+        if ($TargetGroupId) {
+            if ($assignment.GroupId -eq $TargetGroupId) {
+                $null = $processedAssignments.Add($assignmentInfo)
+            }
+        }
+        else {
+            $null = $processedAssignments.Add($assignmentInfo)
+        }
+    }
+
+    return $processedAssignments
+}
+
+function Get-AssignmentInfo {
+    param (
+        [Parameter(Mandatory = $true)]
+        [AllowNull()]
+        [array]$Assignments
+    )
+
+    if ($null -eq $Assignments -or $Assignments.Count -eq 0) {
+        return @{
+            Type   = "None"
+            Target = "Not Assigned"
+        }
+    }
+
+    $assignment = $Assignments[0]  # Take the first assignment
+    $type = switch ($assignment.Reason) {
+        "All Users" { "All Users"; break }
+        "All Devices" { "All Devices"; break }
+        "Group Assignment" { "Group"; break }
+        default { "None" }
+    }
+
+    $target = switch ($type) {
+        "All Users" { "All Users" }
+        "All Devices" { "All Devices" }
+        "Group" {
+            if ($assignment.GroupId) {
+                $groupInfo = Get-GroupInfo -GroupId $assignment.GroupId
+                $groupInfo.DisplayName
+            }
+            else {
+                "Unknown Group"
+            }
+        }
+        default { "Not Assigned" }
+    }
+
+    return @{
+        Type   = $type
+        Target = $target
+    }
+}
+
+function Get-AssignmentFailures {
+    Write-Host "Fetching assignment failures..." -ForegroundColor Green
+    
+    $failedAssignments = [System.Collections.ArrayList]::new()
+    $headers = @{
+        'Authorization' = "Bearer $($global:graphApiToken)"
+        'Content-Type'  = 'application/json'
+    }
+    
+    # 1. Get App Install Failures
+    # Note: App installation status endpoint requires specific permissions and may not be available in all environments
+    <# Temporarily disabled due to endpoint availability
+    Write-Host "Checking app installation failures..." -ForegroundColor Yellow
+    try {
+        $reportBody = @{
+            filter = ""
+            select = @(
+                "DeviceName", "UserPrincipalName", "Platform", "AppVersion",
+                "InstallState", "InstallStateDetail", "ErrorCode", "HexErrorCode",
+                "ApplicationId", "AppInstallState", "AppInstallStateDetails",
+                "LastModifiedDateTime", "DeviceId", "UserId", "UserName"
+            )
+            skip = 0
+            top = 50
+        } | ConvertTo-Json
+        
+        $allAppFailures = @()
+        $skip = 0
+        
+        do {
+            $reportBody = @{
+                filter = ""
+                select = @(
+                    "DeviceName", "UserPrincipalName", "Platform", "AppVersion",
+                    "InstallState", "InstallStateDetail", "ErrorCode", "HexErrorCode",
+                    "ApplicationId", "AppInstallState", "AppInstallStateDetails",
+                    "LastModifiedDateTime", "DeviceId", "UserId", "UserName"
+                )
+                skip = $skip
+                top = 50
+            } | ConvertTo-Json
+            
+            $uri = "https://graph.microsoft.com/beta/deviceManagement/reports/getMobileApplicationManagementAppStatusReport"
+            $response = try {
+                Invoke-MgGraphRequest -Uri $uri -Method POST -Body $reportBody
+            } catch {
+                # If the new endpoint fails, try the alternative endpoint
+                $uri = "https://graph.microsoft.com/beta/deviceManagement/reports/getAppStatusOverviewReport"
+                Invoke-MgGraphRequest -Uri $uri -Method POST -Body $reportBody
+            }
+            
+            if ($response.values) {
+                $appFailures = $response.values | Where-Object {
+                    $_[6] -ne 0 -or  # ErrorCode
+                    $_[4] -eq "failed" -or  # InstallState
+                    $_[9] -eq "failed"  # AppInstallState
+                }
+                
+                foreach ($failure in $appFailures) {
+                    $allAppFailures += [PSCustomObject]@{
+                        Type = "App"
+                        PolicyName = "Application ID: $($failure[8])"  # ApplicationId
+                        Target = if ($failure[1]) { "User: $($failure[1])" } else { "Device: $($failure[0])" }
+                        ErrorCode = if ($failure[7]) { "Error: 0x$($failure[7])" } else { "Error: $($failure[6])" }  # HexErrorCode or ErrorCode
+                        ErrorDescription = if ($failure[5] -and $failure[10]) { "$($failure[5]) - $($failure[10])" } elseif ($failure[5]) { $failure[5] } elseif ($failure[10]) { $failure[10] } else { "Installation failed" }
+                        LastAttempt = $failure[11]  # LastModifiedDateTime
+                    }
+                }
+                $skip += 50
+            }
+        } while ($response.values -and $response.values.Count -eq 50)
+        
+        Write-Host "Found $($allAppFailures.Count) app installation failures" -ForegroundColor Green
+        $failedAssignments.AddRange($allAppFailures)
+    }
+    catch {
+        Write-Host "Error fetching app installation failures: $($_.Exception.Message)" -ForegroundColor Red
+    }
+    #>
+    
+    # 2. Get Device Configuration Policy Failures
+    Write-Host "Checking device configuration policy failures..." -ForegroundColor Yellow
+    try {
+        $configPoliciesUri = "https://graph.microsoft.com/beta/deviceManagement/deviceConfigurations"
+        $configPolicies = (Invoke-MgGraphRequest -Uri $configPoliciesUri -Method GET).value
+        
+        foreach ($policy in $configPolicies) {
+            $statusUri = "https://graph.microsoft.com/beta/deviceManagement/deviceConfigurations('$($policy.id)')/deviceStatuses"
+            $statuses = (Invoke-MgGraphRequest -Uri $statusUri -Method GET).value
+            
+            $failures = $statuses | Where-Object { 
+                $_.status -in @("error", "conflict", "notApplicable") -or
+                $_.complianceGracePeriodExpirationDateTime -and 
+                [DateTime]$_.complianceGracePeriodExpirationDateTime -lt [DateTime]::Now
+            }
+            
+            foreach ($failure in $failures) {
+                $null = $failedAssignments.Add([PSCustomObject]@{
+                        Type             = "Device Configuration"
+                        PolicyName       = $policy.displayName
+                        Target           = "Device: $($failure.deviceDisplayName)"
+                        ErrorCode        = "$($failure.status)"
+                        ErrorDescription = if ($failure.userPrincipalName) { "$($failure.userPrincipalName)" } else { "No additional details" }
+                        LastAttempt      = $failure.lastReportedDateTime
+                    })
+            }
+        }
+    }
+    catch {
+        Write-Host "Error fetching device configuration failures: $($_.Exception.Message)" -ForegroundColor Red
+    }
+    
+    # 3. Get Compliance Policy Failures
+    Write-Host "Checking compliance policy failures..." -ForegroundColor Yellow
+    try {
+        $compliancePoliciesUri = "https://graph.microsoft.com/beta/deviceManagement/deviceCompliancePolicies"
+        $compliancePolicies = (Invoke-MgGraphRequest -Uri $compliancePoliciesUri -Method GET).value
+        
+        foreach ($policy in $compliancePolicies) {
+            $statusUri = "https://graph.microsoft.com/beta/deviceManagement/deviceCompliancePolicies('$($policy.id)')/deviceStatuses"
+            $statuses = (Invoke-MgGraphRequest -Uri $statusUri -Method GET).value
+            
+            $failures = $statuses | Where-Object { 
+                $_.status -in @("error", "conflict", "notApplicable", "nonCompliant")
+            }
+            
+            foreach ($failure in $failures) {
+                $null = $failedAssignments.Add([PSCustomObject]@{
+                        Type             = "Compliance Policy"
+                        PolicyName       = $policy.displayName
+                        Target           = "Device: $($failure.deviceDisplayName)"
+                        ErrorCode        = "$($failure.status)"
+                        ErrorDescription = if ($failure.userPrincipalName) { "$($failure.userPrincipalName)" } else { "No additional details" }
+                        LastAttempt      = $failure.lastReportedDateTime
+                    })
+            }
+        }
+    }
+    catch {
+        Write-Host "Error fetching compliance policy failures: $($_.Exception.Message)" -ForegroundColor Red
+    }
+    
+    return $failedAssignments
+}
+
+function Show-SaveFileDialog {
+    param (
+        [string]$DefaultFileName
+    )
+    
+    Add-Type -AssemblyName System.Windows.Forms
+    $saveFileDialog = New-Object System.Windows.Forms.SaveFileDialog
+    $saveFileDialog.Filter = "Excel files (*.xlsx)|*.xlsx|CSV files (*.csv)|*.csv|All files (*.*)|*.*"
+    $saveFileDialog.FileName = $DefaultFileName
+    $saveFileDialog.Title = "Save Policy Report"
+    
+    if ($saveFileDialog.ShowDialog() -eq 'OK') {
+        return $saveFileDialog.FileName
+    }
+    return $null
+}
+
+function Export-PolicyData {
+    param (
+        [Parameter(Mandatory = $true)]
+        [System.Collections.ArrayList]$ExportData,
+        [Parameter(Mandatory = $true)]
+        [string]$FilePath
+    )
+
+    $extension = [System.IO.Path]::GetExtension($FilePath).ToLower()
+    
+    if ($extension -eq '.xlsx') {
+        # Check if ImportExcel module is installed
+        if (-not (Get-Module -ListAvailable -Name ImportExcel)) {
+            Write-Host "The ImportExcel module is required for Excel export. Would you like to install it? (y/n)" -ForegroundColor Yellow
+            $install = Read-Host
+            if ($install -eq 'y') {
+                try {
+                    Install-Module -Name ImportExcel -Force -Scope CurrentUser
+                    Write-Host "ImportExcel module installed successfully." -ForegroundColor Green
+                }
+                catch {
+                    Write-Host "Failed to install ImportExcel module. Falling back to CSV export." -ForegroundColor Red
+                    $FilePath = [System.IO.Path]::ChangeExtension($FilePath, '.csv')
+                    $ExportData | Export-Csv -Path $FilePath -NoTypeInformation
+                    Write-Host "Results exported to $FilePath" -ForegroundColor Green
+                    return
+                }
+            }
+            else {
+                Write-Host "Falling back to CSV export." -ForegroundColor Yellow
+                $FilePath = [System.IO.Path]::ChangeExtension($FilePath, '.csv')
+                $ExportData | Export-Csv -Path $FilePath -NoTypeInformation
+                Write-Host "Results exported to $FilePath" -ForegroundColor Green
+                return
+            }
+        }
+
+        try {
+            $ExportData | Export-Excel -Path $FilePath -AutoSize -AutoFilter -WorksheetName "Intune Assignments" -TableName "IntuneAssignments"
+            Write-Host "Results exported to $FilePath" -ForegroundColor Green
+        }
+        catch {
+            Write-Host "Failed to export to Excel. Falling back to CSV export." -ForegroundColor Red
+            $FilePath = [System.IO.Path]::ChangeExtension($FilePath, '.csv')
+            $ExportData | Export-Csv -Path $FilePath -NoTypeInformation
+            Write-Host "Results exported to $FilePath" -ForegroundColor Green
+        }
+    }
+    else {
+        $ExportData | Export-Csv -Path $FilePath -NoTypeInformation
+        Write-Host "Results exported to $FilePath" -ForegroundColor Green
+    }
+}
+
+function Add-ExportData {
+    param (
+        [System.Collections.ArrayList]$ExportData,
+        [string]$Category,
+        [object[]]$Items,
+        [Parameter(Mandatory = $false)]
+        [object]$AssignmentReason = "N/A"
+    )
+    
+    foreach ($item in $Items) {
+        $itemName = if ($item.displayName) { $item.displayName } else { $item.name }
+        
+        # Handle different types of assignment reason input
+        $reason = if ($AssignmentReason -is [scriptblock]) {
+            & $AssignmentReason $item
+        }
+        elseif ($item.AssignmentReason) {
+            $item.AssignmentReason
+        }
+        elseif ($item.AssignmentSummary) {
+            $item.AssignmentSummary
+        }
+        else {
+            $AssignmentReason
+        }
+        
+        $null = $ExportData.Add([PSCustomObject]@{
+                Category         = $Category
+                Item             = "$itemName (ID: $($item.id))"
+                AssignmentReason = $reason
+            })
+    }
+}
+
+function Add-AppExportData {
+    param (
+        [System.Collections.ArrayList]$ExportData,
+        [string]$Category,
+        [object[]]$Apps,
+        [string]$AssignmentReason = "N/A"
+    )
+    
+    foreach ($app in $Apps) {
+        $appName = if ($app.displayName) { $app.displayName } else { $app.name }
+        $null = $ExportData.Add([PSCustomObject]@{
+                Category         = $Category
+                Item             = "$appName (ID: $($app.id))"
+                AssignmentReason = "$AssignmentReason - $($app.AssignmentIntent)"
+            })
+    }
+}
+
+function Show-Menu {
+    # Display current connection status
+    if ($script:CurrentTenantName -and $script:CurrentUserUPN) {
+        Write-Host "Connected to: " -ForegroundColor Green -NoNewline
+        Write-Host "$script:CurrentTenantName" -ForegroundColor White
+        Write-Host "Logged in as: " -ForegroundColor Green -NoNewline
+        Write-Host "$script:CurrentUserUPN" -ForegroundColor White
+        Write-Host ""
+    }
+    elseif ($script:CurrentUserUPN) {
+        Write-Host "Logged in as: " -ForegroundColor Green -NoNewline
+        Write-Host "$script:CurrentUserUPN" -ForegroundColor White
+        Write-Host ""
+    }
+    else {
+        Write-Host "Status: " -ForegroundColor Yellow -NoNewline
+        Write-Host "Not Connected" -ForegroundColor Red
+        Write-Host ""
+    }
+
+    Write-Host "Assignment Checks:" -ForegroundColor Cyan
+    Write-Host "  [1] Check User(s) Assignments" -ForegroundColor White
+    Write-Host "  [2] Check Group(s) Assignments" -ForegroundColor White
+    Write-Host "  [3] Check Device(s) Assignments" -ForegroundColor White
+    Write-Host ""
+    
+    Write-Host "Policy Overview:" -ForegroundColor Cyan
+    Write-Host "  [4] Show All Policies and Their Assignments" -ForegroundColor White
+    Write-Host "  [5] Show All 'All Users' Assignments" -ForegroundColor White
+    Write-Host "  [6] Show All 'All Devices' Assignments" -ForegroundColor White
+    Write-Host ""
+    
+    Write-Host "Advanced Options:" -ForegroundColor Cyan
+    Write-Host "  [7] Generate HTML Report" -ForegroundColor White
+    Write-Host "  [8] Show Policies Without Assignments" -ForegroundColor White
+    Write-Host "  [9] Check for Empty Groups in Assignments" -ForegroundColor White
+    Write-Host "  [10] Compare Assignments Between Groups" -ForegroundColor White
+    Write-Host "  [11] Show All Failed Assignments" -ForegroundColor White
+    Write-Host ""
+
+    Write-Host "System:" -ForegroundColor Cyan
+    Write-Host "  [12] Disconnect and Connect to Different Tenant" -ForegroundColor White
+    Write-Host "  [0] Exit" -ForegroundColor White
+    Write-Host "  [98] Support the Project 💝" -ForegroundColor Magenta
+    Write-Host "  [99] Report a Bug or Request a Feature" -ForegroundColor White
+    Write-Host ""
+    
+    Write-Host "Select an option: " -ForegroundColor Yellow -NoNewline
+}
+
+# Function to switch tenants
+function Switch-Tenant {
+    Write-Host "`nDisconnecting from current tenant..." -ForegroundColor Yellow
+
+    try {
+        # Disconnect from current Graph session
+        Disconnect-MgGraph -ErrorAction SilentlyContinue | Out-Null
+
+        # Clear tenant variables
+        $script:CurrentTenantId = $null
+        $script:CurrentTenantName = $null
+        $script:CurrentUserUPN = $null
+
+        Write-Host "Disconnected successfully." -ForegroundColor Green
+        Write-Host ""
+
+        # Prompt for new connection
+        Write-Host "Please log in to connect to a different tenant..." -ForegroundColor Cyan
+
+        # Get required permissions
+        $permissionsList = ($requiredPermissions | ForEach-Object { $_.Permission }) -join ', '
+
+        # Prompt for environment selection
+        Set-Environment
+
+        # Attempt new connection
+        $connectionResult = Connect-MgGraph -Scopes $permissionsList -Environment $script:GraphEnvironment -NoWelcome -ErrorAction Stop
+
+        # Get and store new tenant context
+        $context = Get-MgContext
+        if ($context) {
+            $script:CurrentTenantId = $context.TenantId
+            $script:CurrentUserUPN = $context.Account
+
+            # Try to get tenant display name
+            try {
+                $org = Invoke-MgGraphRequest -Method GET -Uri "$script:GraphEndpoint/v1.0/organization" -ErrorAction SilentlyContinue
+                if ($org.value -and $org.value.Count -gt 0) {
+                    $script:CurrentTenantName = $org.value[0].displayName
+                }
+            }
+            catch {
+                # If we can't get the display name, use tenant ID
+                $script:CurrentTenantName = $context.TenantId
+            }
+
+            Write-Host "`nSuccessfully connected to new tenant!" -ForegroundColor Green
+            Write-Host "Tenant: $script:CurrentTenantName" -ForegroundColor White
+            Write-Host "User: $script:CurrentUserUPN" -ForegroundColor White
+        }
+    }
+    catch {
+        Write-Host "Failed to connect to new tenant: $_" -ForegroundColor Red
+        Write-Host "You may need to reconnect manually." -ForegroundColor Yellow
+    }
+}
+
+# Function to handle export
+function Export-ResultsIfRequested {
+    param (
+        [System.Collections.ArrayList]$ExportData,
+        [string]$DefaultFileName,
+        [switch]$ForceExport,
+        [string]$CustomExportPath
+    )
+    
+    if ($ForceExport -or $ExportToCSV) {
+        $exportPath = if ($CustomExportPath) {
+            $CustomExportPath
+        }
+        else {
+            Show-SaveFileDialog -DefaultFileName $DefaultFileName
+        }
+        
+        if ($exportPath) {
+            Export-PolicyData -ExportData $ExportData -FilePath $exportPath
+        }
+    }
+    else {
+        $export = Read-Host "`nWould you like to export the results to CSV? (y/n)"
+        if ($export -eq 'y') {
+            $exportPath = Show-SaveFileDialog -DefaultFileName $DefaultFileName
+            if ($exportPath) {
+                Export-PolicyData -ExportData $ExportData -FilePath $exportPath
+            }
+        }
+    }
+}
 
 # Move this code to the beginning of the script, right after the param block
 
