@@ -625,6 +625,18 @@ function Get-IntuneAssignments {
         # Example: deviceAppManagement/iosManagedAppProtections
         $actualAssignmentsUri = "$GraphEndpoint/beta/$EntityType('$EntityId')/assignments" # EntityType already includes deviceAppManagement
     }
+    elseif ($EntityType -like "virtualEndpoint/provisioningPolicies") {
+        #CloudPC Provisioning Profiles
+        $actualAssignmentsUri = "$GraphEndpoint/beta/deviceManagement/virtualEndpoint/provisioningPolicies('$EntityId')?$expand=assignments"
+    }
+    elseif ($EntityType -like "virtualEndpoint/userSettings") {
+        # CloudPC User Settings
+        $actualAssignmentsUri = "$GraphEndpoint/beta/deviceManagement/virtualEndpoint/userSettings('$EntityId')?$expand=assignments"
+    }
+    elseif ($EntityType -like "deviceManagement/configurationPolicies") {
+        # Devicemanagement configuration policies
+        $actualAssignmentsUri = "$GraphEndpoint/beta/deviceManagement/configurationPolicies('$EntityId')?$expand=assignments"
+    }
     else {
         # General device management entities
         $actualAssignmentsUri = "$GraphEndpoint/beta/deviceManagement/$EntityType('$EntityId')/assignments"
