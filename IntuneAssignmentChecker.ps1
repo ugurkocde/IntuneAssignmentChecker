@@ -73,9 +73,6 @@ param(
     [Parameter(Mandatory = $false, HelpMessage = "Check assignments for specific groups")]
     [switch]$CheckGroup,
 
-    [Parameter(Mandatory = $false, HelpMessage = "Group names or IDs to check, comma-separated")]
-    [string]$GroupNames,
-
     [Parameter(Mandatory = $false, HelpMessage = "Check assignments for specific devices")]
     [switch]$CheckDevice,
 
@@ -93,43 +90,40 @@ param(
 
     [Parameter(Mandatory = $false, HelpMessage = "Skip execution - used for testing")]
     [switch]$SkipExecution,
-    
+
     [Parameter(Mandatory = $false, HelpMessage = "Generate HTML report")]
     [switch]$GenerateHTMLReport,
-    
+
     [Parameter(Mandatory = $false, HelpMessage = "Show policies without assignments")]
     [switch]$ShowPoliciesWithoutAssignments,
-    
+
     [Parameter(Mandatory = $false, HelpMessage = "Check for empty groups in assignments")]
     [switch]$CheckEmptyGroups,
-    
-    [Parameter(Mandatory = $false, HelpMessage = "Show all Administrative Templates")]
-    [switch]$ShowAdminTemplates,
-    
+
     [Parameter(Mandatory = $false, HelpMessage = "Show all failed assignments")]
     [switch]$ShowFailedAssignments,
-    
+
     [Parameter(Mandatory = $false, HelpMessage = "Compare assignments between groups")]
     [switch]$CompareGroups,
-    
+
     [Parameter(Mandatory = $false, HelpMessage = "Groups to compare assignments between, comma-separated")]
     [string]$CompareGroupNames,
-    
+
     [Parameter(Mandatory = $false, HelpMessage = "Export results to CSV")]
     [switch]$ExportToCSV,
-    
+
     [Parameter(Mandatory = $false, HelpMessage = "Path for the exported CSV file")]
     [string]$ExportPath,
-    
+
     [Parameter(Mandatory = $false, HelpMessage = "App ID for authentication")]
     [string]$AppId,
-    
+
     [Parameter(Mandatory = $false, HelpMessage = "Tenant ID for authentication")]
     [string]$TenantId,
-    
+
     [Parameter(Mandatory = $false, HelpMessage = "Certificate Thumbprint for authentication")]
     [string]$CertificateThumbprint,
-    
+
     [Parameter(Mandatory = $false, HelpMessage = "Environment (Global, USGov, USGovDoD)")]
     [ValidateSet("Global", "USGov", "USGovDoD")]
     [string]$Environment = "Global"
@@ -309,11 +303,11 @@ $autoUpdate = $true  # Set to $false to disable auto-update
 try {
     # Fetch the latest version number from GitHub
     $latestVersion = Invoke-RestMethod -Uri $versionUrl
-    
+
     # Compare versions using System.Version for proper semantic versioning
     $local = [System.Version]::new($localVersion)
     $latest = [System.Version]::new($latestVersion)
-    
+
     if ($local -lt $latest) {
         Write-Host "A new version is available: $latestVersion (you are running $localVersion)" -ForegroundColor Yellow
         if ($autoUpdate) {
@@ -331,7 +325,7 @@ try {
         else {
             Write-Host "Auto-update is disabled. Get the latest version at:" -ForegroundColor Yellow
             Write-Host "https://github.com/ugurkocde/IntuneAssignmentChecker" -ForegroundColor Cyan
-            Write-Host "" 
+            Write-Host ""
         }
     }
     elseif ($local -gt $latest) {
@@ -360,7 +354,7 @@ function Set-Environment {
         [Parameter(Mandatory = $false)]
         [string]$EnvironmentName
     )
-    
+
     if ($EnvironmentName) {
         switch ($EnvironmentName) {
             'Global' {
@@ -387,7 +381,7 @@ function Set-Environment {
             }
         }
     }
-    
+
     # Interactive selection if no valid environment name was provided
     do {
         Write-Host "Select Intune Tenant Environment:" -ForegroundColor Cyan
@@ -497,7 +491,7 @@ try {
             else {
                 Set-Environment  # Prompt for environment selection in interactive mode
             }
-            $connectionResult = Connect-MgGraph -Scopes $permissionsList -Environment $script:GraphEnvironment -NoWelcome -ErrorAction Stop
+            $null = Connect-MgGraph -Scopes $permissionsList -Environment $script:GraphEnvironment -NoWelcome -ErrorAction Stop
         }
         else {
             Write-Host "Script execution cancelled by user." -ForegroundColor Red
@@ -513,7 +507,7 @@ try {
         else {
             Set-Environment  # Prompt for environment selection in interactive mode
         }
-        $connectionResult = Connect-MgGraph -ClientId $appid -TenantId $tenantid -Environment $script:GraphEnvironment -CertificateThumbprint $certThumbprint -NoWelcome -ErrorAction Stop
+        $null = Connect-MgGraph -ClientId $appid -TenantId $tenantid -Environment $script:GraphEnvironment -CertificateThumbprint $certThumbprint -NoWelcome -ErrorAction Stop
     }
     Write-Host "Successfully connected to Microsoft Graph" -ForegroundColor Green
 
@@ -565,7 +559,7 @@ try {
     }
     else {
         Write-Host "WARNING: The following permissions are missing:" -ForegroundColor Red
-        $missingPermissions | ForEach-Object { 
+        $missingPermissions | ForEach-Object {
             $missingPermission = $_
             $reason = ($requiredPermissions | Where-Object { $_.Permission -eq $missingPermission }).Reason
             Write-Host "  - $missingPermission" -ForegroundColor Yellow
@@ -573,7 +567,7 @@ try {
         }
         Write-Host "The script will continue, but it may not function correctly without these permissions." -ForegroundColor Red
         Write-Host "Please ensure these permissions are granted to the app registration for full functionality." -ForegroundColor Yellow
-        
+
         $continueChoice = Read-Host "Do you want to continue anyway? (y/n)"
         if ($continueChoice -ne 'y') {
             Write-Host "Script execution cancelled by user." -ForegroundColor Red
@@ -583,12 +577,12 @@ try {
 }
 catch {
     Write-Host "Failed to connect to Microsoft Graph. Error: $_" -ForegroundColor Red
-    
+
     # Additional error handling for certificate issues
     if ($_.Exception.Message -like "*Certificate with thumbprint*was not found*") {
         Write-Host "The specified certificate was not found or has expired. Please check your certificate configuration." -ForegroundColor Yellow
     }
-    
+
     exit
 }
 
@@ -597,10 +591,10 @@ function Get-IntuneAssignments {
     param (
         [Parameter(Mandatory = $true)]
         [string]$EntityType,
-        
+
         [Parameter(Mandatory = $true)]
         [string]$EntityId,
-        
+
         [Parameter(Mandatory = $false)]
         [string]$GroupId = $null
     )
@@ -679,7 +673,7 @@ function Get-IntuneAssignments {
 
             if ($assignment.target -and $assignment.target.'@odata.type') {
                 $odataType = $assignment.target.'@odata.type'
-                
+
                 if ($odataType -eq '#microsoft.graph.groupAssignmentTarget') {
                     $currentTargetGroupId = $assignment.target.groupId
                     if ($GroupId) {
@@ -718,7 +712,7 @@ function Get-IntuneAssignments {
             else {
                 Write-Warning "Assignment item for EntityId '$EntityId' (URI: $actualAssignmentsUri) is missing 'target' or 'target.@odata.type' property. Assignment data: $($assignment | ConvertTo-Json -Depth 3)"
             }
-            
+
             if ($currentAssignmentReason) {
                 $null = $assignmentsToReturn.Add([PSCustomObject]@{
                         Reason  = $currentAssignmentReason
@@ -738,7 +732,7 @@ function Get-IntuneAssignments {
             Write-Warning "Error fetching assignments from '$actualAssignmentsUri': $errorMessage"
         }
     }
-    
+
     return $assignmentsToReturn
 }
 
@@ -746,13 +740,13 @@ function Get-IntuneEntities {
     param (
         [Parameter(Mandatory = $true)]
         [string]$EntityType,
-        
+
         [Parameter(Mandatory = $false)]
         [string]$Filter = "",
-        
+
         [Parameter(Mandatory = $false)]
         [string]$Select = "",
-        
+
         [Parameter(Mandatory = $false)]
         [string]$Expand = ""
     )
@@ -766,7 +760,7 @@ function Get-IntuneEntities {
         $baseUri = "$GraphEndpoint/beta/deviceManagement"
         $actualEntityType = "$EntityType"
     }
-    
+
     $currentUri = "$baseUri/$actualEntityType"
     if ($Filter) { $currentUri += "?`$filter=$Filter" }
     if ($Select) { $currentUri += $(if ($Filter) { "&" }else { "?" }) + "`$select=$Select" }
@@ -901,7 +895,7 @@ function Get-DeviceInfo {
 
     $deviceUri = "$GraphEndpoint/v1.0/devices?`$filter=displayName eq '$DeviceName'"
     $deviceResponse = Invoke-MgGraphRequest -Uri $deviceUri -Method Get
-    
+
     if ($deviceResponse.value) {
         return @{
             Id          = $deviceResponse.value[0].id
@@ -909,7 +903,7 @@ function Get-DeviceInfo {
             Success     = $true
         }
     }
-    
+
     return @{
         Id          = $null
         DisplayName = $DeviceName
@@ -945,7 +939,7 @@ function Get-GroupMemberships {
     param (
         [Parameter(Mandatory = $true)]
         [string]$ObjectId,
-        
+
         [Parameter(Mandatory = $true)]
         [ValidateSet("User", "Device")]
         [string]$ObjectType
@@ -953,11 +947,11 @@ function Get-GroupMemberships {
 
     $uri = "$GraphEndpoint/v1.0/$($ObjectType.ToLower())s/$ObjectId/transitiveMemberOf?`$select=id,displayName"
     $response = Invoke-MgGraphRequest -Uri $uri -Method Get
-    
+
     return $response.value
 }
 
-function Process-MultipleAssignments {
+function Invoke-MultipleAssignments {
     param (
         [Parameter(Mandatory = $true)]
         [Array]$Assignments,
@@ -1042,13 +1036,9 @@ function Get-AssignmentInfo {
 
 function Get-AssignmentFailures {
     Write-Host "Fetching assignment failures..." -ForegroundColor Green
-    
+
     $failedAssignments = [System.Collections.ArrayList]::new()
-    $headers = @{
-        'Authorization' = "Bearer $($global:graphApiToken)"
-        'Content-Type'  = 'application/json'
-    }
-    
+
     # 1. Get App Install Failures
     # Note: App installation status endpoint requires specific permissions and may not be available in all environments
     <# Temporarily disabled due to endpoint availability
@@ -1065,10 +1055,10 @@ function Get-AssignmentFailures {
             skip = 0
             top = 50
         } | ConvertTo-Json
-        
+
         $allAppFailures = @()
         $skip = 0
-        
+
         do {
             $reportBody = @{
                 filter = ""
@@ -1081,7 +1071,7 @@ function Get-AssignmentFailures {
                 skip = $skip
                 top = 50
             } | ConvertTo-Json
-            
+
             $uri = "https://graph.microsoft.com/beta/deviceManagement/reports/getMobileApplicationManagementAppStatusReport"
             $response = try {
                 Invoke-MgGraphRequest -Uri $uri -Method POST -Body $reportBody
@@ -1090,14 +1080,14 @@ function Get-AssignmentFailures {
                 $uri = "https://graph.microsoft.com/beta/deviceManagement/reports/getAppStatusOverviewReport"
                 Invoke-MgGraphRequest -Uri $uri -Method POST -Body $reportBody
             }
-            
+
             if ($response.values) {
                 $appFailures = $response.values | Where-Object {
                     $_[6] -ne 0 -or  # ErrorCode
                     $_[4] -eq "failed" -or  # InstallState
                     $_[9] -eq "failed"  # AppInstallState
                 }
-                
+
                 foreach ($failure in $appFailures) {
                     $allAppFailures += [PSCustomObject]@{
                         Type = "App"
@@ -1111,7 +1101,7 @@ function Get-AssignmentFailures {
                 $skip += 50
             }
         } while ($response.values -and $response.values.Count -eq 50)
-        
+
         Write-Host "Found $($allAppFailures.Count) app installation failures" -ForegroundColor Green
         $failedAssignments.AddRange($allAppFailures)
     }
@@ -1119,23 +1109,23 @@ function Get-AssignmentFailures {
         Write-Host "Error fetching app installation failures: $($_.Exception.Message)" -ForegroundColor Red
     }
     #>
-    
+
     # 2. Get Device Configuration Policy Failures
     Write-Host "Checking device configuration policy failures..." -ForegroundColor Yellow
     try {
         $configPoliciesUri = "https://graph.microsoft.com/beta/deviceManagement/deviceConfigurations"
         $configPolicies = (Invoke-MgGraphRequest -Uri $configPoliciesUri -Method GET).value
-        
+
         foreach ($policy in $configPolicies) {
             $statusUri = "https://graph.microsoft.com/beta/deviceManagement/deviceConfigurations('$($policy.id)')/deviceStatuses"
             $statuses = (Invoke-MgGraphRequest -Uri $statusUri -Method GET).value
-            
-            $failures = $statuses | Where-Object { 
+
+            $failures = $statuses | Where-Object {
                 $_.status -in @("error", "conflict", "notApplicable") -or
-                $_.complianceGracePeriodExpirationDateTime -and 
+                $_.complianceGracePeriodExpirationDateTime -and
                 [DateTime]$_.complianceGracePeriodExpirationDateTime -lt [DateTime]::Now
             }
-            
+
             foreach ($failure in $failures) {
                 $null = $failedAssignments.Add([PSCustomObject]@{
                         Type             = "Device Configuration"
@@ -1151,21 +1141,21 @@ function Get-AssignmentFailures {
     catch {
         Write-Host "Error fetching device configuration failures: $($_.Exception.Message)" -ForegroundColor Red
     }
-    
+
     # 3. Get Compliance Policy Failures
     Write-Host "Checking compliance policy failures..." -ForegroundColor Yellow
     try {
         $compliancePoliciesUri = "https://graph.microsoft.com/beta/deviceManagement/deviceCompliancePolicies"
         $compliancePolicies = (Invoke-MgGraphRequest -Uri $compliancePoliciesUri -Method GET).value
-        
+
         foreach ($policy in $compliancePolicies) {
             $statusUri = "https://graph.microsoft.com/beta/deviceManagement/deviceCompliancePolicies('$($policy.id)')/deviceStatuses"
             $statuses = (Invoke-MgGraphRequest -Uri $statusUri -Method GET).value
-            
-            $failures = $statuses | Where-Object { 
+
+            $failures = $statuses | Where-Object {
                 $_.status -in @("error", "conflict", "notApplicable", "nonCompliant")
             }
-            
+
             foreach ($failure in $failures) {
                 $null = $failedAssignments.Add([PSCustomObject]@{
                         Type             = "Compliance Policy"
@@ -1181,7 +1171,7 @@ function Get-AssignmentFailures {
     catch {
         Write-Host "Error fetching compliance policy failures: $($_.Exception.Message)" -ForegroundColor Red
     }
-    
+
     return $failedAssignments
 }
 
@@ -1235,7 +1225,7 @@ function Export-PolicyData {
     )
 
     $extension = [System.IO.Path]::GetExtension($FilePath).ToLower()
-    
+
     if ($extension -eq '.xlsx') {
         # Check if ImportExcel module is installed
         if (-not (Get-Module -ListAvailable -Name ImportExcel)) {
@@ -1288,10 +1278,10 @@ function Add-ExportData {
         [Parameter(Mandatory = $false)]
         [object]$AssignmentReason = "N/A"
     )
-    
+
     foreach ($item in $Items) {
         $itemName = if ($item.displayName) { $item.displayName } else { $item.name }
-        
+
         # Handle different types of assignment reason input
         $reason = if ($AssignmentReason -is [scriptblock]) {
             & $AssignmentReason $item
@@ -1305,7 +1295,7 @@ function Add-ExportData {
         else {
             $AssignmentReason
         }
-        
+
         $null = $ExportData.Add([PSCustomObject]@{
                 Category         = $Category
                 Item             = "$itemName (ID: $($item.id))"
@@ -1321,7 +1311,7 @@ function Add-AppExportData {
         [object[]]$Apps,
         [string]$AssignmentReason = "N/A"
     )
-    
+
     foreach ($app in $Apps) {
         $appName = if ($app.displayName) { $app.displayName } else { $app.name }
         $null = $ExportData.Add([PSCustomObject]@{
@@ -1357,13 +1347,13 @@ function Show-Menu {
     Write-Host "  [2] Check Group(s) Assignments" -ForegroundColor White
     Write-Host "  [3] Check Device(s) Assignments" -ForegroundColor White
     Write-Host ""
-    
+
     Write-Host "Policy Overview:" -ForegroundColor Cyan
     Write-Host "  [4] Show All Policies and Their Assignments" -ForegroundColor White
     Write-Host "  [5] Show All 'All Users' Assignments" -ForegroundColor White
     Write-Host "  [6] Show All 'All Devices' Assignments" -ForegroundColor White
     Write-Host ""
-    
+
     Write-Host "Advanced Options:" -ForegroundColor Cyan
     Write-Host "  [7] Generate HTML Report" -ForegroundColor White
     Write-Host "  [8] Show Policies Without Assignments" -ForegroundColor White
@@ -1378,7 +1368,7 @@ function Show-Menu {
     Write-Host "  [98] Support the Project 💝" -ForegroundColor Magenta
     Write-Host "  [99] Report a Bug or Request a Feature" -ForegroundColor White
     Write-Host ""
-    
+
     Write-Host "Select an option: " -ForegroundColor Yellow -NoNewline
 }
 
@@ -1408,7 +1398,7 @@ function Switch-Tenant {
         Set-Environment
 
         # Attempt new connection
-        $connectionResult = Connect-MgGraph -Scopes $permissionsList -Environment $script:GraphEnvironment -NoWelcome -ErrorAction Stop
+        $null = Connect-MgGraph -Scopes $permissionsList -Environment $script:GraphEnvironment -NoWelcome -ErrorAction Stop
 
         # Get and store new tenant context
         $context = Get-MgContext
@@ -1447,7 +1437,7 @@ function Export-ResultsIfRequested {
         [switch]$ForceExport,
         [string]$CustomExportPath
     )
-    
+
     if ($ForceExport -or $ExportToCSV) {
         $exportPath = if ($CustomExportPath) {
             $CustomExportPath
@@ -1455,7 +1445,7 @@ function Export-ResultsIfRequested {
         else {
             Show-SaveFileDialog -DefaultFileName $DefaultFileName
         }
-        
+
         if ($exportPath) {
             Export-PolicyData -ExportData $ExportData -FilePath $exportPath
         }
@@ -1497,15 +1487,15 @@ do {
                 Write-Host "Please enter User Principal Name(s), separated by commas (,): " -ForegroundColor Cyan
                 $upnInput = Read-Host
             }
-    
+
             # Validate input
             if ([string]::IsNullOrWhiteSpace($upnInput)) {
                 Write-Host "No UPN provided. Please try again with a valid UPN." -ForegroundColor Red
                 if ($parameterMode) { exit 1 } else { continue }
             }
-    
+
             $upns = $upnInput -split ',' | ForEach-Object { $_.Trim() } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
-    
+
             if ($upns.Count -eq 0) {
                 Write-Host "No valid UPNs provided. Please try again with at least one valid UPN." -ForegroundColor Red
                 if ($parameterMode) { exit 1 } else { continue }
@@ -1687,7 +1677,6 @@ do {
                                 $assignmentSummary = $assignments | ForEach-Object {
                                     if ($_.Reason -eq "Group Assignment" -or $_.Reason -eq "Group Exclusion") {
                                         $groupInfo = Get-GroupInfo -GroupId $_.GroupId
-                                        $color = if ($_.Reason -eq "Group Exclusion") { "Red" } else { "White" }
                                         "$($_.Reason) - $($groupInfo.DisplayName)"
                                     }
                                     else {
@@ -1710,7 +1699,7 @@ do {
                 foreach ($policy in $appConfigPolicies) {
                     $assignments = Get-IntuneAssignments -EntityType "mobileAppConfigurations" -EntityId $policy.id
                     foreach ($assignment in $assignments) {
-                        if ($assignment.Reason -eq "All Users" -or 
+                        if ($assignment.Reason -eq "All Users" -or
                             ($assignment.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignment.GroupId)) {
                             $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignment.Reason -Force
                             $relevantPolicies.AppConfigurationPolicies += $policy
@@ -1788,7 +1777,7 @@ do {
                 foreach ($script in $platformScripts) {
                     $assignments = Get-IntuneAssignments -EntityType "deviceManagementScripts" -EntityId $script.id
                     foreach ($assignment in $assignments) {
-                        if ($assignment.Reason -eq "All Users" -or 
+                        if ($assignment.Reason -eq "All Users" -or
                             ($assignment.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignment.GroupId)) {
                             $script | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignment.Reason -Force
                             $relevantPolicies.PlatformScripts += $script
@@ -1803,7 +1792,7 @@ do {
                 foreach ($script in $healthScripts) {
                     $assignments = Get-IntuneAssignments -EntityType "deviceHealthScripts" -EntityId $script.id
                     foreach ($assignment in $assignments) {
-                        if ($assignment.Reason -eq "All Users" -or 
+                        if ($assignment.Reason -eq "All Users" -or
                             ($assignment.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignment.GroupId)) {
                             $script | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignment.Reason -Force
                             $relevantPolicies.HealthScripts += $script
@@ -1845,7 +1834,7 @@ do {
                 # 2. Check deviceManagement/intents
                 $allIntentsForAntivirus = Get-IntuneEntities -EntityType "deviceManagement/intents"
                 $matchingIntentsAntivirus = $allIntentsForAntivirus | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAntivirus' }
-                
+
                 if ($matchingIntentsAntivirus) {
                     foreach ($policy in $matchingIntentsAntivirus) {
                         if ($processedAntivirusIds.Add($policy.id)) {
@@ -1878,7 +1867,7 @@ do {
                     }
                 }
                 $relevantPolicies.AntivirusProfiles = $antivirusPoliciesFound
-                
+
                 # Get Endpoint Security - Disk Encryption Policies
                 Write-Host "Fetching Disk Encryption Policies..." -ForegroundColor Yellow
                 $diskEncryptionPoliciesFound = [System.Collections.ArrayList]::new()
@@ -1887,7 +1876,7 @@ do {
                 # 1. Check configurationPolicies
                 $configPoliciesForDiskEncryption = Get-IntuneEntities -EntityType "configurationPolicies"
                 $matchingConfigPoliciesDiskEnc = $configPoliciesForDiskEncryption | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityDiskEncryption' }
-                
+
                 if ($matchingConfigPoliciesDiskEnc) {
                     foreach ($policy in $matchingConfigPoliciesDiskEnc) {
                         if ($processedDiskEncryptionIds.Add($policy.id)) {
@@ -1921,7 +1910,7 @@ do {
                             # Ensure unique processing
                             $assignmentsResponse = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
                             $assignments = $assignmentsResponse.value
-                            
+
                             foreach ($assignment in $assignments) {
                                 $assignmentDetails = @{
                                     Reason  = switch ($assignment.target.'@odata.type') {
@@ -1950,7 +1939,7 @@ do {
                     }
                 }
                 $relevantPolicies.DiskEncryptionProfiles = $diskEncryptionPoliciesFound
-                
+
                 # Get Endpoint Security - Firewall Policies
                 Write-Host "Fetching Firewall Policies..." -ForegroundColor Yellow
                 $firewallPoliciesFound = [System.Collections.ArrayList]::new()
@@ -2017,7 +2006,7 @@ do {
                     }
                 }
                 $relevantPolicies.FirewallProfiles = $firewallPoliciesFound
-                
+
                 # Get Endpoint Security - Endpoint Detection and Response Policies
                 Write-Host "Fetching Endpoint Detection and Response Policies..." -ForegroundColor Yellow
                 $edrPoliciesFound = [System.Collections.ArrayList]::new()
@@ -2084,7 +2073,7 @@ do {
                     }
                 }
                 $relevantPolicies.EndpointDetectionProfiles = $edrPoliciesFound
-                
+
                 # Get Endpoint Security - Attack Surface Reduction Policies
                 Write-Host "Fetching Attack Surface Reduction Policies..." -ForegroundColor Yellow
                 $asrPoliciesFound = [System.Collections.ArrayList]::new()
@@ -2262,23 +2251,23 @@ do {
                     Write-Host $separator
                     Write-Host $headerFormat -ForegroundColor Yellow
                     Write-Host $separator
-                    
+
                     foreach ($policy in $relevantPolicies.SettingsCatalog) {
                         $policyName = if ([string]::IsNullOrWhiteSpace($policy.name)) { $policy.displayName } else { $policy.name }
                         if ($policyName.Length -gt 47) {
                             $policyName = $policyName.Substring(0, 44) + "..."
                         }
-                        
+
                         $policyId = $policy.id
                         if ($policyId.Length -gt 37) {
                             $policyId = $policyId.Substring(0, 34) + "..."
                         }
-                        
+
                         $assignment = $policy.AssignmentReason
                         if ($assignment.Length -gt 27) {
                             $assignment = $assignment.Substring(0, 24) + "..."
                         }
-                        
+
                         $rowFormat = "{0,-50} {1,-40} {2,-30}" -f $policyName, $policyId, $assignment
                         if ($assignment -eq "Excluded") {
                             Write-Host $rowFormat -ForegroundColor Red
@@ -2302,23 +2291,23 @@ do {
                     Write-Host $separator
                     Write-Host $headerFormat -ForegroundColor Yellow
                     Write-Host $separator
-                    
+
                     foreach ($template in $relevantPolicies.AdminTemplates) {
                         $templateName = if ([string]::IsNullOrWhiteSpace($template.name)) { $template.displayName } else { $template.name }
                         if ($templateName.Length -gt 47) {
                             $templateName = $templateName.Substring(0, 44) + "..."
                         }
-                        
+
                         $templateId = $template.id
                         if ($templateId.Length -gt 37) {
                             $templateId = $templateId.Substring(0, 34) + "..."
                         }
-                        
+
                         $assignment = $template.AssignmentReason
                         if ($assignment.Length -gt 27) {
                             $assignment = $assignment.Substring(0, 24) + "..."
                         }
-                        
+
                         $rowFormat = "{0,-50} {1,-40} {2,-30}" -f $templateName, $templateId, $assignment
                         if ($assignment -eq "Excluded") {
                             Write-Host $rowFormat -ForegroundColor Red
@@ -2342,23 +2331,23 @@ do {
                     Write-Host $separator
                     Write-Host $headerFormat -ForegroundColor Yellow
                     Write-Host $separator
-                    
+
                     foreach ($policy in $relevantPolicies.CompliancePolicies) {
                         $policyName = if ([string]::IsNullOrWhiteSpace($policy.name)) { $policy.displayName } else { $policy.name }
                         if ($policyName.Length -gt 47) {
                             $policyName = $policyName.Substring(0, 44) + "..."
                         }
-                        
+
                         $policyId = $policy.id
                         if ($policyId.Length -gt 37) {
                             $policyId = $policyId.Substring(0, 34) + "..."
                         }
-                        
+
                         $assignment = $policy.AssignmentReason
                         if ($assignment.Length -gt 27) {
                             $assignment = $assignment.Substring(0, 24) + "..."
                         }
-                        
+
                         $rowFormat = "{0,-50} {1,-40} {2,-30}" -f $policyName, $policyId, $assignment
                         if ($assignment -eq "Excluded") {
                             Write-Host $rowFormat -ForegroundColor Red
@@ -2382,30 +2371,30 @@ do {
                     Write-Host $separator
                     Write-Host $headerFormat -ForegroundColor Yellow
                     Write-Host $separator
-                    
+
                     foreach ($policy in $relevantPolicies.AppProtectionPolicies) {
                         $policyName = $policy.displayName
                         if ($policyName.Length -gt 37) {
                             $policyName = $policyName.Substring(0, 34) + "..."
                         }
-                        
+
                         $policyId = $policy.id
                         if ($policyId.Length -gt 27) {
                             $policyId = $policyId.Substring(0, 24) + "..."
                         }
-                        
+
                         $policyType = switch ($policy.'@odata.type') {
                             "#microsoft.graph.androidManagedAppProtection" { "Android" }
                             "#microsoft.graph.iosManagedAppProtection" { "iOS" }
                             "#microsoft.graph.windowsManagedAppProtection" { "Windows" }
                             default { "Unknown" }
                         }
-                        
+
                         $assignment = $policy.AssignmentReason
                         if ($assignment.Length -gt 27) {
                             $assignment = $assignment.Substring(0, 24) + "..."
                         }
-                        
+
                         $rowFormat = "{0,-40} {1,-30} {2,-20} {3,-30}" -f $policyName, $policyId, $policyType, $assignment
                         if ($assignment -eq "Excluded") {
                             Write-Host $rowFormat -ForegroundColor Red
@@ -2429,23 +2418,23 @@ do {
                     Write-Host $separator
                     Write-Host $headerFormat -ForegroundColor Yellow
                     Write-Host $separator
-                    
+
                     foreach ($policy in $relevantPolicies.AppConfigurationPolicies) {
                         $policyName = if ([string]::IsNullOrWhiteSpace($policy.name)) { $policy.displayName } else { $policy.name }
                         if ($policyName.Length -gt 47) {
                             $policyName = $policyName.Substring(0, 44) + "..."
                         }
-                        
+
                         $policyId = $policy.id
                         if ($policyId.Length -gt 37) {
                             $policyId = $policyId.Substring(0, 34) + "..."
                         }
-                        
+
                         $assignment = $policy.AssignmentReason
                         if ($assignment.Length -gt 27) {
                             $assignment = $assignment.Substring(0, 24) + "..."
                         }
-                        
+
                         $rowFormat = "{0,-50} {1,-40} {2,-30}" -f $policyName, $policyId, $assignment
                         if ($assignment -eq "Excluded") {
                             Write-Host $rowFormat -ForegroundColor Red
@@ -2469,23 +2458,23 @@ do {
                     Write-Host $separator
                     Write-Host $headerFormat -ForegroundColor Yellow
                     Write-Host $separator
-                    
+
                     foreach ($script in $relevantPolicies.PlatformScripts) {
                         $scriptName = if ([string]::IsNullOrWhiteSpace($script.name)) { $script.displayName } else { $script.name }
                         if ($scriptName.Length -gt 47) {
                             $scriptName = $scriptName.Substring(0, 44) + "..."
                         }
-                        
+
                         $scriptId = $script.id
                         if ($scriptId.Length -gt 37) {
                             $scriptId = $scriptId.Substring(0, 34) + "..."
                         }
-                        
+
                         $assignment = $script.AssignmentReason
                         if ($assignment.Length -gt 27) {
                             $assignment = $assignment.Substring(0, 24) + "..."
                         }
-                        
+
                         $rowFormat = "{0,-50} {1,-40} {2,-30}" -f $scriptName, $scriptId, $assignment
                         if ($assignment -eq "Excluded") {
                             Write-Host $rowFormat -ForegroundColor Red
@@ -2509,23 +2498,23 @@ do {
                     Write-Host $separator
                     Write-Host $headerFormat -ForegroundColor Yellow
                     Write-Host $separator
-                    
+
                     foreach ($script in $relevantPolicies.HealthScripts) {
                         $scriptName = if ([string]::IsNullOrWhiteSpace($script.name)) { $script.displayName } else { $script.name }
                         if ($scriptName.Length -gt 47) {
                             $scriptName = $scriptName.Substring(0, 44) + "..."
                         }
-                        
+
                         $scriptId = $script.id
                         if ($scriptId.Length -gt 37) {
                             $scriptId = $scriptId.Substring(0, 34) + "..."
                         }
-                        
+
                         $assignment = $script.AssignmentReason
                         if ($assignment.Length -gt 27) {
                             $assignment = $assignment.Substring(0, 24) + "..."
                         }
-                        
+
                         $rowFormat = "{0,-50} {1,-40} {2,-30}" -f $scriptName, $scriptId, $assignment
                         if ($assignment -eq "Excluded") {
                             Write-Host $rowFormat -ForegroundColor Red
@@ -2549,23 +2538,23 @@ do {
                     Write-Host $separator
                     Write-Host $headerFormat -ForegroundColor Yellow
                     Write-Host $separator
-                    
+
                     foreach ($app in $relevantPolicies.AppsRequired) {
                         $appName = $app.displayName
                         if ($appName.Length -gt 47) {
                             $appName = $appName.Substring(0, 44) + "..."
                         }
-                        
+
                         $appId = $app.id
                         if ($appId.Length -gt 37) {
                             $appId = $appId.Substring(0, 34) + "..."
                         }
-                        
+
                         $assignment = $app.AssignmentReason
                         if ($assignment.Length -gt 27) {
                             $assignment = $assignment.Substring(0, 24) + "..."
                         }
-                        
+
                         $rowFormat = "{0,-50} {1,-40} {2,-30}" -f $appName, $appId, $assignment
                         if ($assignment -like "*Exclusion*") {
                             Write-Host $rowFormat -ForegroundColor Red
@@ -2589,23 +2578,23 @@ do {
                     Write-Host $separator
                     Write-Host $headerFormat -ForegroundColor Yellow
                     Write-Host $separator
-                    
+
                     foreach ($app in $relevantPolicies.AppsAvailable) {
                         $appName = $app.displayName
                         if ($appName.Length -gt 47) {
                             $appName = $appName.Substring(0, 44) + "..."
                         }
-                        
+
                         $appId = $app.id
                         if ($appId.Length -gt 37) {
                             $appId = $appId.Substring(0, 34) + "..."
                         }
-                        
+
                         $assignment = $app.AssignmentReason
                         if ($assignment.Length -gt 27) {
                             $assignment = $assignment.Substring(0, 24) + "..."
                         }
-                        
+
                         $rowFormat = "{0,-50} {1,-40} {2,-30}" -f $appName, $appId, $assignment
                         if ($assignment -like "*Exclusion*") {
                             Write-Host $rowFormat -ForegroundColor Red
@@ -2629,23 +2618,23 @@ do {
                     Write-Host $separator
                     Write-Host $headerFormat -ForegroundColor Yellow
                     Write-Host $separator
-                    
+
                     foreach ($app in $relevantPolicies.AppsUninstall) {
                         $appName = $app.displayName
                         if ($appName.Length -gt 47) {
                             $appName = $appName.Substring(0, 44) + "..."
                         }
-                        
+
                         $appId = $app.id
                         if ($appId.Length -gt 37) {
                             $appId = $appId.Substring(0, 34) + "..."
                         }
-                        
+
                         $assignment = $app.AssignmentReason
                         if ($assignment.Length -gt 27) {
                             $assignment = $assignment.Substring(0, 24) + "..."
                         }
-                        
+
                         $rowFormat = "{0,-50} {1,-40} {2,-30}" -f $appName, $appId, $assignment
                         if ($assignment -like "*Exclusion*") {
                             Write-Host $rowFormat -ForegroundColor Red
@@ -2656,7 +2645,7 @@ do {
                     }
                     Write-Host $separator
                 }
-                
+
                 # Display Endpoint Security - Antivirus Profiles
                 Write-Host "`n------- Endpoint Security - Antivirus Profiles -------" -ForegroundColor Cyan
                 if ($relevantPolicies.AntivirusProfiles.Count -eq 0) {
@@ -2669,23 +2658,23 @@ do {
                     Write-Host $separator
                     Write-Host $headerFormat -ForegroundColor Yellow
                     Write-Host $separator
-                    
-                    foreach ($profile in $relevantPolicies.AntivirusProfiles) {
-                        $profileName = if (-not [string]::IsNullOrWhiteSpace($profile.displayName)) { $profile.displayName } elseif (-not [string]::IsNullOrWhiteSpace($profile.name)) { $profile.name } else { "Unnamed Profile" }
+
+                    foreach ($policyProfile in $relevantPolicies.AntivirusProfiles) {
+                        $profileName = if (-not [string]::IsNullOrWhiteSpace($policyProfile.displayName)) { $policyProfile.displayName } elseif (-not [string]::IsNullOrWhiteSpace($policyProfile.name)) { $policyProfile.name } else { "Unnamed Profile" }
                         if ($profileName.Length -gt 47) {
                             $profileName = $profileName.Substring(0, 44) + "..."
                         }
-                        
-                        $profileId = $profile.id
+
+                        $profileId = $policyProfile.id
                         if ($profileId.Length -gt 37) {
                             $profileId = $profileId.Substring(0, 34) + "..."
                         }
-                        
-                        $assignment = $profile.AssignmentReason
+
+                        $assignment = $policyProfile.AssignmentReason
                         if ($assignment.Length -gt 27) {
                             $assignment = $assignment.Substring(0, 24) + "..."
                         }
-                        
+
                         $rowFormat = "{0,-50} {1,-40} {2,-30}" -f $profileName, $profileId, $assignment
                         if ($assignment -eq "Excluded") {
                             Write-Host $rowFormat -ForegroundColor Red
@@ -2696,7 +2685,7 @@ do {
                     }
                     Write-Host $separator
                 }
-                
+
                 # Display Endpoint Security - Disk Encryption Profiles
                 Write-Host "`n------- Endpoint Security - Disk Encryption Profiles -------" -ForegroundColor Cyan
                 if ($relevantPolicies.DiskEncryptionProfiles.Count -eq 0) {
@@ -2709,23 +2698,23 @@ do {
                     Write-Host $separator
                     Write-Host $headerFormat -ForegroundColor Yellow
                     Write-Host $separator
-                    
-                    foreach ($profile in $relevantPolicies.DiskEncryptionProfiles) {
-                        $profileName = if (-not [string]::IsNullOrWhiteSpace($profile.displayName)) { $profile.displayName } elseif (-not [string]::IsNullOrWhiteSpace($profile.name)) { $profile.name } else { "Unnamed Profile" }
+
+                    foreach ($policyProfile in $relevantPolicies.DiskEncryptionProfiles) {
+                        $profileName = if (-not [string]::IsNullOrWhiteSpace($policyProfile.displayName)) { $policyProfile.displayName } elseif (-not [string]::IsNullOrWhiteSpace($policyProfile.name)) { $policyProfile.name } else { "Unnamed Profile" }
                         if ($profileName.Length -gt 47) {
                             $profileName = $profileName.Substring(0, 44) + "..."
                         }
-                        
-                        $profileId = $profile.id
+
+                        $profileId = $policyProfile.id
                         if ($profileId.Length -gt 37) {
                             $profileId = $profileId.Substring(0, 34) + "..."
                         }
-                        
-                        $assignment = $profile.AssignmentReason
+
+                        $assignment = $policyProfile.AssignmentReason
                         if ($assignment.Length -gt 27) {
                             $assignment = $assignment.Substring(0, 24) + "..."
                         }
-                        
+
                         $rowFormat = "{0,-50} {1,-40} {2,-30}" -f $profileName, $profileId, $assignment
                         if ($assignment -eq "Excluded") {
                             Write-Host $rowFormat -ForegroundColor Red
@@ -2736,7 +2725,7 @@ do {
                     }
                     Write-Host $separator
                 }
-                
+
                 # Display Endpoint Security - Firewall Profiles
                 Write-Host "`n------- Endpoint Security - Firewall Profiles -------" -ForegroundColor Cyan
                 if ($relevantPolicies.FirewallProfiles.Count -eq 0) {
@@ -2749,23 +2738,23 @@ do {
                     Write-Host $separator
                     Write-Host $headerFormat -ForegroundColor Yellow
                     Write-Host $separator
-                    
-                    foreach ($profile in $relevantPolicies.FirewallProfiles) {
-                        $profileName = if (-not [string]::IsNullOrWhiteSpace($profile.displayName)) { $profile.displayName } elseif (-not [string]::IsNullOrWhiteSpace($profile.name)) { $profile.name } else { "Unnamed Profile" }
+
+                    foreach ($policyProfile in $relevantPolicies.FirewallProfiles) {
+                        $profileName = if (-not [string]::IsNullOrWhiteSpace($policyProfile.displayName)) { $policyProfile.displayName } elseif (-not [string]::IsNullOrWhiteSpace($policyProfile.name)) { $policyProfile.name } else { "Unnamed Profile" }
                         if ($profileName.Length -gt 47) {
                             $profileName = $profileName.Substring(0, 44) + "..."
                         }
-                        
-                        $profileId = $profile.id
+
+                        $profileId = $policyProfile.id
                         if ($profileId.Length -gt 37) {
                             $profileId = $profileId.Substring(0, 34) + "..."
                         }
-                        
-                        $assignment = $profile.AssignmentReason
+
+                        $assignment = $policyProfile.AssignmentReason
                         if ($assignment.Length -gt 27) {
                             $assignment = $assignment.Substring(0, 24) + "..."
                         }
-                        
+
                         $rowFormat = "{0,-50} {1,-40} {2,-30}" -f $profileName, $profileId, $assignment
                         if ($assignment -eq "Excluded") {
                             Write-Host $rowFormat -ForegroundColor Red
@@ -2776,7 +2765,7 @@ do {
                     }
                     Write-Host $separator
                 }
-                
+
                 # Display Endpoint Security - Endpoint Detection and Response Profiles
                 Write-Host "`n------- Endpoint Security - Endpoint Detection and Response Profiles -------" -ForegroundColor Cyan
                 if ($relevantPolicies.EndpointDetectionProfiles.Count -eq 0) {
@@ -2789,23 +2778,23 @@ do {
                     Write-Host $separator
                     Write-Host $headerFormat -ForegroundColor Yellow
                     Write-Host $separator
-                    
-                    foreach ($profile in $relevantPolicies.EndpointDetectionProfiles) {
-                        $profileName = if (-not [string]::IsNullOrWhiteSpace($profile.displayName)) { $profile.displayName } elseif (-not [string]::IsNullOrWhiteSpace($profile.name)) { $profile.name } else { "Unnamed Profile" }
+
+                    foreach ($policyProfile in $relevantPolicies.EndpointDetectionProfiles) {
+                        $profileName = if (-not [string]::IsNullOrWhiteSpace($policyProfile.displayName)) { $policyProfile.displayName } elseif (-not [string]::IsNullOrWhiteSpace($policyProfile.name)) { $policyProfile.name } else { "Unnamed Profile" }
                         if ($profileName.Length -gt 47) {
                             $profileName = $profileName.Substring(0, 44) + "..."
                         }
-                        
-                        $profileId = $profile.id
+
+                        $profileId = $policyProfile.id
                         if ($profileId.Length -gt 37) {
                             $profileId = $profileId.Substring(0, 34) + "..."
                         }
-                        
-                        $assignment = $profile.AssignmentReason
+
+                        $assignment = $policyProfile.AssignmentReason
                         if ($assignment.Length -gt 27) {
                             $assignment = $assignment.Substring(0, 24) + "..."
                         }
-                        
+
                         $rowFormat = "{0,-50} {1,-40} {2,-30}" -f $profileName, $profileId, $assignment
                         if ($assignment -eq "Excluded") {
                             Write-Host $rowFormat -ForegroundColor Red
@@ -2816,7 +2805,7 @@ do {
                     }
                     Write-Host $separator
                 }
-                
+
                 # Display Endpoint Security - Attack Surface Reduction Profiles
                 Write-Host "`n------- Endpoint Security - Attack Surface Reduction Profiles -------" -ForegroundColor Cyan
                 if ($relevantPolicies.AttackSurfaceProfiles.Count -eq 0) {
@@ -2829,23 +2818,23 @@ do {
                     Write-Host $separator
                     Write-Host $headerFormat -ForegroundColor Yellow
                     Write-Host $separator
-                    
-                    foreach ($profile in $relevantPolicies.AttackSurfaceProfiles) {
-                        $profileName = if (-not [string]::IsNullOrWhiteSpace($profile.displayName)) { $profile.displayName } elseif (-not [string]::IsNullOrWhiteSpace($profile.name)) { $profile.name } else { "Unnamed Profile" }
+
+                    foreach ($policyProfile in $relevantPolicies.AttackSurfaceProfiles) {
+                        $profileName = if (-not [string]::IsNullOrWhiteSpace($policyProfile.displayName)) { $policyProfile.displayName } elseif (-not [string]::IsNullOrWhiteSpace($policyProfile.name)) { $policyProfile.name } else { "Unnamed Profile" }
                         if ($profileName.Length -gt 47) {
                             $profileName = $profileName.Substring(0, 44) + "..."
                         }
-                        
-                        $profileId = $profile.id
+
+                        $profileId = $policyProfile.id
                         if ($profileId.Length -gt 37) {
                             $profileId = $profileId.Substring(0, 34) + "..."
                         }
-                        
-                        $assignment = $profile.AssignmentReason
+
+                        $assignment = $policyProfile.AssignmentReason
                         if ($assignment.Length -gt 27) {
                             $assignment = $assignment.Substring(0, 24) + "..."
                         }
-                        
+
                         $rowFormat = "{0,-50} {1,-40} {2,-30}" -f $profileName, $profileId, $assignment
                         if ($assignment -eq "Excluded") {
                             Write-Host $rowFormat -ForegroundColor Red
@@ -2869,23 +2858,23 @@ do {
                     Write-Host $separator
                     Write-Host $headerFormat -ForegroundColor Yellow
                     Write-Host $separator
-                    
+
                     foreach ($policy in $relevantPolicies.CloudPCProvisioningPolicies) {
                         $policyName = if (-not [string]::IsNullOrWhiteSpace($policy.displayName)) { $policy.displayName } elseif (-not [string]::IsNullOrWhiteSpace($policy.name)) { $policy.name } else { "Unnamed Policy" }
                         if ($policyName.Length -gt 47) {
                             $policyName = $policyName.Substring(0, 44) + "..."
                         }
-                        
+
                         $policyId = $policy.id
                         if ($policyId.Length -gt 37) {
                             $policyId = $policyId.Substring(0, 34) + "..."
                         }
-                        
+
                         $assignment = $policy.AssignmentReason
                         if ($assignment.Length -gt 27) {
                             $assignment = $assignment.Substring(0, 24) + "..."
                         }
-                        
+
                         $rowFormat = "{0,-50} {1,-40} {2,-30}" -f $policyName, $policyId, $assignment
                         if ($assignment -eq "Excluded") {
                             Write-Host $rowFormat -ForegroundColor Red
@@ -2909,23 +2898,23 @@ do {
                     Write-Host $separator
                     Write-Host $headerFormat -ForegroundColor Yellow
                     Write-Host $separator
-                    
+
                     foreach ($setting in $relevantPolicies.CloudPCUserSettings) {
                         $settingName = if (-not [string]::IsNullOrWhiteSpace($setting.displayName)) { $setting.displayName } elseif (-not [string]::IsNullOrWhiteSpace($setting.name)) { $setting.name } else { "Unnamed Setting" }
                         if ($settingName.Length -gt 47) {
                             $settingName = $settingName.Substring(0, 44) + "..."
                         }
-                        
+
                         $settingId = $setting.id
                         if ($settingId.Length -gt 37) {
                             $settingId = $settingId.Substring(0, 34) + "..."
                         }
-                        
+
                         $assignment = $setting.AssignmentReason
                         if ($assignment.Length -gt 27) {
                             $assignment = $assignment.Substring(0, 24) + "..."
                         }
-                        
+
                         $rowFormat = "{0,-50} {1,-40} {2,-30}" -f $settingName, $settingId, $assignment
                         if ($assignment -eq "Excluded") {
                             Write-Host $rowFormat -ForegroundColor Red
@@ -2986,18 +2975,18 @@ do {
             $groupInputs = $groupInput -split ',' | ForEach-Object { $_.Trim() }
             $exportData = [System.Collections.ArrayList]::new()
 
-            foreach ($input in $groupInputs) {
-                Write-Host "`nProcessing input: $input" -ForegroundColor Yellow
+            foreach ($groupInput in $groupInputs) {
+                Write-Host "`nProcessing input: $groupInput" -ForegroundColor Yellow
 
                 # Initialize variables
                 $groupId = $null
                 $groupName = $null
 
                 # Check if input is a GUID
-                if ($input -match '^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$') {
-                    $groupInfo = Get-GroupInfo -GroupId $input
+                if ($groupInput -match '^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$') {
+                    $groupInfo = Get-GroupInfo -GroupId $groupInput
                     if (-not $groupInfo.Success) {
-                        Write-Host "No group found with ID: $input" -ForegroundColor Red
+                        Write-Host "No group found with ID: $groupInput" -ForegroundColor Red
                         continue
                     }
                     $groupId = $groupInfo.Id
@@ -3005,15 +2994,15 @@ do {
                 }
                 else {
                     # Try to find group by display name
-                    $groupUri = "$GraphEndpoint/v1.0/groups?`$filter=displayName eq '$input'"
+                    $groupUri = "$GraphEndpoint/v1.0/groups?`$filter=displayName eq '$groupInput'"
                     $groupResponse = Invoke-MgGraphRequest -Uri $groupUri -Method Get
 
                     if ($groupResponse.value.Count -eq 0) {
-                        Write-Host "No group found with name: $input" -ForegroundColor Red
+                        Write-Host "No group found with name: $groupInput" -ForegroundColor Red
                         continue
                     }
                     elseif ($groupResponse.value.Count -gt 1) {
-                        Write-Host "Multiple groups found with name: $input. Please use the Object ID instead:" -ForegroundColor Red
+                        Write-Host "Multiple groups found with name: $groupInput. Please use the Object ID instead:" -ForegroundColor Red
                         foreach ($group in $groupResponse.value) {
                             Write-Host "  - $($group.displayName) (ID: $($group.id))" -ForegroundColor Yellow
                         }
@@ -3195,15 +3184,6 @@ do {
                     }
                 }
 
-                # Get Endpoint Security - Antivirus Policies
-                Write-Host "Fetching Antivirus Policies for group..." -ForegroundColor Yellow
-                $antivirusPoliciesFoundGroup = [System.Collections.ArrayList]::new()
-                $processedAntivirusIdsGroup = [System.Collections.Generic.HashSet[string]]::new()
-
-                # 1. Check configurationPolicies
-                $configPoliciesForAntivirusGroup = Get-IntuneEntities -EntityType "configurationPolicies"
-                $matchingConfigPoliciesAntivirusGroup = $configPoliciesForAntivirusGroup | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAntivirus' }
-
                 # Endpoint Security Policies for the specific group
                 $endpointSecurityCategories = @(
                     @{ Name = "Antivirus"; Key = "AntivirusProfiles"; TemplateFamily = "endpointSecurityAntivirus"; UserFriendlyType = "Antivirus Profile" },
@@ -3311,7 +3291,7 @@ do {
                         }
                         $currentAppAssignmentsUri = $appAssignmentsResponsePage.'@odata.nextLink'
                     } while (![string]::IsNullOrEmpty($currentAppAssignmentsUri))
-                    
+
                     $relevantAppAssignmentReason = $null
                     $intentForGroup = $null
 
@@ -3386,8 +3366,8 @@ do {
                 # Get Autopilot Deployment Profiles
                 Write-Host "Fetching Autopilot Deployment Profiles..." -ForegroundColor Yellow
                 $autoProfiles = Get-IntuneEntities -EntityType "windowsAutopilotDeploymentProfiles"
-                foreach ($profile in $autoProfiles) {
-                    $directAssignments = Get-IntuneAssignments -EntityType "windowsAutopilotDeploymentProfiles" -EntityId $profile.id -GroupId $groupId
+                foreach ($policyProfile in $autoProfiles) {
+                    $directAssignments = Get-IntuneAssignments -EntityType "windowsAutopilotDeploymentProfiles" -EntityId $policyProfile.id -GroupId $groupId
                     if ($directAssignments.Count -gt 0) {
                         # Process all assignments for this group
                         $assignmentReasons = @()
@@ -3483,8 +3463,7 @@ do {
                     param (
                         [string]$Title,
                         [object[]]$Policies,
-                        [scriptblock]$GetName,
-                        [scriptblock]$GetExtra = { param($p) "" }
+                        [scriptblock]$GetName
                     )
                     $localTableSeparator = "-" * 120 # Use a local variable for separator
 
@@ -3493,7 +3472,7 @@ do {
                     Write-Host "`n$headerSeparator" -ForegroundColor Cyan
                     Write-Host "------- $Title -------" -ForegroundColor Cyan
                     Write-Host "$headerSeparator" -ForegroundColor Cyan
-                    
+
                     if ($Policies.Count -eq 0) {
                         Write-Host "No $Title found for this group." -ForegroundColor Gray
                         Write-Host $localTableSeparator -ForegroundColor Gray
@@ -3510,7 +3489,6 @@ do {
                     # Display each policy
                     foreach ($policy in $Policies) {
                         $name = & $GetName $policy
-                        $extra = & $GetExtra $policy
 
                         if ($name.Length -gt 42) { $name = $name.Substring(0, 39) + "..." }
 
@@ -3595,14 +3573,14 @@ do {
 
                 # Display Autopilot Deployment Profiles
                 Format-PolicyTable -Title "Autopilot Deployment Profiles" -Policies $relevantPolicies.DeploymentProfiles -GetName {
-                    param($profile)
-                    if ([string]::IsNullOrWhiteSpace($profile.displayName)) { $profile.name } else { $profile.displayName }
+                    param($policyProfile)
+                    if ([string]::IsNullOrWhiteSpace($policyProfile.displayName)) { $policyProfile.name } else { $policyProfile.displayName }
                 }
 
                 # Display Enrollment Status Page Profiles
                 Format-PolicyTable -Title "Enrollment Status Page Profiles" -Policies $relevantPolicies.ESPProfiles -GetName {
-                    param($profile)
-                    if ([string]::IsNullOrWhiteSpace($profile.displayName)) { $profile.name } else { $profile.displayName }
+                    param($policyProfile)
+                    if ([string]::IsNullOrWhiteSpace($policyProfile.displayName)) { $policyProfile.name } else { $policyProfile.displayName }
                 }
 
                 # Display Windows 365 Cloud PC Provisioning Policies
@@ -3636,19 +3614,19 @@ do {
                 }
 
                 # Display Endpoint Security - Antivirus Profiles
-                Format-PolicyTable -Title "Endpoint Security - Antivirus Profiles" -Policies $relevantPolicies.AntivirusProfiles -GetName { param($profile) if (-not [string]::IsNullOrWhiteSpace($profile.displayName)) { $profile.displayName } elseif (-not [string]::IsNullOrWhiteSpace($profile.name)) { $profile.name } else { "Unnamed Profile" } }
-                
+                Format-PolicyTable -Title "Endpoint Security - Antivirus Profiles" -Policies $relevantPolicies.AntivirusProfiles -GetName { param($policyProfile) if (-not [string]::IsNullOrWhiteSpace($policyProfile.displayName)) { $policyProfile.displayName } elseif (-not [string]::IsNullOrWhiteSpace($policyProfile.name)) { $policyProfile.name } else { "Unnamed Profile" } }
+
                 # Display Endpoint Security - Disk Encryption Profiles
-                Format-PolicyTable -Title "Endpoint Security - Disk Encryption Profiles" -Policies $relevantPolicies.DiskEncryptionProfiles -GetName { param($profile) if (-not [string]::IsNullOrWhiteSpace($profile.displayName)) { $profile.displayName } elseif (-not [string]::IsNullOrWhiteSpace($profile.name)) { $profile.name } else { "Unnamed Profile" } }
-                
+                Format-PolicyTable -Title "Endpoint Security - Disk Encryption Profiles" -Policies $relevantPolicies.DiskEncryptionProfiles -GetName { param($policyProfile) if (-not [string]::IsNullOrWhiteSpace($policyProfile.displayName)) { $policyProfile.displayName } elseif (-not [string]::IsNullOrWhiteSpace($policyProfile.name)) { $policyProfile.name } else { "Unnamed Profile" } }
+
                 # Display Endpoint Security - Firewall Profiles
-                Format-PolicyTable -Title "Endpoint Security - Firewall Profiles" -Policies $relevantPolicies.FirewallProfiles -GetName { param($profile) if (-not [string]::IsNullOrWhiteSpace($profile.displayName)) { $profile.displayName } elseif (-not [string]::IsNullOrWhiteSpace($profile.name)) { $profile.name } else { "Unnamed Profile" } }
-                
+                Format-PolicyTable -Title "Endpoint Security - Firewall Profiles" -Policies $relevantPolicies.FirewallProfiles -GetName { param($policyProfile) if (-not [string]::IsNullOrWhiteSpace($policyProfile.displayName)) { $policyProfile.displayName } elseif (-not [string]::IsNullOrWhiteSpace($policyProfile.name)) { $policyProfile.name } else { "Unnamed Profile" } }
+
                 # Display Endpoint Security - Endpoint Detection and Response Profiles
-                Format-PolicyTable -Title "Endpoint Security - EDR Profiles" -Policies $relevantPolicies.EndpointDetectionProfiles -GetName { param($profile) if (-not [string]::IsNullOrWhiteSpace($profile.displayName)) { $profile.displayName } elseif (-not [string]::IsNullOrWhiteSpace($profile.name)) { $profile.name } else { "Unnamed Profile" } }
-                
+                Format-PolicyTable -Title "Endpoint Security - EDR Profiles" -Policies $relevantPolicies.EndpointDetectionProfiles -GetName { param($policyProfile) if (-not [string]::IsNullOrWhiteSpace($policyProfile.displayName)) { $policyProfile.displayName } elseif (-not [string]::IsNullOrWhiteSpace($policyProfile.name)) { $policyProfile.name } else { "Unnamed Profile" } }
+
                 # Display Endpoint Security - Attack Surface Reduction Profiles
-                Format-PolicyTable -Title "Endpoint Security - ASR Profiles" -Policies $relevantPolicies.AttackSurfaceProfiles -GetName { param($profile) if (-not [string]::IsNullOrWhiteSpace($profile.displayName)) { $profile.displayName } elseif (-not [string]::IsNullOrWhiteSpace($profile.name)) { $profile.name } else { "Unnamed Profile" } }
+                Format-PolicyTable -Title "Endpoint Security - ASR Profiles" -Policies $relevantPolicies.AttackSurfaceProfiles -GetName { param($policyProfile) if (-not [string]::IsNullOrWhiteSpace($policyProfile.displayName)) { $policyProfile.displayName } elseif (-not [string]::IsNullOrWhiteSpace($policyProfile.name)) { $policyProfile.name } else { "Unnamed Profile" } }
 
                 # Add to export data
                 Add-ExportData -ExportData $exportData -Category "Device" -Items @([PSCustomObject]@{
@@ -3930,8 +3908,8 @@ do {
                 # Get Autopilot Deployment Profiles
                 Write-Host "Fetching Autopilot Deployment Profiles..." -ForegroundColor Yellow
                 $autoProfiles = Get-IntuneEntities -EntityType "windowsAutopilotDeploymentProfiles"
-                foreach ($profile in $autoProfiles) {
-                    $assignments = Get-IntuneAssignments -EntityType "windowsAutopilotDeploymentProfiles" -EntityId $profile.id
+                foreach ($policyProfile in $autoProfiles) {
+                    $assignments = Get-IntuneAssignments -EntityType "windowsAutopilotDeploymentProfiles" -EntityId $policyProfile.id
                     foreach ($assignment in $assignments) {
                         if (($assignment.Reason -eq "All Devices") -or
                             ($assignment.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignment.GroupId)) {
@@ -4057,7 +4035,7 @@ do {
                         if ($processedAntivirusIdsDevice.Add($policy.id)) {
                             $assignmentsResponse = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
                             $assignments = $assignmentsResponse.value
-                            
+
                             foreach ($assignment in $assignments) {
                                 $assignmentDetails = @{
                                     Reason  = switch ($assignment.target.'@odata.type') {
@@ -4094,7 +4072,7 @@ do {
                 # 1. Check configurationPolicies
                 $configPoliciesForDiskEncDevice = Get-IntuneEntities -EntityType "configurationPolicies"
                 $matchingConfigPoliciesDiskEncDevice = $configPoliciesForDiskEncDevice | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityDiskEncryption' }
-                
+
                 if ($matchingConfigPoliciesDiskEncDevice) {
                     foreach ($policy in $matchingConfigPoliciesDiskEncDevice) {
                         if ($processedDiskEncryptionIdsDevice.Add($policy.id)) {
@@ -4160,7 +4138,7 @@ do {
                 # 1. Check configurationPolicies
                 $configPoliciesForFirewallDevice = Get-IntuneEntities -EntityType "configurationPolicies"
                 $matchingConfigPoliciesFirewallDevice = $configPoliciesForFirewallDevice | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityFirewall' }
-                
+
                 if ($matchingConfigPoliciesFirewallDevice) {
                     foreach ($policy in $matchingConfigPoliciesFirewallDevice) {
                         if ($processedFirewallIdsDevice.Add($policy.id)) {
@@ -4251,7 +4229,7 @@ do {
                 # 2. Check deviceManagement/intents
                 $allIntentsForEDRDevice = Get-IntuneEntities -EntityType "deviceManagement/intents"
                 $matchingIntentsEDRDevice = $allIntentsForEDRDevice | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityEndpointDetectionAndResponse' }
-                
+
                 if ($matchingIntentsEDRDevice) {
                     foreach ($policy in $matchingIntentsEDRDevice) {
                         if ($processedEDRIdsDevice.Add($policy.id)) {
@@ -4416,7 +4394,7 @@ do {
                         }
                     }
                 }
- 
+
                 # Display results
                 Write-Host "`nAssignments for Device: $deviceName" -ForegroundColor Green
 
@@ -4425,8 +4403,7 @@ do {
                     param (
                         [string]$Title,
                         [object[]]$Policies,
-                        [scriptblock]$GetName,
-                        [scriptblock]$GetExtra = { param($p) "" }
+                        [scriptblock]$GetName
                     )
                     $tableSeparator = "-" * 120 # Define at the start for use in empty case
 
@@ -4435,7 +4412,7 @@ do {
                     Write-Host "`n$headerSeparator" -ForegroundColor Cyan
                     Write-Host "------- $Title -------" -ForegroundColor Cyan
                     Write-Host "$headerSeparator" -ForegroundColor Cyan
-                    
+
                     if ($Policies.Count -eq 0) {
                         Write-Host "No $Title found for this device." -ForegroundColor Gray
                         Write-Host $tableSeparator -ForegroundColor Gray # Print bottom line for empty table
@@ -4445,32 +4422,31 @@ do {
 
                     # Create table header with custom formatting (this is for when policies exist)
                     $headerFormat = "{0,-50} {1,-40} {2,-30}" -f "Policy Name", "ID", "Assignment"
-                    
+
                     Write-Host $headerFormat -ForegroundColor Yellow
                     Write-Host $tableSeparator -ForegroundColor Gray # This is the line under the headers
-                    
+
                     # Display each policy in table format
                     foreach ($policy in $Policies) {
                         $name = & $GetName $policy
-                        $extra = & $GetExtra $policy
-                        
+
                         # Truncate long names and add ellipsis
                         if ($name.Length -gt 47) {
                             $name = $name.Substring(0, 44) + "..."
                         }
-                        
+
                         # Format ID
                         $id = $policy.id
                         if ($id.Length -gt 37) {
                             $id = $id.Substring(0, 34) + "..."
                         }
-                        
+
                         # Format assignment reason
                         $assignment = if ($policy.AssignmentReason) { $policy.AssignmentReason } else { "No Assignment" }
                         if ($assignment.Length -gt 27) {
                             $assignment = $assignment.Substring(0, 24) + "..."
                         }
-                        
+
                         # Output formatted row
                         $rowFormat = "{0,-50} {1,-40} {2,-30}" -f $name, $id, $assignment
                         if ($assignment -eq "Excluded" -or $assignment -like "*Exclusion*") {
@@ -4480,7 +4456,7 @@ do {
                             Write-Host $rowFormat -ForegroundColor White
                         }
                     }
-                    
+
                     Write-Host $tableSeparator -ForegroundColor Gray # This is the closing line of the table
                 }
 
@@ -4562,19 +4538,19 @@ do {
                 }
 
                 # Display Endpoint Security - Antivirus Profiles
-                Format-PolicyTable -Title "Endpoint Security - Antivirus Profiles" -Policies $relevantPolicies.AntivirusProfiles -GetName { param($profile) if (-not [string]::IsNullOrWhiteSpace($profile.displayName)) { $profile.displayName } elseif (-not [string]::IsNullOrWhiteSpace($profile.name)) { $profile.name } else { "Unnamed Profile" } }
-                
+                Format-PolicyTable -Title "Endpoint Security - Antivirus Profiles" -Policies $relevantPolicies.AntivirusProfiles -GetName { param($policyProfile) if (-not [string]::IsNullOrWhiteSpace($policyProfile.displayName)) { $policyProfile.displayName } elseif (-not [string]::IsNullOrWhiteSpace($policyProfile.name)) { $policyProfile.name } else { "Unnamed Profile" } }
+
                 # Display Endpoint Security - Disk Encryption Profiles
-                Format-PolicyTable -Title "Endpoint Security - Disk Encryption Profiles" -Policies $relevantPolicies.DiskEncryptionProfiles -GetName { param($profile) if (-not [string]::IsNullOrWhiteSpace($profile.displayName)) { $profile.displayName } elseif (-not [string]::IsNullOrWhiteSpace($profile.name)) { $profile.name } else { "Unnamed Profile" } }
-                
+                Format-PolicyTable -Title "Endpoint Security - Disk Encryption Profiles" -Policies $relevantPolicies.DiskEncryptionProfiles -GetName { param($policyProfile) if (-not [string]::IsNullOrWhiteSpace($policyProfile.displayName)) { $policyProfile.displayName } elseif (-not [string]::IsNullOrWhiteSpace($policyProfile.name)) { $policyProfile.name } else { "Unnamed Profile" } }
+
                 # Display Endpoint Security - Firewall Profiles
-                Format-PolicyTable -Title "Endpoint Security - Firewall Profiles" -Policies $relevantPolicies.FirewallProfiles -GetName { param($profile) if (-not [string]::IsNullOrWhiteSpace($profile.displayName)) { $profile.displayName } elseif (-not [string]::IsNullOrWhiteSpace($profile.name)) { $profile.name } else { "Unnamed Profile" } }
-                
+                Format-PolicyTable -Title "Endpoint Security - Firewall Profiles" -Policies $relevantPolicies.FirewallProfiles -GetName { param($policyProfile) if (-not [string]::IsNullOrWhiteSpace($policyProfile.displayName)) { $policyProfile.displayName } elseif (-not [string]::IsNullOrWhiteSpace($policyProfile.name)) { $policyProfile.name } else { "Unnamed Profile" } }
+
                 # Display Endpoint Security - Endpoint Detection and Response Profiles
-                Format-PolicyTable -Title "Endpoint Security - EDR Profiles" -Policies $relevantPolicies.EndpointDetectionProfiles -GetName { param($profile) if (-not [string]::IsNullOrWhiteSpace($profile.displayName)) { $profile.displayName } elseif (-not [string]::IsNullOrWhiteSpace($profile.name)) { $profile.name } else { "Unnamed Profile" } }
-                
+                Format-PolicyTable -Title "Endpoint Security - EDR Profiles" -Policies $relevantPolicies.EndpointDetectionProfiles -GetName { param($policyProfile) if (-not [string]::IsNullOrWhiteSpace($policyProfile.displayName)) { $policyProfile.displayName } elseif (-not [string]::IsNullOrWhiteSpace($policyProfile.name)) { $policyProfile.name } else { "Unnamed Profile" } }
+
                 # Display Endpoint Security - Attack Surface Reduction Profiles
-                Format-PolicyTable -Title "Endpoint Security - ASR Profiles" -Policies $relevantPolicies.AttackSurfaceProfiles -GetName { param($profile) if (-not [string]::IsNullOrWhiteSpace($profile.displayName)) { $profile.displayName } elseif (-not [string]::IsNullOrWhiteSpace($profile.name)) { $profile.name } else { "Unnamed Profile" } }
+                Format-PolicyTable -Title "Endpoint Security - ASR Profiles" -Policies $relevantPolicies.AttackSurfaceProfiles -GetName { param($policyProfile) if (-not [string]::IsNullOrWhiteSpace($policyProfile.displayName)) { $policyProfile.displayName } elseif (-not [string]::IsNullOrWhiteSpace($policyProfile.name)) { $policyProfile.name } else { "Unnamed Profile" } }
 
                 # Add to export data
                 Add-ExportData -ExportData $exportData -Category "Device" -Items @([PSCustomObject]@{
@@ -4633,14 +4609,11 @@ do {
             }
 
             # Function to process and display policy assignments
-            function Process-PolicyAssignments {
+            function Invoke-PolicyAssignments {
                 param (
-                    [Parameter(Mandatory = $true)]
-                    [string]$PolicyType,
-                    
                     [Parameter(Mandatory = $false)] # Changed from $true
                     [object[]]$Policies,
-                    
+
                     [Parameter(Mandatory = $true)]
                     [string]$DisplayName
                 )
@@ -4651,7 +4624,7 @@ do {
                     Write-Host ""
                     return
                 }
-                
+
                 Write-Host "`n------- $DisplayName -------" -ForegroundColor Cyan
                 foreach ($policy in $Policies) {
                     $policyName = if (-not [string]::IsNullOrWhiteSpace($policy.displayName)) { $policy.displayName } elseif (-not [string]::IsNullOrWhiteSpace($policy.name)) { $policy.name } else { "Unnamed Profile" }
@@ -4851,8 +4824,8 @@ do {
             # Get Autopilot Deployment Profiles
             Write-Host "Fetching Autopilot Deployment Profiles..." -ForegroundColor Yellow
             $autoProfilesAll = Get-IntuneEntities -EntityType "windowsAutopilotDeploymentProfiles"
-            foreach ($profile in $autoProfilesAll) {
-                $assignments = Get-IntuneAssignments -EntityType "windowsAutopilotDeploymentProfiles" -EntityId $profile.id
+            foreach ($policyProfile in $autoProfilesAll) {
+                $assignments = Get-IntuneAssignments -EntityType "windowsAutopilotDeploymentProfiles" -EntityId $policyProfile.id
                 $assignmentSummary = $assignments | ForEach-Object {
                     if ($_.Reason -eq "Group Assignment") {
                         $groupInfo = Get-GroupInfo -GroupId $_.GroupId
@@ -4952,7 +4925,7 @@ do {
             # 2. Check deviceManagement/intents
             $allIntentsForAntivirusAll = Get-IntuneEntities -EntityType "deviceManagement/intents"
             $matchingIntentsAntivirusAll = $allIntentsForAntivirusAll | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAntivirus' }
-            
+
             if ($matchingIntentsAntivirusAll) {
                 foreach ($policy in $matchingIntentsAntivirusAll) {
                     if ($processedAntivirusIdsAll.Add($policy.id)) {
@@ -5033,7 +5006,7 @@ do {
             # 1. Check configurationPolicies
             $configPoliciesForFirewallAll = Get-IntuneEntities -EntityType "configurationPolicies"
             $matchingConfigPoliciesFirewallAll = $configPoliciesForFirewallAll | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityFirewall' }
-            
+
             if ($matchingConfigPoliciesFirewallAll) {
                 foreach ($policy in $matchingConfigPoliciesFirewallAll) {
                     if ($processedFirewallIdsAll.Add($policy.id)) {
@@ -5179,23 +5152,23 @@ do {
             $allPolicies.AttackSurfaceProfiles = $asrPoliciesFoundAll
 
             # Display all policies and their assignments
-            Process-PolicyAssignments -PolicyType "deviceConfigurations" -Policies $allPolicies.DeviceConfigs -DisplayName "Device Configurations"
-            Process-PolicyAssignments -PolicyType "configurationPolicies" -Policies $allPolicies.SettingsCatalog -DisplayName "Settings Catalog Policies"
-            Process-PolicyAssignments -PolicyType "groupPolicyConfigurations" -Policies $allPolicies.AdminTemplates -DisplayName "Administrative Templates"
-            Process-PolicyAssignments -PolicyType "deviceCompliancePolicies" -Policies $allPolicies.CompliancePolicies -DisplayName "Compliance Policies"
-            Process-PolicyAssignments -PolicyType "managedAppPolicies" -Policies $allPolicies.AppProtectionPolicies -DisplayName "App Protection Policies"
-            Process-PolicyAssignments -PolicyType "mobileAppConfigurations" -Policies $allPolicies.AppConfigurationPolicies -DisplayName "App Configuration Policies"
-            Process-PolicyAssignments -PolicyType "deviceManagementScripts" -Policies $allPolicies.PlatformScripts -DisplayName "Platform Scripts"
-            Process-PolicyAssignments -PolicyType "deviceHealthScripts" -Policies $allPolicies.HealthScripts -DisplayName "Proactive Remediation Scripts"
-            Process-PolicyAssignments -PolicyType "windowsAutopilotDeploymentProfiles" -Policies $allPolicies.DeploymentProfiles -DisplayName "Autopilot Deployment Profiles"
-            Process-PolicyAssignments -PolicyType "deviceEnrollmentConfigurations" -Policies $allPolicies.ESPProfiles -DisplayName "Enrollment Status Page Profiles"
-            Process-PolicyAssignments -PolicyType "virtualEndpoint/provisioningPolicies" -Policies $allPolicies.CloudPCProvisioningPolicies -DisplayName "Windows 365 Cloud PC Provisioning Policies"
-            Process-PolicyAssignments -PolicyType "virtualEndpoint/userSettings" -Policies $allPolicies.CloudPCUserSettings -DisplayName "Windows 365 Cloud PC User Settings"
-            Process-PolicyAssignments -PolicyType "deviceManagementIntents" -Policies $allPolicies.AntivirusProfiles -DisplayName "Endpoint Security - Antivirus Profiles"
-            Process-PolicyAssignments -PolicyType "deviceManagementIntents" -Policies $allPolicies.DiskEncryptionProfiles -DisplayName "Endpoint Security - Disk Encryption Profiles"
-            Process-PolicyAssignments -PolicyType "deviceManagementIntents" -Policies $allPolicies.FirewallProfiles -DisplayName "Endpoint Security - Firewall Profiles"
-            Process-PolicyAssignments -PolicyType "deviceManagementIntents" -Policies $allPolicies.EndpointDetectionProfiles -DisplayName "Endpoint Security - EDR Profiles"
-            Process-PolicyAssignments -PolicyType "deviceManagementIntents" -Policies $allPolicies.AttackSurfaceProfiles -DisplayName "Endpoint Security - ASR Profiles"
+            Invoke-PolicyAssignments -Policies $allPolicies.DeviceConfigs -DisplayName "Device Configurations"
+            Invoke-PolicyAssignments -Policies $allPolicies.SettingsCatalog -DisplayName "Settings Catalog Policies"
+            Invoke-PolicyAssignments -Policies $allPolicies.AdminTemplates -DisplayName "Administrative Templates"
+            Invoke-PolicyAssignments -Policies $allPolicies.CompliancePolicies -DisplayName "Compliance Policies"
+            Invoke-PolicyAssignments -Policies $allPolicies.AppProtectionPolicies -DisplayName "App Protection Policies"
+            Invoke-PolicyAssignments -Policies $allPolicies.AppConfigurationPolicies -DisplayName "App Configuration Policies"
+            Invoke-PolicyAssignments -Policies $allPolicies.PlatformScripts -DisplayName "Platform Scripts"
+            Invoke-PolicyAssignments -Policies $allPolicies.HealthScripts -DisplayName "Proactive Remediation Scripts"
+            Invoke-PolicyAssignments -Policies $allPolicies.DeploymentProfiles -DisplayName "Autopilot Deployment Profiles"
+            Invoke-PolicyAssignments -Policies $allPolicies.ESPProfiles -DisplayName "Enrollment Status Page Profiles"
+            Invoke-PolicyAssignments -Policies $allPolicies.CloudPCProvisioningPolicies -DisplayName "Windows 365 Cloud PC Provisioning Policies"
+            Invoke-PolicyAssignments -Policies $allPolicies.CloudPCUserSettings -DisplayName "Windows 365 Cloud PC User Settings"
+            Invoke-PolicyAssignments -Policies $allPolicies.AntivirusProfiles -DisplayName "Endpoint Security - Antivirus Profiles"
+            Invoke-PolicyAssignments -Policies $allPolicies.DiskEncryptionProfiles -DisplayName "Endpoint Security - Disk Encryption Profiles"
+            Invoke-PolicyAssignments -Policies $allPolicies.FirewallProfiles -DisplayName "Endpoint Security - Firewall Profiles"
+            Invoke-PolicyAssignments -Policies $allPolicies.EndpointDetectionProfiles -DisplayName "Endpoint Security - EDR Profiles"
+            Invoke-PolicyAssignments -Policies $allPolicies.AttackSurfaceProfiles -DisplayName "Endpoint Security - ASR Profiles"
 
             # Add to export data
             Add-ExportData -ExportData $exportData -Category "Device Configuration" -Items $allPolicies.DeviceConfigs -AssignmentReason { param($item) $item.AssignmentSummary }
@@ -5362,7 +5335,7 @@ do {
                         break
                     }
                 }
-            }   
+            }
 
             # Get Platform Scripts
             Write-Host "Fetching Platform Scripts..." -ForegroundColor Yellow
@@ -5437,7 +5410,7 @@ do {
             # 1. Check configurationPolicies
             $configPoliciesForDiskEnc_AllUsers = Get-IntuneEntities -EntityType "configurationPolicies"
             $matchingConfigPoliciesDiskEnc_AllUsers = $configPoliciesForDiskEnc_AllUsers | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityDiskEncryption' }
-            
+
             if ($matchingConfigPoliciesDiskEnc_AllUsers) {
                 foreach ($policy in $matchingConfigPoliciesDiskEnc_AllUsers) {
                     if ($processedDiskEncryptionIds_AllUsers.Add($policy.id)) {
@@ -5580,12 +5553,12 @@ do {
                 }
             }
             $allUsersAssignments.AttackSurfaceProfiles = $asrPoliciesFound_AllUsers
-            
+
             # Get Autopilot Deployment Profiles
             Write-Host "Fetching Autopilot Deployment Profiles assigned to All Users..." -ForegroundColor Yellow
             $autoProfilesAU = Get-IntuneEntities -EntityType "windowsAutopilotDeploymentProfiles"
-            foreach ($profile in $autoProfilesAU) {
-                $assignments = Get-IntuneAssignments -EntityType "windowsAutopilotDeploymentProfiles" -EntityId $profile.id
+            foreach ($policyProfile in $autoProfilesAU) {
+                $assignments = Get-IntuneAssignments -EntityType "windowsAutopilotDeploymentProfiles" -EntityId $policyProfile.id
                 if ($assignments | Where-Object { $_.Reason -eq "All Users" }) {
                     $profile | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Users" -Force
                     $allUsersAssignments.DeploymentProfiles += $profile
@@ -5764,10 +5737,10 @@ do {
                 Write-Host "No Antivirus Profiles assigned to All Users" -ForegroundColor Gray
             }
             else {
-                foreach ($profile in $allUsersAssignments.AntivirusProfiles) {
-                    $profileNameForDisplay = if ($profile.displayName) { $profile.displayName } else { $profile.name }
-                    Write-Host "Antivirus Profile Name: $profileNameForDisplay, Profile ID: $($profile.id)" -ForegroundColor White
-                    Add-ExportData -ExportData $exportData -Category "Endpoint Security - Antivirus" -Items @($profile) -AssignmentReason "All Users"
+                foreach ($policyProfile in $allUsersAssignments.AntivirusProfiles) {
+                    $profileNameForDisplay = if ($policyProfile.displayName) { $policyProfile.displayName } else { $policyProfile.name }
+                    Write-Host "Antivirus Profile Name: $profileNameForDisplay, Profile ID: $($policyProfile.id)" -ForegroundColor White
+                    Add-ExportData -ExportData $exportData -Category "Endpoint Security - Antivirus" -Items @($policyProfile) -AssignmentReason "All Users"
                 }
             }
 
@@ -5777,10 +5750,10 @@ do {
                 Write-Host "No Disk Encryption Profiles assigned to All Users" -ForegroundColor Gray
             }
             else {
-                foreach ($profile in $allUsersAssignments.DiskEncryptionProfiles) {
-                    $profileNameForDisplay = if ($profile.displayName) { $profile.displayName } else { $profile.name }
-                    Write-Host "Disk Encryption Profile Name: $profileNameForDisplay, Profile ID: $($profile.id)" -ForegroundColor White
-                    Add-ExportData -ExportData $exportData -Category "Endpoint Security - Disk Encryption" -Items @($profile) -AssignmentReason "All Users"
+                foreach ($policyProfile in $allUsersAssignments.DiskEncryptionProfiles) {
+                    $profileNameForDisplay = if ($policyProfile.displayName) { $policyProfile.displayName } else { $policyProfile.name }
+                    Write-Host "Disk Encryption Profile Name: $profileNameForDisplay, Profile ID: $($policyProfile.id)" -ForegroundColor White
+                    Add-ExportData -ExportData $exportData -Category "Endpoint Security - Disk Encryption" -Items @($policyProfile) -AssignmentReason "All Users"
                 }
             }
 
@@ -5790,10 +5763,10 @@ do {
                 Write-Host "No Firewall Profiles assigned to All Users" -ForegroundColor Gray
             }
             else {
-                foreach ($profile in $allUsersAssignments.FirewallProfiles) {
-                    $profileNameForDisplay = if ($profile.displayName) { $profile.displayName } else { $profile.name }
-                    Write-Host "Firewall Profile Name: $profileNameForDisplay, Profile ID: $($profile.id)" -ForegroundColor White
-                    Add-ExportData -ExportData $exportData -Category "Endpoint Security - Firewall" -Items @($profile) -AssignmentReason "All Users"
+                foreach ($policyProfile in $allUsersAssignments.FirewallProfiles) {
+                    $profileNameForDisplay = if ($policyProfile.displayName) { $policyProfile.displayName } else { $policyProfile.name }
+                    Write-Host "Firewall Profile Name: $profileNameForDisplay, Profile ID: $($policyProfile.id)" -ForegroundColor White
+                    Add-ExportData -ExportData $exportData -Category "Endpoint Security - Firewall" -Items @($policyProfile) -AssignmentReason "All Users"
                 }
             }
 
@@ -5803,10 +5776,10 @@ do {
                 Write-Host "No EDR Profiles assigned to All Users" -ForegroundColor Gray
             }
             else {
-                foreach ($profile in $allUsersAssignments.EndpointDetectionProfiles) {
-                    $profileNameForDisplay = if ($profile.displayName) { $profile.displayName } else { $profile.name }
-                    Write-Host "EDR Profile Name: $profileNameForDisplay, Profile ID: $($profile.id)" -ForegroundColor White
-                    Add-ExportData -ExportData $exportData -Category "Endpoint Security - EDR" -Items @($profile) -AssignmentReason "All Users"
+                foreach ($policyProfile in $allUsersAssignments.EndpointDetectionProfiles) {
+                    $profileNameForDisplay = if ($policyProfile.displayName) { $policyProfile.displayName } else { $policyProfile.name }
+                    Write-Host "EDR Profile Name: $profileNameForDisplay, Profile ID: $($policyProfile.id)" -ForegroundColor White
+                    Add-ExportData -ExportData $exportData -Category "Endpoint Security - EDR" -Items @($policyProfile) -AssignmentReason "All Users"
                 }
             }
 
@@ -5816,10 +5789,10 @@ do {
                 Write-Host "No ASR Profiles assigned to All Users" -ForegroundColor Gray
             }
             else {
-                foreach ($profile in $allUsersAssignments.AttackSurfaceProfiles) {
-                    $profileNameForDisplay = if ($profile.displayName) { $profile.displayName } else { $profile.name }
-                    Write-Host "ASR Profile Name: $profileNameForDisplay, Profile ID: $($profile.id)" -ForegroundColor White
-                    Add-ExportData -ExportData $exportData -Category "Endpoint Security - ASR" -Items @($profile) -AssignmentReason "All Users"
+                foreach ($policyProfile in $allUsersAssignments.AttackSurfaceProfiles) {
+                    $profileNameForDisplay = if ($policyProfile.displayName) { $policyProfile.displayName } else { $policyProfile.name }
+                    Write-Host "ASR Profile Name: $profileNameForDisplay, Profile ID: $($policyProfile.id)" -ForegroundColor White
+                    Add-ExportData -ExportData $exportData -Category "Endpoint Security - ASR" -Items @($policyProfile) -AssignmentReason "All Users"
                 }
             }
 
@@ -5829,10 +5802,10 @@ do {
                 Write-Host "No Autopilot Deployment Profiles assigned to All Users" -ForegroundColor Gray
             }
             else {
-                foreach ($profile in $allUsersAssignments.DeploymentProfiles) {
-                    $profileName = if ([string]::IsNullOrWhiteSpace($profile.name)) { $profile.displayName } else { $profile.name }
-                    Write-Host "Autopilot Deployment Profile Name: $profileName, Profile ID: $($profile.id)" -ForegroundColor White
-                    Add-ExportData -ExportData $exportData -Category "Autopilot Deployment Profile" -Items @($profile) -AssignmentReason "All Users"
+                foreach ($policyProfile in $allUsersAssignments.DeploymentProfiles) {
+                    $profileName = if ([string]::IsNullOrWhiteSpace($policyProfile.name)) { $policyProfile.displayName } else { $policyProfile.name }
+                    Write-Host "Autopilot Deployment Profile Name: $profileName, Profile ID: $($policyProfile.id)" -ForegroundColor White
+                    Add-ExportData -ExportData $exportData -Category "Autopilot Deployment Profile" -Items @($policyProfile) -AssignmentReason "All Users"
                 }
             }
 
@@ -5842,16 +5815,16 @@ do {
                 Write-Host "No Enrollment Status Page Profiles assigned to All Users" -ForegroundColor Gray
             }
             else {
-                foreach ($profile in $allUsersAssignments.ESPProfiles) {
-                    $profileName = if ([string]::IsNullOrWhiteSpace($profile.name)) { $profile.displayName } else { $profile.name }
-                    Write-Host "Enrollment Status Page Profile Name: $profileName, Profile ID: $($profile.id)" -ForegroundColor White
-                    Add-ExportData -ExportData $exportData -Category "Enrollment Status Page Profile" -Items @($profile) -AssignmentReason "All Users"
+                foreach ($policyProfile in $allUsersAssignments.ESPProfiles) {
+                    $profileName = if ([string]::IsNullOrWhiteSpace($policyProfile.name)) { $policyProfile.displayName } else { $policyProfile.name }
+                    Write-Host "Enrollment Status Page Profile Name: $profileName, Profile ID: $($policyProfile.id)" -ForegroundColor White
+                    Add-ExportData -ExportData $exportData -Category "Enrollment Status Page Profile" -Items @($policyProfile) -AssignmentReason "All Users"
                 }
             }
 
             # Export results if requested
             Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneAllUsersAssignments.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath
-        }     
+        }
         '6' {
             Write-Host "Fetching all 'All Devices' assignments..." -ForegroundColor Green
             $exportData = [System.Collections.ArrayList]::new()
@@ -6026,8 +5999,8 @@ do {
             # Get Autopilot Deployment Profiles
             Write-Host "Fetching Autopilot Deployment Profiles assigned to All Devices..." -ForegroundColor Yellow
             $autoProfilesAD = Get-IntuneEntities -EntityType "windowsAutopilotDeploymentProfiles"
-            foreach ($profile in $autoProfilesAD) {
-                $assignments = Get-IntuneAssignments -EntityType "windowsAutopilotDeploymentProfiles" -EntityId $profile.id
+            foreach ($policyProfile in $autoProfilesAD) {
+                $assignments = Get-IntuneAssignments -EntityType "windowsAutopilotDeploymentProfiles" -EntityId $policyProfile.id
                 if ($assignments | Where-Object { $_.Reason -eq "All Devices" }) {
                     $profile | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Devices" -Force
                     $allDevicesAssignments.DeploymentProfiles += $profile
@@ -6386,9 +6359,9 @@ do {
                 Write-Host "No Antivirus Profiles assigned to All Devices" -ForegroundColor Gray
             }
             else {
-                foreach ($profile in $allDevicesAssignments.AntivirusProfiles) {
-                    Write-Host "Antivirus Profile Name: $($profile.displayName), Profile ID: $($profile.id)" -ForegroundColor White
-                    Add-ExportData -ExportData $exportData -Category "Endpoint Security - Antivirus" -Items @($profile) -AssignmentReason "All Devices"
+                foreach ($policyProfile in $allDevicesAssignments.AntivirusProfiles) {
+                    Write-Host "Antivirus Profile Name: $($policyProfile.displayName), Profile ID: $($policyProfile.id)" -ForegroundColor White
+                    Add-ExportData -ExportData $exportData -Category "Endpoint Security - Antivirus" -Items @($policyProfile) -AssignmentReason "All Devices"
                 }
             }
 
@@ -6398,9 +6371,9 @@ do {
                 Write-Host "No Disk Encryption Profiles assigned to All Devices" -ForegroundColor Gray
             }
             else {
-                foreach ($profile in $allDevicesAssignments.DiskEncryptionProfiles) {
-                    Write-Host "Disk Encryption Profile Name: $($profile.displayName), Profile ID: $($profile.id)" -ForegroundColor White
-                    Add-ExportData -ExportData $exportData -Category "Endpoint Security - Disk Encryption" -Items @($profile) -AssignmentReason "All Devices"
+                foreach ($policyProfile in $allDevicesAssignments.DiskEncryptionProfiles) {
+                    Write-Host "Disk Encryption Profile Name: $($policyProfile.displayName), Profile ID: $($policyProfile.id)" -ForegroundColor White
+                    Add-ExportData -ExportData $exportData -Category "Endpoint Security - Disk Encryption" -Items @($policyProfile) -AssignmentReason "All Devices"
                 }
             }
 
@@ -6410,9 +6383,9 @@ do {
                 Write-Host "No Firewall Profiles assigned to All Devices" -ForegroundColor Gray
             }
             else {
-                foreach ($profile in $allDevicesAssignments.FirewallProfiles) {
-                    Write-Host "Firewall Profile Name: $($profile.displayName), Profile ID: $($profile.id)" -ForegroundColor White
-                    Add-ExportData -ExportData $exportData -Category "Endpoint Security - Firewall" -Items @($profile) -AssignmentReason "All Devices"
+                foreach ($policyProfile in $allDevicesAssignments.FirewallProfiles) {
+                    Write-Host "Firewall Profile Name: $($policyProfile.displayName), Profile ID: $($policyProfile.id)" -ForegroundColor White
+                    Add-ExportData -ExportData $exportData -Category "Endpoint Security - Firewall" -Items @($policyProfile) -AssignmentReason "All Devices"
                 }
             }
 
@@ -6422,10 +6395,10 @@ do {
                 Write-Host "No EDR Profiles assigned to All Devices" -ForegroundColor Gray
             }
             else {
-                foreach ($profile in $allDevicesAssignments.EndpointDetectionProfiles) {
-                    $profileNameForDisplay = if (-not [string]::IsNullOrWhiteSpace($profile.displayName)) { $profile.displayName } elseif (-not [string]::IsNullOrWhiteSpace($profile.name)) { $profile.name } else { "Unnamed EDR Profile" }
-                    Write-Host "EDR Profile Name: $profileNameForDisplay, Profile ID: $($profile.id)" -ForegroundColor White
-                    Add-ExportData -ExportData $exportData -Category "Endpoint Security - EDR" -Items @($profile) -AssignmentReason "All Devices"
+                foreach ($policyProfile in $allDevicesAssignments.EndpointDetectionProfiles) {
+                    $profileNameForDisplay = if (-not [string]::IsNullOrWhiteSpace($policyProfile.displayName)) { $policyProfile.displayName } elseif (-not [string]::IsNullOrWhiteSpace($policyProfile.name)) { $policyProfile.name } else { "Unnamed EDR Profile" }
+                    Write-Host "EDR Profile Name: $profileNameForDisplay, Profile ID: $($policyProfile.id)" -ForegroundColor White
+                    Add-ExportData -ExportData $exportData -Category "Endpoint Security - EDR" -Items @($policyProfile) -AssignmentReason "All Devices"
                 }
             }
 
@@ -6435,9 +6408,9 @@ do {
                 Write-Host "No ASR Profiles assigned to All Devices" -ForegroundColor Gray
             }
             else {
-                foreach ($profile in $allDevicesAssignments.AttackSurfaceProfiles) {
-                    Write-Host "ASR Profile Name: $($profile.displayName), Profile ID: $($profile.id)" -ForegroundColor White
-                    Add-ExportData -ExportData $exportData -Category "Endpoint Security - ASR" -Items @($profile) -AssignmentReason "All Devices"
+                foreach ($policyProfile in $allDevicesAssignments.AttackSurfaceProfiles) {
+                    Write-Host "ASR Profile Name: $($policyProfile.displayName), Profile ID: $($policyProfile.id)" -ForegroundColor White
+                    Add-ExportData -ExportData $exportData -Category "Endpoint Security - ASR" -Items @($policyProfile) -AssignmentReason "All Devices"
                 }
             }
 
@@ -6447,23 +6420,23 @@ do {
                 Write-Host "No Autopilot Deployment Profiles assigned to All Devices" -ForegroundColor Gray
             }
             else {
-                foreach ($profile in $allDevicesAssignments.DeploymentProfiles) {
-                    $profileName = if ([string]::IsNullOrWhiteSpace($profile.displayName)) { $profile.name } else { $profile.displayName }
-                    Write-Host "Deployment Profile Name: $profileName, Profile ID: $($profile.id)" -ForegroundColor White
-                    Add-ExportData -ExportData $exportData -Category "Autopilot Deployment Profile" -Items @($profile) -AssignmentReason "All Devices"
+                foreach ($policyProfile in $allDevicesAssignments.DeploymentProfiles) {
+                    $profileName = if ([string]::IsNullOrWhiteSpace($policyProfile.displayName)) { $policyProfile.name } else { $policyProfile.displayName }
+                    Write-Host "Deployment Profile Name: $profileName, Profile ID: $($policyProfile.id)" -ForegroundColor White
+                    Add-ExportData -ExportData $exportData -Category "Autopilot Deployment Profile" -Items @($policyProfile) -AssignmentReason "All Devices"
                 }
             }
-            
+
             # Display Enrollment Status Page Profiles
             Write-Host "`n------- Enrollment Status Page Profiles -------" -ForegroundColor Cyan
             if ($allDevicesAssignments.ESPProfiles.Count -eq 0) {
                 Write-Host "No Enrollment Status Page Profiles assigned to All Devices" -ForegroundColor Gray
             }
             else {
-                foreach ($profile in $allDevicesAssignments.ESPProfiles) {
-                    $profileName = if ([string]::IsNullOrWhiteSpace($profile.displayName)) { $profile.name } else { $profile.displayName }
-                    Write-Host "Enrollment Status Page Name: $profileName, Profile ID: $($profile.id)" -ForegroundColor White
-                    Add-ExportData -ExportData $exportData -Category "Enrollment Status Page" -Items @($profile) -AssignmentReason "All Devices"
+                foreach ($policyProfile in $allDevicesAssignments.ESPProfiles) {
+                    $profileName = if ([string]::IsNullOrWhiteSpace($policyProfile.displayName)) { $policyProfile.name } else { $policyProfile.displayName }
+                    Write-Host "Enrollment Status Page Name: $profileName, Profile ID: $($policyProfile.id)" -ForegroundColor White
+                    Add-ExportData -ExportData $exportData -Category "Enrollment Status Page" -Items @($policyProfile) -AssignmentReason "All Devices"
                 }
             }
 
@@ -6478,12 +6451,12 @@ do {
             # Use cross-platform temp path
             $tempDir = if ($env:TEMP) { $env:TEMP } elseif ($env:TMPDIR) { $env:TMPDIR } else { [System.IO.Path]::GetTempPath() }
             $scriptPath = Join-Path $tempDir 'html-export.ps1'
-            
+
             try {
                 Write-Host "Downloading html-export.ps1 from GitHub..." -ForegroundColor Yellow
                 Invoke-WebRequest -Uri $htmlExportUrl -OutFile $scriptPath -UseBasicParsing
                 Write-Host "Download complete." -ForegroundColor Green
-                
+
                 . $scriptPath
 
                 # Determine cross-platform default report path (avoid System32 on Windows)
@@ -6704,7 +6677,7 @@ do {
                     }
                 }
             }
-            
+
             # Display results
             Write-Host "`nPolicies Without Assignments:" -ForegroundColor Green
 
@@ -6826,9 +6799,9 @@ do {
                 Write-Host "No unassigned Antivirus Profiles found" -ForegroundColor Gray
             }
             else {
-                foreach ($profile in $unassignedPolicies.AntivirusProfiles) {
-                    Write-Host "Antivirus Profile Name: $($profile.displayName), Profile ID: $($profile.id)" -ForegroundColor White
-                    Add-ExportData -ExportData $exportData -Category "Endpoint Security - Antivirus" -Items @($profile) -AssignmentReason "No Assignment"
+                foreach ($policyProfile in $unassignedPolicies.AntivirusProfiles) {
+                    Write-Host "Antivirus Profile Name: $($policyProfile.displayName), Profile ID: $($policyProfile.id)" -ForegroundColor White
+                    Add-ExportData -ExportData $exportData -Category "Endpoint Security - Antivirus" -Items @($policyProfile) -AssignmentReason "No Assignment"
                 }
             }
 
@@ -6838,9 +6811,9 @@ do {
                 Write-Host "No unassigned Disk Encryption Profiles found" -ForegroundColor Gray
             }
             else {
-                foreach ($profile in $unassignedPolicies.DiskEncryptionProfiles) {
-                    Write-Host "Disk Encryption Profile Name: $($profile.displayName), Profile ID: $($profile.id)" -ForegroundColor White
-                    Add-ExportData -ExportData $exportData -Category "Endpoint Security - Disk Encryption" -Items @($profile) -AssignmentReason "No Assignment"
+                foreach ($policyProfile in $unassignedPolicies.DiskEncryptionProfiles) {
+                    Write-Host "Disk Encryption Profile Name: $($policyProfile.displayName), Profile ID: $($policyProfile.id)" -ForegroundColor White
+                    Add-ExportData -ExportData $exportData -Category "Endpoint Security - Disk Encryption" -Items @($policyProfile) -AssignmentReason "No Assignment"
                 }
             }
 
@@ -6850,9 +6823,9 @@ do {
                 Write-Host "No unassigned Firewall Profiles found" -ForegroundColor Gray
             }
             else {
-                foreach ($profile in $unassignedPolicies.FirewallProfiles) {
-                    Write-Host "Firewall Profile Name: $($profile.displayName), Profile ID: $($profile.id)" -ForegroundColor White
-                    Add-ExportData -ExportData $exportData -Category "Endpoint Security - Firewall" -Items @($profile) -AssignmentReason "No Assignment"
+                foreach ($policyProfile in $unassignedPolicies.FirewallProfiles) {
+                    Write-Host "Firewall Profile Name: $($policyProfile.displayName), Profile ID: $($policyProfile.id)" -ForegroundColor White
+                    Add-ExportData -ExportData $exportData -Category "Endpoint Security - Firewall" -Items @($policyProfile) -AssignmentReason "No Assignment"
                 }
             }
 
@@ -6862,9 +6835,9 @@ do {
                 Write-Host "No unassigned EDR Profiles found" -ForegroundColor Gray
             }
             else {
-                foreach ($profile in $unassignedPolicies.EndpointDetectionProfiles) {
-                    Write-Host "EDR Profile Name: $($profile.displayName), Profile ID: $($profile.id)" -ForegroundColor White
-                    Add-ExportData -ExportData $exportData -Category "Endpoint Security - EDR" -Items @($profile) -AssignmentReason "No Assignment"
+                foreach ($policyProfile in $unassignedPolicies.EndpointDetectionProfiles) {
+                    Write-Host "EDR Profile Name: $($policyProfile.displayName), Profile ID: $($policyProfile.id)" -ForegroundColor White
+                    Add-ExportData -ExportData $exportData -Category "Endpoint Security - EDR" -Items @($policyProfile) -AssignmentReason "No Assignment"
                 }
             }
 
@@ -6874,16 +6847,16 @@ do {
                 Write-Host "No unassigned ASR Profiles found" -ForegroundColor Gray
             }
             else {
-                foreach ($profile in $unassignedPolicies.AttackSurfaceProfiles) {
-                    Write-Host "ASR Profile Name: $($profile.displayName), Profile ID: $($profile.id)" -ForegroundColor White
-                    Add-ExportData -ExportData $exportData -Category "Endpoint Security - ASR" -Items @($profile) -AssignmentReason "No Assignment"
+                foreach ($policyProfile in $unassignedPolicies.AttackSurfaceProfiles) {
+                    Write-Host "ASR Profile Name: $($policyProfile.displayName), Profile ID: $($policyProfile.id)" -ForegroundColor White
+                    Add-ExportData -ExportData $exportData -Category "Endpoint Security - ASR" -Items @($policyProfile) -AssignmentReason "No Assignment"
                 }
             }
 
             # Export results if requested
             Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneUnassignedPolicies.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath
         }
-       
+
         '9' {
             Write-Host "Checking for policies assigned to empty groups..." -ForegroundColor Green
             $exportData = [System.Collections.ArrayList]::new()
@@ -7005,7 +6978,7 @@ do {
                         foreach ($assignment in $assignmentResponse.value) {
                             $assignmentReason = $null
                             switch ($assignment.target.'@odata.type') {
-                                '#microsoft.graph.allLicensedUsersAssignmentTarget' { 
+                                '#microsoft.graph.allLicensedUsersAssignmentTarget' {
                                     $assignmentReason = "All Users"
                                 }
                                 '#microsoft.graph.groupAssignmentTarget' {
@@ -7241,12 +7214,12 @@ do {
                 Write-Host "No Antivirus Profiles assigned to empty groups" -ForegroundColor Gray
             }
             else {
-                foreach ($profile in $emptyGroupAssignments.AntivirusProfiles) {
-                    Write-Host "Antivirus Profile Name: $($profile.displayName)" -ForegroundColor White
-                    Write-Host "Profile ID: $($profile.id)" -ForegroundColor Gray
-                    Write-Host "$($profile.EmptyGroupInfo)" -ForegroundColor Yellow
+                foreach ($policyProfile in $emptyGroupAssignments.AntivirusProfiles) {
+                    Write-Host "Antivirus Profile Name: $($policyProfile.displayName)" -ForegroundColor White
+                    Write-Host "Profile ID: $($policyProfile.id)" -ForegroundColor Gray
+                    Write-Host "$($policyProfile.EmptyGroupInfo)" -ForegroundColor Yellow
                     Write-Host ""
-                    Add-ExportData -ExportData $exportData -Category "Endpoint Security - Antivirus" -Items @($profile) -AssignmentReason $profile.EmptyGroupInfo
+                    Add-ExportData -ExportData $exportData -Category "Endpoint Security - Antivirus" -Items @($policyProfile) -AssignmentReason $policyProfile.EmptyGroupInfo
                 }
             }
 
@@ -7256,12 +7229,12 @@ do {
                 Write-Host "No Disk Encryption Profiles assigned to empty groups" -ForegroundColor Gray
             }
             else {
-                foreach ($profile in $emptyGroupAssignments.DiskEncryptionProfiles) {
-                    Write-Host "Disk Encryption Profile Name: $($profile.displayName)" -ForegroundColor White
-                    Write-Host "Profile ID: $($profile.id)" -ForegroundColor Gray
-                    Write-Host "$($profile.EmptyGroupInfo)" -ForegroundColor Yellow
+                foreach ($policyProfile in $emptyGroupAssignments.DiskEncryptionProfiles) {
+                    Write-Host "Disk Encryption Profile Name: $($policyProfile.displayName)" -ForegroundColor White
+                    Write-Host "Profile ID: $($policyProfile.id)" -ForegroundColor Gray
+                    Write-Host "$($policyProfile.EmptyGroupInfo)" -ForegroundColor Yellow
                     Write-Host ""
-                    Add-ExportData -ExportData $exportData -Category "Endpoint Security - Disk Encryption" -Items @($profile) -AssignmentReason $profile.EmptyGroupInfo
+                    Add-ExportData -ExportData $exportData -Category "Endpoint Security - Disk Encryption" -Items @($policyProfile) -AssignmentReason $policyProfile.EmptyGroupInfo
                 }
             }
 
@@ -7271,12 +7244,12 @@ do {
                 Write-Host "No Firewall Profiles assigned to empty groups" -ForegroundColor Gray
             }
             else {
-                foreach ($profile in $emptyGroupAssignments.FirewallProfiles) {
-                    Write-Host "Firewall Profile Name: $($profile.displayName)" -ForegroundColor White
-                    Write-Host "Profile ID: $($profile.id)" -ForegroundColor Gray
-                    Write-Host "$($profile.EmptyGroupInfo)" -ForegroundColor Yellow
+                foreach ($policyProfile in $emptyGroupAssignments.FirewallProfiles) {
+                    Write-Host "Firewall Profile Name: $($policyProfile.displayName)" -ForegroundColor White
+                    Write-Host "Profile ID: $($policyProfile.id)" -ForegroundColor Gray
+                    Write-Host "$($policyProfile.EmptyGroupInfo)" -ForegroundColor Yellow
                     Write-Host ""
-                    Add-ExportData -ExportData $exportData -Category "Endpoint Security - Firewall" -Items @($profile) -AssignmentReason $profile.EmptyGroupInfo
+                    Add-ExportData -ExportData $exportData -Category "Endpoint Security - Firewall" -Items @($policyProfile) -AssignmentReason $policyProfile.EmptyGroupInfo
                 }
             }
 
@@ -7286,12 +7259,12 @@ do {
                 Write-Host "No EDR Profiles assigned to empty groups" -ForegroundColor Gray
             }
             else {
-                foreach ($profile in $emptyGroupAssignments.EndpointDetectionProfiles) {
-                    Write-Host "EDR Profile Name: $($profile.displayName)" -ForegroundColor White
-                    Write-Host "Profile ID: $($profile.id)" -ForegroundColor Gray
-                    Write-Host "$($profile.EmptyGroupInfo)" -ForegroundColor Yellow
+                foreach ($policyProfile in $emptyGroupAssignments.EndpointDetectionProfiles) {
+                    Write-Host "EDR Profile Name: $($policyProfile.displayName)" -ForegroundColor White
+                    Write-Host "Profile ID: $($policyProfile.id)" -ForegroundColor Gray
+                    Write-Host "$($policyProfile.EmptyGroupInfo)" -ForegroundColor Yellow
                     Write-Host ""
-                    Add-ExportData -ExportData $exportData -Category "Endpoint Security - EDR" -Items @($profile) -AssignmentReason $profile.EmptyGroupInfo
+                    Add-ExportData -ExportData $exportData -Category "Endpoint Security - EDR" -Items @($policyProfile) -AssignmentReason $policyProfile.EmptyGroupInfo
                 }
             }
 
@@ -7301,12 +7274,12 @@ do {
                 Write-Host "No ASR Profiles assigned to empty groups" -ForegroundColor Gray
             }
             else {
-                foreach ($profile in $emptyGroupAssignments.AttackSurfaceProfiles) {
-                    Write-Host "ASR Profile Name: $($profile.displayName)" -ForegroundColor White
-                    Write-Host "Profile ID: $($profile.id)" -ForegroundColor Gray
-                    Write-Host "$($profile.EmptyGroupInfo)" -ForegroundColor Yellow
+                foreach ($policyProfile in $emptyGroupAssignments.AttackSurfaceProfiles) {
+                    Write-Host "ASR Profile Name: $($policyProfile.displayName)" -ForegroundColor White
+                    Write-Host "Profile ID: $($policyProfile.id)" -ForegroundColor Gray
+                    Write-Host "$($policyProfile.EmptyGroupInfo)" -ForegroundColor Yellow
                     Write-Host ""
-                    Add-ExportData -ExportData $exportData -Category "Endpoint Security - ASR" -Items @($profile) -AssignmentReason $profile.EmptyGroupInfo
+                    Add-ExportData -ExportData $exportData -Category "Endpoint Security - ASR" -Items @($policyProfile) -AssignmentReason $policyProfile.EmptyGroupInfo
                 }
             }
 
@@ -7326,7 +7299,7 @@ do {
                 Write-Host "Example: 'Marketing Team, 12345678-1234-1234-1234-123456789012'" -ForegroundColor Gray
                 $groupInput = Read-Host
             }
-            
+
             $groupInputs = $groupInput -split ',' | ForEach-Object { $_.Trim() }
 
             if ($groupInputs.Count -lt 2) {
@@ -7339,23 +7312,23 @@ do {
 
             # Process each group input
             $resolvedGroups = @{}
-            foreach ($input in $groupInputs) {
-                Write-Host "`nProcessing input: $input" -ForegroundColor Yellow
+            foreach ($groupInput in $groupInputs) {
+                Write-Host "`nProcessing input: $groupInput" -ForegroundColor Yellow
 
                 # Initialize variables
                 $groupId = $null
                 $groupName = $null
 
                 # Check if input is a GUID
-                if ($input -match '^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$') {
+                if ($groupInput -match '^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$') {
                     try {
                         # Get group info from Graph API
-                        $groupUri = "$GraphEndpoint/v1.0/groups/$input"
+                        $groupUri = "$GraphEndpoint/v1.0/groups/$groupInput"
                         $groupResponse = Invoke-MgGraphRequest -Uri $groupUri -Method Get
                         $groupId = $groupResponse.id
                         $groupName = $groupResponse.displayName
                         $resolvedGroups[$groupId] = $groupName
-                
+
                         # Initialize collections for this group (Add HealthScripts here)
                         $groupAssignments[$groupName] = @{
                             DeviceConfigs      = [System.Collections.ArrayList]::new()
@@ -7368,25 +7341,25 @@ do {
                             PlatformScripts    = [System.Collections.ArrayList]::new()
                             HealthScripts      = [System.Collections.ArrayList]::new()
                         }
-                
+
                         Write-Host "Found group by ID: $groupName" -ForegroundColor Green
                     }
                     catch {
-                        Write-Host "No group found with ID: $input" -ForegroundColor Red
+                        Write-Host "No group found with ID: $groupInput" -ForegroundColor Red
                         continue
                     }
                 }
                 else {
                     # Try to find group by display name
-                    $groupUri = "$GraphEndpoint/v1.0/groups?`$filter=displayName eq '$input'"
+                    $groupUri = "$GraphEndpoint/v1.0/groups?`$filter=displayName eq '$groupInput'"
                     $groupResponse = Invoke-MgGraphRequest -Uri $groupUri -Method Get
 
                     if ($groupResponse.value.Count -eq 0) {
-                        Write-Host "No group found with name: $input" -ForegroundColor Red
+                        Write-Host "No group found with name: $groupInput" -ForegroundColor Red
                         continue
                     }
                     elseif ($groupResponse.value.Count -gt 1) {
-                        Write-Host "Multiple groups found with name: $input. Please use the Object ID instead:" -ForegroundColor Red
+                        Write-Host "Multiple groups found with name: $groupInput. Please use the Object ID instead:" -ForegroundColor Red
                         foreach ($group in $groupResponse.value) {
                             Write-Host "  - $($group.displayName) (ID: $($group.id))" -ForegroundColor Yellow
                         }
@@ -7396,7 +7369,7 @@ do {
                     $groupId = $groupResponse.value[0].id
                     $groupName = $groupResponse.value[0].displayName
                     $resolvedGroups[$groupId] = $groupName
-            
+
                     # Initialize collections for this group (Add HealthScripts here)
                     $groupAssignments[$groupName] = @{
                         DeviceConfigs      = [System.Collections.ArrayList]::new()
@@ -7409,7 +7382,7 @@ do {
                         PlatformScripts    = [System.Collections.ArrayList]::new()
                         HealthScripts      = [System.Collections.ArrayList]::new()
                     }
-            
+
                     Write-Host "Found group by name: $groupName (ID: $groupId)" -ForegroundColor Green
                 }
 
@@ -7429,7 +7402,7 @@ do {
                     $configId = $config.id
                     $assignmentsUri = "$GraphEndpoint/beta/deviceManagement/deviceConfigurations('$configId')/assignments"
                     $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
-            
+
                     # Check for both inclusion and exclusion assignments
                     $hasAssignment = $assignmentResponse.value | Where-Object {
                         $_.target.groupId -eq $groupId -and
@@ -7791,7 +7764,7 @@ do {
                 else {
                     $null
                 }
-                
+
                 if ($exportPath) {
                     $comparisonResults | Export-Csv -Path $exportPath -NoTypeInformation
                     Write-Host "Results exported to $exportPath" -ForegroundColor Green
@@ -7802,22 +7775,22 @@ do {
         '11' {
             Write-Host "Fetching all failed assignments..." -ForegroundColor Green
             $exportData = [System.Collections.ArrayList]::new()
-            
+
             # Get all failed assignments
             $failedAssignments = Get-AssignmentFailures
-            
+
             if ($failedAssignments.Count -eq 0) {
                 Write-Host "`nNo assignment failures found!" -ForegroundColor Green
             }
             else {
                 Write-Host "`nFound $($failedAssignments.Count) assignment failures:" -ForegroundColor Yellow
-                
+
                 # Group by type for better display
                 $groupedFailures = $failedAssignments | Group-Object -Property Type
-                
+
                 foreach ($group in $groupedFailures) {
                     Write-Host "`n=== $($group.Name) Failures ($($group.Count)) ===" -ForegroundColor Cyan
-                    
+
                     foreach ($failure in $group.Group) {
                         Write-Host "`nPolicy: $($failure.PolicyName)" -ForegroundColor White
                         Write-Host "Device: $($failure.Target -replace 'Device: ', '')" -ForegroundColor Gray
@@ -7825,7 +7798,7 @@ do {
                         if ($failure.LastAttempt -and $failure.LastAttempt -ne "01/01/0001 00:00:00") {
                             Write-Host "Last Attempt: $($failure.LastAttempt)" -ForegroundColor Gray
                         }
-                        
+
                         # Add to export data
                         $null = $exportData.Add([PSCustomObject]@{
                                 Type             = $failure.Type
@@ -7837,7 +7810,7 @@ do {
                             })
                     }
                 }
-                
+
                 # Export if requested
                 Export-ResultsIfRequested -ExportData $exportData -ExportPath $ExportPath -ForceExport:$false
             }
