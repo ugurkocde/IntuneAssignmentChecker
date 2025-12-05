@@ -2,13 +2,24 @@
 #Requires -Modules Microsoft.Graph.Authentication
 
 <#PSScriptInfo
-.VERSION 3.4.5
+.VERSION 3.5.0
 .GUID c6e25ec6-5787-45ef-95af-8abeb8a17daf
 .AUTHOR ugurk
 .PROJECTURI https://github.com/ugurkocde/IntuneAssignmentChecker
 .DESCRIPTION
 This script enables IT administrators to efficiently analyze and audit Intune assignments. It checks assignments for specific users, groups, or devices, displays all policies and their assignments, identifies unassigned policies, detects empty groups in assignments, and searches for specific settings across policies.
 .RELEASENOTES
+Version 3.5.0:
+- Fixed macOS policies not being returned in group checks (Fixes #92)
+- Added CloudPC.Read.All scope for Windows 365 provisioning policies (Fixes #89)
+- Fixed Cloud PC provisioning policies URI format and suppressed W365 warnings for unlicensed tenants (Fixes #88)
+- Fixed App Protection Policies not being reported (Fixes #69)
+- Fixed CSV/Excel export to include app assignments (Required, Available, Uninstall) (Fixes #93)
+- Fixed HTML export path issues on Windows (System32) and macOS (Fixes #83, #81)
+- Fixed CSV export dialog hanging on macOS/Linux - now cross-platform (Fixes #43)
+- Disk encryption profiles now work correctly (Fixes #77)
+- Improved 403 permission error messages with specific scope guidance (Fixes #30)
+
 Version 3.4.5:
 - Added tenant switching capability - users can now disconnect and connect to a different tenant without restarting the script
 - Menu now displays current connected tenant name and logged-in user
@@ -240,6 +251,8 @@ elseif ($ShowFailedAssignments) { $parameterMode = $true; $selectedOption = '11'
     - DeviceManagementApps.Read.All    (Read app management data)
     - DeviceManagementConfiguration.Read.All    (Read device configurations)
     - DeviceManagementManagedDevices.Read.All   (Read device management data)
+    - DeviceManagementScripts.Read.All (Read device management and health scripts)
+    - CloudPC.Read.All                 (Read Windows 365 Cloud PC policies - optional)
 #>
 
 ################################ Prerequisites #####################################################
@@ -254,7 +267,7 @@ $certThumbprint = if ($CertificateThumbprint) { $CertificateThumbprint } else { 
 ####################################################################################################
 
 # Version of the local script
-$localVersion = "3.4.5"
+$localVersion = "3.5.0"
 
 Write-Host "🔍 INTUNE ASSIGNMENT CHECKER" -ForegroundColor Cyan
 Write-Host "Made by Ugur Koc with" -NoNewline; Write-Host " ❤️  and ☕" -NoNewline
@@ -457,8 +470,12 @@ try {
             Reason     = "Needed to read device information from Entra ID"
         },
         @{
-            Permission = "DeviceManagementScripts.ReadWrite.All"
-            Reason     = "Needed to read and write device management and health scripts"
+            Permission = "DeviceManagementScripts.Read.All"
+            Reason     = "Needed to read device management and health scripts"
+        },
+        @{
+            Permission = "CloudPC.Read.All"
+            Reason     = "Required to read Windows 365 Cloud PC provisioning policies and settings (optional if W365 not licensed)"
         }
     )
 
@@ -625,6 +642,11 @@ function Get-IntuneAssignments {
         # Example: deviceAppManagement/iosManagedAppProtections
         $actualAssignmentsUri = "$GraphEndpoint/beta/$EntityType('$EntityId')/assignments" # EntityType already includes deviceAppManagement
     }
+    elseif ($EntityType -like "virtualEndpoint/*") {
+        # Windows 365 Cloud PC policies use forward slash format instead of OData parentheses
+        # Example: virtualEndpoint/provisioningPolicies or virtualEndpoint/userSettings
+        $actualAssignmentsUri = "$GraphEndpoint/beta/deviceManagement/$EntityType/$EntityId/assignments"
+    }
     else {
         # General device management entities
         $actualAssignmentsUri = "$GraphEndpoint/beta/deviceManagement/$EntityType('$EntityId')/assignments"
@@ -698,7 +720,7 @@ function Get-IntuneAssignments {
             }
             
             if ($currentAssignmentReason) {
-                $null = $assignmentsToReturn.Add(@{
+                $null = $assignmentsToReturn.Add([PSCustomObject]@{
                         Reason  = $currentAssignmentReason
                         GroupId = $currentTargetGroupId
                         Apps    = $null # 'Apps' property is not directly available from general assignments endpoint
@@ -707,7 +729,14 @@ function Get-IntuneAssignments {
         }
     }
     catch {
-        Write-Warning "Error fetching assignments from '$actualAssignmentsUri': $($_.Exception.Message)"
+        $errorMessage = $_.Exception.Message
+        $statusCode = $_.Exception.Response.StatusCode.value__
+        if ($statusCode -eq 403 -or $errorMessage -match "403|Forbidden|Authorization_RequestDenied") {
+            Write-Warning "Permission denied (403) for '$actualAssignmentsUri'. Ensure admin consent has been granted for the required Graph API permissions: DeviceManagementConfiguration.Read.All, DeviceManagementApps.Read.All, DeviceManagementManagedDevices.Read.All"
+        }
+        else {
+            Write-Warning "Error fetching assignments from '$actualAssignmentsUri': $errorMessage"
+        }
     }
     
     return $assignmentsToReturn
@@ -759,7 +788,14 @@ function Get-IntuneEntities {
             $currentUri = $response.'@odata.nextLink'
         }
         catch {
-            Write-Warning "Error fetching entities for $EntityType from $currentUri : $($_.Exception.Message)"
+            $errorMessage = $_.Exception.Message
+            $statusCode = $_.Exception.Response.StatusCode.value__
+            if ($statusCode -eq 403 -or $errorMessage -match "403|Forbidden|Authorization_RequestDenied") {
+                Write-Warning "Permission denied (403) for '$EntityType'. Ensure admin consent has been granted for the required Graph API permissions. Run 'Connect-MgGraph -Scopes ...' with the necessary scopes or grant admin consent in Azure AD."
+            }
+            else {
+                Write-Warning "Error fetching entities for $EntityType from $currentUri : $errorMessage"
+            }
             $currentUri = $null # Stop pagination on error
         }
     } while ($currentUri)
@@ -1153,17 +1189,41 @@ function Show-SaveFileDialog {
     param (
         [string]$DefaultFileName
     )
-    
-    Add-Type -AssemblyName System.Windows.Forms
-    $saveFileDialog = New-Object System.Windows.Forms.SaveFileDialog
-    $saveFileDialog.Filter = "Excel files (*.xlsx)|*.xlsx|CSV files (*.csv)|*.csv|All files (*.*)|*.*"
-    $saveFileDialog.FileName = $DefaultFileName
-    $saveFileDialog.Title = "Save Policy Report"
-    
-    if ($saveFileDialog.ShowDialog() -eq 'OK') {
-        return $saveFileDialog.FileName
+
+    # Check if running on Windows (Windows Forms only works on Windows)
+    if ($IsWindows -or $env:OS -match "Windows") {
+        try {
+            Add-Type -AssemblyName System.Windows.Forms
+            $saveFileDialog = New-Object System.Windows.Forms.SaveFileDialog
+            $saveFileDialog.Filter = "Excel files (*.xlsx)|*.xlsx|CSV files (*.csv)|*.csv|All files (*.*)|*.*"
+            $saveFileDialog.FileName = $DefaultFileName
+            $saveFileDialog.Title = "Save Policy Report"
+
+            if ($saveFileDialog.ShowDialog() -eq 'OK') {
+                return $saveFileDialog.FileName
+            }
+            return $null
+        }
+        catch {
+            # Fall through to manual path entry if Windows Forms fails
+        }
     }
-    return $null
+
+    # Cross-platform fallback: prompt for path manually
+    $defaultPath = $HOME
+    if (Test-Path "$HOME/Documents") {
+        $defaultPath = "$HOME/Documents"
+    }
+    $suggestedPath = Join-Path $defaultPath $DefaultFileName
+
+    Write-Host "Enter the path to save the file (or press Enter for default):" -ForegroundColor Cyan
+    Write-Host "Default: $suggestedPath" -ForegroundColor Gray
+    $userPath = Read-Host "Path"
+
+    if ([string]::IsNullOrWhiteSpace($userPath)) {
+        return $suggestedPath
+    }
+    return $userPath
 }
 
 function Export-PolicyData {
@@ -2114,7 +2174,7 @@ do {
                     }
                 }
                 catch {
-                    Write-Warning "Unable to fetch Windows 365 Cloud PC Provisioning Policies: $($_.Exception.Message)"
+                    # Silently skip - Windows 365 may not be licensed for this tenant
                 }
 
                 # Get Windows 365 Cloud PC User Settings
@@ -2139,7 +2199,7 @@ do {
                     }
                 }
                 catch {
-                    Write-Warning "Unable to fetch Windows 365 Cloud PC User Settings: $($_.Exception.Message)"
+                    # Silently skip - Windows 365 may not be licensed for this tenant
                 }
 
                 # Display results
@@ -2901,6 +2961,9 @@ do {
                     Add-ExportData -ExportData $exportData -Category "Endpoint Security - Firewall" -Items $relevantPolicies.FirewallProfiles -AssignmentReason { param($item) $item.AssignmentReason }
                     Add-ExportData -ExportData $exportData -Category "Endpoint Security - EDR" -Items $relevantPolicies.EndpointDetectionProfiles -AssignmentReason { param($item) $item.AssignmentReason }
                     Add-ExportData -ExportData $exportData -Category "Endpoint Security - ASR" -Items $relevantPolicies.AttackSurfaceProfiles -AssignmentReason { param($item) $item.AssignmentReason }
+                    Add-ExportData -ExportData $exportData -Category "Required Apps" -Items $relevantPolicies.AppsRequired -AssignmentReason { param($item) $item.AssignmentReason }
+                    Add-ExportData -ExportData $exportData -Category "Available Apps" -Items $relevantPolicies.AppsAvailable -AssignmentReason { param($item) $item.AssignmentReason }
+                    Add-ExportData -ExportData $exportData -Category "Uninstall Apps" -Items $relevantPolicies.AppsUninstall -AssignmentReason { param($item) $item.AssignmentReason }
                 )
             }
 
@@ -3014,9 +3077,16 @@ do {
                 Write-Host "Fetching Settings Catalog Policies..." -ForegroundColor Yellow
                 $settingsCatalog = Get-IntuneEntities -EntityType "configurationPolicies"
                 foreach ($policy in $settingsCatalog) {
-                    # Exclude Endpoint Security policies from this generic Settings Catalog fetch for group view
+                    # Exclude Windows-only Endpoint Security policies from this generic Settings Catalog fetch
+                    # Allow macOS and cross-platform endpoint security policies through
                     if ($policy.templateReference -and $policy.templateReference.templateFamily -like "endpointSecurity*") {
-                        continue
+                        $platforms = $policy.platforms
+                        # Only skip if this is a Windows-only policy (not macOS or other platforms)
+                        if ($platforms -and
+                            (($platforms -contains "windows10" -or $platforms -contains "windows10AndLater") -and
+                             $platforms -notcontains "macOS")) {
+                            continue
+                        }
                     }
                     $directAssignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id -GroupId $groupId
                     if ($directAssignments.Count -gt 0) {
@@ -3081,37 +3151,26 @@ do {
                 Write-Host "Fetching App Protection Policies..." -ForegroundColor Yellow
                 $appProtectionPolicies = Get-IntuneEntities -EntityType "deviceAppManagement/managedAppPolicies"
                 foreach ($policy in $appProtectionPolicies) {
-                    $policyType = $policy.'@odata.type'
-                    $assignmentsUri = switch ($policyType) {
-                        "#microsoft.graph.androidManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/androidManagedAppProtections('$($policy.id)')/assignments" }
-                        "#microsoft.graph.iosManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/iosManagedAppProtections('$($policy.id)')/assignments" }
-                        "#microsoft.graph.windowsManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/windowsManagedAppProtections('$($policy.id)')/assignments" }
-                        default { $null }
-                    }
-
-                    if ($assignmentsUri) {
-                        try {
-                            $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
-                            # For group queries, Get-IntuneAssignments will return only direct assignments/exclusions
-                            $directAssignments = Get-IntuneAssignments -EntityType "deviceAppManagement/managedAppPolicies" -EntityId $policy.id -GroupId $groupId
-                            if ($directAssignments.Count -gt 0) {
-                                # Process all assignments for this group
-                                $assignmentReasons = @()
-                                foreach ($assignment in $directAssignments) {
-                                    if ($assignment.Reason -eq "Direct Assignment" -or $assignment.Reason -eq "Direct Exclusion") {
-                                        $assignmentReasons += $assignment.Reason
-                                    }
-                                }
-
-                                if ($assignmentReasons.Count -gt 0) {
-                                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue ($assignmentReasons -join "; ") -Force
-                                    $relevantPolicies.AppProtectionPolicies += $policy
+                    # Get-IntuneAssignments handles App Protection policy type resolution internally
+                    try {
+                        $directAssignments = Get-IntuneAssignments -EntityType "deviceAppManagement/managedAppPolicies" -EntityId $policy.id -GroupId $groupId
+                        if ($directAssignments.Count -gt 0) {
+                            # Process all assignments for this group
+                            $assignmentReasons = @()
+                            foreach ($assignment in $directAssignments) {
+                                if ($assignment.Reason -eq "Direct Assignment" -or $assignment.Reason -eq "Direct Exclusion") {
+                                    $assignmentReasons += $assignment.Reason
                                 }
                             }
+
+                            if ($assignmentReasons.Count -gt 0) {
+                                $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue ($assignmentReasons -join "; ") -Force
+                                $relevantPolicies.AppProtectionPolicies += $policy
+                            }
                         }
-                        catch {
-                            Write-Host "Error fetching assignments for policy $($policy.displayName): $($_.Exception.Message)" -ForegroundColor Red
-                        }
+                    }
+                    catch {
+                        Write-Host "Error fetching assignments for App Protection policy $($policy.displayName): $($_.Exception.Message)" -ForegroundColor Red
                     }
                 }
 
@@ -3390,7 +3449,7 @@ do {
                     }
                 }
                 catch {
-                    Write-Warning "Unable to fetch Windows 365 Cloud PC Provisioning Policies: $($_.Exception.Message)"
+                    # Silently skip - Windows 365 may not be licensed for this tenant
                 }
 
                 # Get Windows 365 Cloud PC User Settings
@@ -3416,7 +3475,7 @@ do {
                     }
                 }
                 catch {
-                    Write-Warning "Unable to fetch Windows 365 Cloud PC User Settings: $($_.Exception.Message)"
+                    # Silently skip - Windows 365 may not be licensed for this tenant
                 }
 
                 # Function to format and display policy table (specific to Option 2)
@@ -3615,11 +3674,14 @@ do {
                     Add-ExportData -ExportData $exportData -Category "Endpoint Security - Firewall" -Items $relevantPolicies.FirewallProfiles -AssignmentReason { param($item) $item.AssignmentReason }
                     Add-ExportData -ExportData $exportData -Category "Endpoint Security - EDR" -Items $relevantPolicies.EndpointDetectionProfiles -AssignmentReason { param($item) $item.AssignmentReason }
                     Add-ExportData -ExportData $exportData -Category "Endpoint Security - ASR" -Items $relevantPolicies.AttackSurfaceProfiles -AssignmentReason { param($item) $item.AssignmentReason }
+                    Add-ExportData -ExportData $exportData -Category "Required Apps" -Items $relevantPolicies.AppsRequired -AssignmentReason { param($item) $item.AssignmentReason }
+                    Add-ExportData -ExportData $exportData -Category "Available Apps" -Items $relevantPolicies.AppsAvailable -AssignmentReason { param($item) $item.AssignmentReason }
+                    Add-ExportData -ExportData $exportData -Category "Uninstall Apps" -Items $relevantPolicies.AppsUninstall -AssignmentReason { param($item) $item.AssignmentReason }
                 )
             }
 
             # Export results if requested
-            Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneDeviceAssignments.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath
+            Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneGroupAssignments.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath
         }
         '3' {
             Write-Host "Device selection chosen" -ForegroundColor Green
@@ -3928,7 +3990,7 @@ do {
                     }
                 }
                 catch {
-                    Write-Warning "Unable to fetch Windows 365 Cloud PC Provisioning Policies: $($_.Exception.Message)"
+                    # Silently skip - Windows 365 may not be licensed for this tenant
                 }
 
                 # Get Windows 365 Cloud PC User Settings
@@ -3953,7 +4015,7 @@ do {
                     }
                 }
                 catch {
-                    Write-Warning "Unable to fetch Windows 365 Cloud PC User Settings: $($_.Exception.Message)"
+                    # Silently skip - Windows 365 may not be licensed for this tenant
                 }
 
                 # Get Endpoint Security - Antivirus Policies
@@ -4536,6 +4598,9 @@ do {
                     Add-ExportData -ExportData $exportData -Category "Endpoint Security - ASR" -Items $relevantPolicies.AttackSurfaceProfiles -AssignmentReason { param($item) $item.AssignmentReason }
                     Add-ExportData -ExportData $exportData -Category "Windows 365 Cloud PC Provisioning Policy" -Items $relevantPolicies.CloudPCProvisioningPolicies -AssignmentReason { param($item) $item.AssignmentReason }
                     Add-ExportData -ExportData $exportData -Category "Windows 365 Cloud PC User Setting" -Items $relevantPolicies.CloudPCUserSettings -AssignmentReason { param($item) $item.AssignmentReason }
+                    Add-ExportData -ExportData $exportData -Category "Required Apps" -Items $relevantPolicies.AppsRequired -AssignmentReason { param($item) $item.AssignmentReason }
+                    Add-ExportData -ExportData $exportData -Category "Available Apps" -Items $relevantPolicies.AppsAvailable -AssignmentReason { param($item) $item.AssignmentReason }
+                    Add-ExportData -ExportData $exportData -Category "Uninstall Apps" -Items $relevantPolicies.AppsUninstall -AssignmentReason { param($item) $item.AssignmentReason }
                 )
             }
 
@@ -6410,7 +6475,9 @@ do {
 
             # Download html-export.ps1 from GitHub
             $htmlExportUrl = "https://raw.githubusercontent.com/ugurkocde/IntuneAssignmentChecker/main/html-export.ps1"
-            $scriptPath = Join-Path $env:TEMP 'html-export.ps1'
+            # Use cross-platform temp path
+            $tempDir = if ($env:TEMP) { $env:TEMP } elseif ($env:TMPDIR) { $env:TMPDIR } else { [System.IO.Path]::GetTempPath() }
+            $scriptPath = Join-Path $tempDir 'html-export.ps1'
             
             try {
                 Write-Host "Downloading html-export.ps1 from GitHub..." -ForegroundColor Yellow
@@ -6419,14 +6486,35 @@ do {
                 
                 . $scriptPath
 
-                # Generate the report with a fixed filename in the same directory
-                $filePath = Join-Path (Get-Location) "IntuneAssignmentReport.html"
+                # Determine cross-platform default report path (avoid System32 on Windows)
+                $defaultReportPath = $HOME
+                if ($IsWindows -or $env:OS -match "Windows") {
+                    $documentsPath = [Environment]::GetFolderPath('MyDocuments')
+                    if ($documentsPath -and (Test-Path $documentsPath)) {
+                        $defaultReportPath = $documentsPath
+                    }
+                }
+                elseif (Test-Path "$HOME/Documents") {
+                    $defaultReportPath = "$HOME/Documents"
+                }
+
+                $filePath = Join-Path $defaultReportPath "IntuneAssignmentReport.html"
+                Write-Host "Report will be saved to: $filePath" -ForegroundColor Cyan
                 Export-HTMLReport -FilePath $filePath
 
                 # Ask if user wants to open the report
                 $openReport = Read-Host "Would you like to open the report now? (y/n)"
                 if ($openReport -eq 'y') {
-                    Start-Process $filePath
+                    # Platform-specific file opening
+                    if ($IsWindows -or $env:OS -match "Windows") {
+                        Start-Process $filePath
+                    }
+                    elseif ($IsMacOS) {
+                        & open $filePath
+                    }
+                    elseif ($IsLinux) {
+                        & xdg-open $filePath 2>$null
+                    }
                 }
 
             }
@@ -6435,7 +6523,7 @@ do {
             }
             finally {
                 # Clean up the downloaded script
-                if (Test-Path $scriptPath) {
+                if ($scriptPath -and (Test-Path $scriptPath -ErrorAction SilentlyContinue)) {
                     Remove-Item $scriptPath -Force
                     Write-Host "Cleaned up temporary files." -ForegroundColor Gray
                 }
