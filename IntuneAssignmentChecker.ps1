@@ -3378,8 +3378,8 @@ do {
                         }
 
                         if ($assignmentReasons.Count -gt 0) {
-                            $profile | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue ($assignmentReasons -join "; ") -Force
-                            $relevantPolicies.DeploymentProfiles += $profile
+                            $policyProfile | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue ($assignmentReasons -join "; ") -Force
+                            $relevantPolicies.DeploymentProfiles += $policyProfile
                         }
                     }
                 }
@@ -3724,6 +3724,8 @@ do {
                     FirewallProfiles            = @()
                     EndpointDetectionProfiles   = @()
                     AttackSurfaceProfiles       = @()
+                    DeploymentProfiles          = @()
+                    ESPProfiles                 = @()
                     CloudPCProvisioningPolicies = @()
                     CloudPCUserSettings         = @()
                 }
@@ -3913,13 +3915,13 @@ do {
                     foreach ($assignment in $assignments) {
                         if (($assignment.Reason -eq "All Devices") -or
                             ($assignment.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignment.GroupId)) {
-                            $profile | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignment.Reason -Force
-                            $relevantPolicies.DeploymentProfiles += $profile
+                            $policyProfile | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignment.Reason -Force
+                            $relevantPolicies.DeploymentProfiles += $policyProfile
                             break
                         }
                         elseif ($assignment.Reason -eq "Group Exclusion" -and $groupMemberships.id -contains $assignment.GroupId) {
-                            $profile | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Excluded" -Force
-                            $relevantPolicies.DeploymentProfiles += $profile
+                            $policyProfile | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Excluded" -Force
+                            $relevantPolicies.DeploymentProfiles += $policyProfile
                             break
                         }
                     }
@@ -4519,6 +4521,18 @@ do {
                     if ([string]::IsNullOrWhiteSpace($script.name)) { $script.displayName } else { $script.name }
                 }
 
+                # Display Autopilot Deployment Profiles
+                Format-PolicyTable -Title "Autopilot Deployment Profiles" -Policies $relevantPolicies.DeploymentProfiles -GetName {
+                    param($policyProfile)
+                    if ([string]::IsNullOrWhiteSpace($policyProfile.displayName)) { $policyProfile.name } else { $policyProfile.displayName }
+                }
+
+                # Display Enrollment Status Page Profiles
+                Format-PolicyTable -Title "Enrollment Status Page Profiles" -Policies $relevantPolicies.ESPProfiles -GetName {
+                    param($esp)
+                    if ([string]::IsNullOrWhiteSpace($esp.displayName)) { $esp.name } else { $esp.displayName }
+                }
+
                 # Display Required Apps
                 Format-PolicyTable -Title "Required Apps" -Policies $relevantPolicies.AppsRequired -GetName {
                     param($app)
@@ -4567,6 +4581,8 @@ do {
                     Add-ExportData -ExportData $exportData -Category "App Configuration Policy" -Items $relevantPolicies.AppConfigurationPolicies -AssignmentReason { param($item) $item.AssignmentReason }
                     Add-ExportData -ExportData $exportData -Category "Platform Scripts" -Items $relevantPolicies.PlatformScripts -AssignmentReason { param($item) $item.AssignmentReason }
                     Add-ExportData -ExportData $exportData -Category "Proactive Remediation Scripts" -Items $relevantPolicies.HealthScripts -AssignmentReason { param($item) $item.AssignmentReason }
+                    Add-ExportData -ExportData $exportData -Category "Autopilot Deployment Profile" -Items $relevantPolicies.DeploymentProfiles -AssignmentReason { param($item) $item.AssignmentReason }
+                    Add-ExportData -ExportData $exportData -Category "Enrollment Status Page" -Items $relevantPolicies.ESPProfiles -AssignmentReason { param($item) $item.AssignmentReason }
                     Add-ExportData -ExportData $exportData -Category "Endpoint Security - Antivirus" -Items $relevantPolicies.AntivirusProfiles -AssignmentReason { param($item) $item.AssignmentReason }
                     Add-ExportData -ExportData $exportData -Category "Endpoint Security - Disk Encryption" -Items $relevantPolicies.DiskEncryptionProfiles -AssignmentReason { param($item) $item.AssignmentReason }
                     Add-ExportData -ExportData $exportData -Category "Endpoint Security - Firewall" -Items $relevantPolicies.FirewallProfiles -AssignmentReason { param($item) $item.AssignmentReason }
@@ -4833,8 +4849,8 @@ do {
                     }
                     else { $_.Reason }
                 }
-                $profile | Add-Member -NotePropertyName 'AssignmentSummary' -NotePropertyValue ($assignmentSummary -join "; ") -Force
-                $allPolicies.DeploymentProfiles += $profile
+                $policyProfile | Add-Member -NotePropertyName 'AssignmentSummary' -NotePropertyValue ($assignmentSummary -join "; ") -Force
+                $allPolicies.DeploymentProfiles += $policyProfile
             }
 
             # Get Enrollment Status Page Profiles
@@ -5560,8 +5576,8 @@ do {
             foreach ($policyProfile in $autoProfilesAU) {
                 $assignments = Get-IntuneAssignments -EntityType "windowsAutopilotDeploymentProfiles" -EntityId $policyProfile.id
                 if ($assignments | Where-Object { $_.Reason -eq "All Users" }) {
-                    $profile | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Users" -Force
-                    $allUsersAssignments.DeploymentProfiles += $profile
+                    $policyProfile | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Users" -Force
+                    $allUsersAssignments.DeploymentProfiles += $policyProfile
                 }
             }
 
@@ -6002,8 +6018,8 @@ do {
             foreach ($policyProfile in $autoProfilesAD) {
                 $assignments = Get-IntuneAssignments -EntityType "windowsAutopilotDeploymentProfiles" -EntityId $policyProfile.id
                 if ($assignments | Where-Object { $_.Reason -eq "All Devices" }) {
-                    $profile | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Devices" -Force
-                    $allDevicesAssignments.DeploymentProfiles += $profile
+                    $policyProfile | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Devices" -Force
+                    $allDevicesAssignments.DeploymentProfiles += $policyProfile
                 }
             }
 
