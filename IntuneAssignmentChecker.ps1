@@ -860,6 +860,34 @@ function Add-IntentTemplateFamilyInfo {
     }
 }
 
+function Resolve-AssignmentReason {
+    param (
+        [object[]]$Assignments,
+        [object[]]$GroupMembershipIds,
+        [string[]]$IncludeReasons = @("All Users")
+    )
+
+    $isExcluded = $false
+    $inclusionReason = $null
+
+    foreach ($a in $Assignments) {
+        if ($a.Reason -eq "Group Exclusion" -and $GroupMembershipIds -contains $a.GroupId) {
+            $isExcluded = $true
+        }
+        elseif (-not $inclusionReason) {
+            if ($IncludeReasons -contains $a.Reason) {
+                $inclusionReason = $a.Reason
+            }
+            elseif ($a.Reason -eq "Group Assignment" -and $GroupMembershipIds -contains $a.GroupId) {
+                $inclusionReason = $a.Reason
+            }
+        }
+    }
+
+    if ($isExcluded) { return "Excluded" }
+    return $inclusionReason
+}
+
 function Get-PolicyPlatform {
     param (
         [Parameter(Mandatory = $true)]
@@ -1619,18 +1647,10 @@ do {
                 $deviceConfigs = Get-IntuneEntities -EntityType "deviceConfigurations"
                 foreach ($config in $deviceConfigs) {
                     $assignments = Get-IntuneAssignments -EntityType "deviceConfigurations" -EntityId $config.id
-                    foreach ($assignment in $assignments) {
-                        if ($assignment.Reason -eq "All Users" -or
-                            ($assignment.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignment.GroupId)) {
-                            $config | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignment.Reason -Force
-                            $relevantPolicies.DeviceConfigs += $config
-                            break
-                        }
-                        elseif ($assignment.Reason -eq "Group Exclusion" -and $groupMemberships.id -contains $assignment.GroupId) {
-                            $config | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Excluded" -Force
-                            $relevantPolicies.DeviceConfigs += $config
-                            break
-                        }
+                    $reason = Resolve-AssignmentReason -Assignments $assignments -GroupMembershipIds $groupMemberships.id -IncludeReasons @("All Users")
+                    if ($reason) {
+                        $config | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
+                        $relevantPolicies.DeviceConfigs += $config
                     }
                 }
 
@@ -1639,18 +1659,10 @@ do {
                 $settingsCatalog = Get-IntuneEntities -EntityType "configurationPolicies"
                 foreach ($policy in $settingsCatalog) {
                     $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
-                    foreach ($assignment in $assignments) {
-                        if ($assignment.Reason -eq "All Users" -or
-                            ($assignment.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignment.GroupId)) {
-                            $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignment.Reason -Force
-                            $relevantPolicies.SettingsCatalog += $policy
-                            break
-                        }
-                        elseif ($assignment.Reason -eq "Group Exclusion" -and $groupMemberships.id -contains $assignment.GroupId) {
-                            $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Excluded" -Force
-                            $relevantPolicies.SettingsCatalog += $policy
-                            break
-                        }
+                    $reason = Resolve-AssignmentReason -Assignments $assignments -GroupMembershipIds $groupMemberships.id -IncludeReasons @("All Users")
+                    if ($reason) {
+                        $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
+                        $relevantPolicies.SettingsCatalog += $policy
                     }
                 }
 
@@ -1659,18 +1671,10 @@ do {
                 $adminTemplates = Get-IntuneEntities -EntityType "groupPolicyConfigurations"
                 foreach ($template in $adminTemplates) {
                     $assignments = Get-IntuneAssignments -EntityType "groupPolicyConfigurations" -EntityId $template.id
-                    foreach ($assignment in $assignments) {
-                        if ($assignment.Reason -eq "All Users" -or
-                            ($assignment.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignment.GroupId)) {
-                            $template | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignment.Reason -Force
-                            $relevantPolicies.AdminTemplates += $template
-                            break
-                        }
-                        elseif ($assignment.Reason -eq "Group Exclusion" -and $groupMemberships.id -contains $assignment.GroupId) {
-                            $template | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Excluded" -Force
-                            $relevantPolicies.AdminTemplates += $template
-                            break
-                        }
+                    $reason = Resolve-AssignmentReason -Assignments $assignments -GroupMembershipIds $groupMemberships.id -IncludeReasons @("All Users")
+                    if ($reason) {
+                        $template | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
+                        $relevantPolicies.AdminTemplates += $template
                     }
                 }
 
@@ -1679,18 +1683,10 @@ do {
                 $compliancePolicies = Get-IntuneEntities -EntityType "deviceCompliancePolicies"
                 foreach ($policy in $compliancePolicies) {
                     $assignments = Get-IntuneAssignments -EntityType "deviceCompliancePolicies" -EntityId $policy.id
-                    foreach ($assignment in $assignments) {
-                        if ($assignment.Reason -eq "All Users" -or
-                            ($assignment.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignment.GroupId)) {
-                            $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignment.Reason -Force
-                            $relevantPolicies.CompliancePolicies += $policy
-                            break
-                        }
-                        elseif ($assignment.Reason -eq "Group Exclusion" -and $groupMemberships.id -contains $assignment.GroupId) {
-                            $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Excluded" -Force
-                            $relevantPolicies.CompliancePolicies += $policy
-                            break
-                        }
+                    $reason = Resolve-AssignmentReason -Assignments $assignments -GroupMembershipIds $groupMemberships.id -IncludeReasons @("All Users")
+                    if ($reason) {
+                        $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
+                        $relevantPolicies.CompliancePolicies += $policy
                     }
                 }
 
@@ -1761,13 +1757,10 @@ do {
                 $appConfigPolicies = Get-IntuneEntities -EntityType "deviceAppManagement/mobileAppConfigurations"
                 foreach ($policy in $appConfigPolicies) {
                     $assignments = Get-IntuneAssignments -EntityType "mobileAppConfigurations" -EntityId $policy.id
-                    foreach ($assignment in $assignments) {
-                        if ($assignment.Reason -eq "All Users" -or
-                            ($assignment.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignment.GroupId)) {
-                            $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignment.Reason -Force
-                            $relevantPolicies.AppConfigurationPolicies += $policy
-                            break
-                        }
+                    $reason = Resolve-AssignmentReason -Assignments $assignments -GroupMembershipIds $groupMemberships.id -IncludeReasons @("All Users")
+                    if ($reason) {
+                        $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
+                        $relevantPolicies.AppConfigurationPolicies += $policy
                     }
                 }
 
@@ -1839,13 +1832,10 @@ do {
                 $platformScripts = Get-IntuneEntities -EntityType "deviceManagementScripts"
                 foreach ($script in $platformScripts) {
                     $assignments = Get-IntuneAssignments -EntityType "deviceManagementScripts" -EntityId $script.id
-                    foreach ($assignment in $assignments) {
-                        if ($assignment.Reason -eq "All Users" -or
-                            ($assignment.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignment.GroupId)) {
-                            $script | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignment.Reason -Force
-                            $relevantPolicies.PlatformScripts += $script
-                            break
-                        }
+                    $reason = Resolve-AssignmentReason -Assignments $assignments -GroupMembershipIds $groupMemberships.id -IncludeReasons @("All Users")
+                    if ($reason) {
+                        $script | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
+                        $relevantPolicies.PlatformScripts += $script
                     }
                 }
 
@@ -1854,13 +1844,10 @@ do {
                 $healthScripts = Get-IntuneEntities -EntityType "deviceHealthScripts"
                 foreach ($script in $healthScripts) {
                     $assignments = Get-IntuneAssignments -EntityType "deviceHealthScripts" -EntityId $script.id
-                    foreach ($assignment in $assignments) {
-                        if ($assignment.Reason -eq "All Users" -or
-                            ($assignment.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignment.GroupId)) {
-                            $script | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignment.Reason -Force
-                            $relevantPolicies.HealthScripts += $script
-                            break
-                        }
+                    $reason = Resolve-AssignmentReason -Assignments $assignments -GroupMembershipIds $groupMemberships.id -IncludeReasons @("All Users")
+                    if ($reason) {
+                        $script | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
+                        $relevantPolicies.HealthScripts += $script
                     }
                 }
 
@@ -1877,18 +1864,10 @@ do {
                     foreach ($policy in $matchingConfigPoliciesAntivirus) {
                         if ($processedAntivirusIds.Add($policy.id)) {
                             $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
-                            foreach ($assignmentDetail in $assignments) {
-                                if ($assignmentDetail.Reason -eq "All Users" -or
-                                    ($assignmentDetail.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignmentDetail.GroupId)) {
-                                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentDetail.Reason -Force
-                                    [void]$antivirusPoliciesFound.Add($policy)
-                                    break
-                                }
-                                elseif ($assignmentDetail.Reason -eq "Group Exclusion" -and $groupMemberships.id -contains $assignmentDetail.GroupId) {
-                                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Excluded" -Force
-                                    [void]$antivirusPoliciesFound.Add($policy)
-                                    break
-                                }
+                            $reason = Resolve-AssignmentReason -Assignments $assignments -GroupMembershipIds $groupMemberships.id -IncludeReasons @("All Users")
+                            if ($reason) {
+                                $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
+                                [void]$antivirusPoliciesFound.Add($policy)
                             }
                         }
                     }
@@ -1904,8 +1883,8 @@ do {
                         if ($processedAntivirusIds.Add($policy.id)) {
                             $assignmentsResponse = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
                             $assignments = $assignmentsResponse.value
-                            foreach ($assignment in $assignments) {
-                                $assignmentDetails = @{
+                            $assignmentDetailsList = foreach ($assignment in $assignments) {
+                                [PSCustomObject]@{
                                     Reason  = switch ($assignment.target.'@odata.type') {
                                         '#microsoft.graph.allLicensedUsersAssignmentTarget' { "All Users" }
                                         '#microsoft.graph.allDevicesAssignmentTarget' { "All Devices" }
@@ -1915,17 +1894,11 @@ do {
                                     }
                                     GroupId = if ($assignment.target.'@odata.type' -match "groupAssignmentTarget") { $assignment.target.groupId } else { $null }
                                 }
-                                if ($assignmentDetails.Reason -eq "All Users" -or
-                                    ($assignmentDetails.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignmentDetails.GroupId)) {
-                                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentDetails.Reason -Force
-                                    [void]$antivirusPoliciesFound.Add($policy)
-                                    break
-                                }
-                                elseif ($assignmentDetails.Reason -eq "Group Exclusion" -and $groupMemberships.id -contains $assignmentDetails.GroupId) {
-                                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Excluded" -Force
-                                    [void]$antivirusPoliciesFound.Add($policy)
-                                    break
-                                }
+                            }
+                            $reason = Resolve-AssignmentReason -Assignments $assignmentDetailsList -GroupMembershipIds $groupMemberships.id -IncludeReasons @("All Users")
+                            if ($reason) {
+                                $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
+                                [void]$antivirusPoliciesFound.Add($policy)
                             }
                         }
                     }
@@ -1944,21 +1917,11 @@ do {
                 if ($matchingConfigPoliciesDiskEnc) {
                     foreach ($policy in $matchingConfigPoliciesDiskEnc) {
                         if ($processedDiskEncryptionIds.Add($policy.id)) {
-                            # Ensure unique processing
                             $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
-                            foreach ($assignmentDetail in $assignments) {
-                                # Get-IntuneAssignments returns an array of hashtables
-                                if ($assignmentDetail.Reason -eq "All Users" -or
-                                    ($assignmentDetail.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignmentDetail.GroupId)) {
-                                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentDetail.Reason -Force
-                                    [void]$diskEncryptionPoliciesFound.Add($policy)
-                                    break
-                                }
-                                elseif ($assignmentDetail.Reason -eq "Group Exclusion" -and $groupMemberships.id -contains $assignmentDetail.GroupId) {
-                                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Excluded" -Force
-                                    [void]$diskEncryptionPoliciesFound.Add($policy)
-                                    break
-                                }
+                            $reason = Resolve-AssignmentReason -Assignments $assignments -GroupMembershipIds $groupMemberships.id -IncludeReasons @("All Users")
+                            if ($reason) {
+                                $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
+                                [void]$diskEncryptionPoliciesFound.Add($policy)
                             }
                         }
                     }
@@ -1972,12 +1935,10 @@ do {
                 if ($matchingIntentsDiskEnc) {
                     foreach ($policy in $matchingIntentsDiskEnc) {
                         if ($processedDiskEncryptionIds.Add($policy.id)) {
-                            # Ensure unique processing
                             $assignmentsResponse = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
                             $assignments = $assignmentsResponse.value
-
-                            foreach ($assignment in $assignments) {
-                                $assignmentDetails = @{
+                            $assignmentDetailsList = foreach ($assignment in $assignments) {
+                                [PSCustomObject]@{
                                     Reason  = switch ($assignment.target.'@odata.type') {
                                         '#microsoft.graph.allLicensedUsersAssignmentTarget' { "All Users" }
                                         '#microsoft.graph.allDevicesAssignmentTarget' { "All Devices" }
@@ -1987,18 +1948,11 @@ do {
                                     }
                                     GroupId = if ($assignment.target.'@odata.type' -match "groupAssignmentTarget") { $assignment.target.groupId } else { $null }
                                 }
-
-                                if ($assignmentDetails.Reason -eq "All Users" -or
-                                    ($assignmentDetails.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignmentDetails.GroupId)) {
-                                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentDetails.Reason -Force
-                                    [void]$diskEncryptionPoliciesFound.Add($policy)
-                                    break
-                                }
-                                elseif ($assignmentDetails.Reason -eq "Group Exclusion" -and $groupMemberships.id -contains $assignmentDetails.GroupId) {
-                                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Excluded" -Force
-                                    [void]$diskEncryptionPoliciesFound.Add($policy)
-                                    break
-                                }
+                            }
+                            $reason = Resolve-AssignmentReason -Assignments $assignmentDetailsList -GroupMembershipIds $groupMemberships.id -IncludeReasons @("All Users")
+                            if ($reason) {
+                                $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
+                                [void]$diskEncryptionPoliciesFound.Add($policy)
                             }
                         }
                     }
@@ -2018,18 +1972,10 @@ do {
                     foreach ($policy in $matchingConfigPoliciesFirewall) {
                         if ($processedFirewallIds.Add($policy.id)) {
                             $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
-                            foreach ($assignmentDetail in $assignments) {
-                                if ($assignmentDetail.Reason -eq "All Users" -or
-                                    ($assignmentDetail.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignmentDetail.GroupId)) {
-                                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentDetail.Reason -Force
-                                    [void]$firewallPoliciesFound.Add($policy)
-                                    break
-                                }
-                                elseif ($assignmentDetail.Reason -eq "Group Exclusion" -and $groupMemberships.id -contains $assignmentDetail.GroupId) {
-                                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Excluded" -Force
-                                    [void]$firewallPoliciesFound.Add($policy)
-                                    break
-                                }
+                            $reason = Resolve-AssignmentReason -Assignments $assignments -GroupMembershipIds $groupMemberships.id -IncludeReasons @("All Users")
+                            if ($reason) {
+                                $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
+                                [void]$firewallPoliciesFound.Add($policy)
                             }
                         }
                     }
@@ -2045,8 +1991,8 @@ do {
                         if ($processedFirewallIds.Add($policy.id)) {
                             $assignmentsResponse = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
                             $assignments = $assignmentsResponse.value
-                            foreach ($assignment in $assignments) {
-                                $assignmentDetails = @{
+                            $assignmentDetailsList = foreach ($assignment in $assignments) {
+                                [PSCustomObject]@{
                                     Reason  = switch ($assignment.target.'@odata.type') {
                                         '#microsoft.graph.allLicensedUsersAssignmentTarget' { "All Users" }
                                         '#microsoft.graph.allDevicesAssignmentTarget' { "All Devices" }
@@ -2056,17 +2002,11 @@ do {
                                     }
                                     GroupId = if ($assignment.target.'@odata.type' -match "groupAssignmentTarget") { $assignment.target.groupId } else { $null }
                                 }
-                                if ($assignmentDetails.Reason -eq "All Users" -or
-                                    ($assignmentDetails.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignmentDetails.GroupId)) {
-                                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentDetails.Reason -Force
-                                    [void]$firewallPoliciesFound.Add($policy)
-                                    break
-                                }
-                                elseif ($assignmentDetails.Reason -eq "Group Exclusion" -and $groupMemberships.id -contains $assignmentDetails.GroupId) {
-                                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Excluded" -Force
-                                    [void]$firewallPoliciesFound.Add($policy)
-                                    break
-                                }
+                            }
+                            $reason = Resolve-AssignmentReason -Assignments $assignmentDetailsList -GroupMembershipIds $groupMemberships.id -IncludeReasons @("All Users")
+                            if ($reason) {
+                                $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
+                                [void]$firewallPoliciesFound.Add($policy)
                             }
                         }
                     }
@@ -2086,18 +2026,10 @@ do {
                     foreach ($policy in $matchingConfigPoliciesEDR) {
                         if ($processedEDRIds.Add($policy.id)) {
                             $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
-                            foreach ($assignmentDetail in $assignments) {
-                                if ($assignmentDetail.Reason -eq "All Users" -or
-                                    ($assignmentDetail.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignmentDetail.GroupId)) {
-                                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentDetail.Reason -Force
-                                    [void]$edrPoliciesFound.Add($policy)
-                                    break
-                                }
-                                elseif ($assignmentDetail.Reason -eq "Group Exclusion" -and $groupMemberships.id -contains $assignmentDetail.GroupId) {
-                                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Excluded" -Force
-                                    [void]$edrPoliciesFound.Add($policy)
-                                    break
-                                }
+                            $reason = Resolve-AssignmentReason -Assignments $assignments -GroupMembershipIds $groupMemberships.id -IncludeReasons @("All Users")
+                            if ($reason) {
+                                $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
+                                [void]$edrPoliciesFound.Add($policy)
                             }
                         }
                     }
@@ -2113,8 +2045,8 @@ do {
                         if ($processedEDRIds.Add($policy.id)) {
                             $assignmentsResponse = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
                             $assignments = $assignmentsResponse.value
-                            foreach ($assignment in $assignments) {
-                                $assignmentDetails = @{
+                            $assignmentDetailsList = foreach ($assignment in $assignments) {
+                                [PSCustomObject]@{
                                     Reason  = switch ($assignment.target.'@odata.type') {
                                         '#microsoft.graph.allLicensedUsersAssignmentTarget' { "All Users" }
                                         '#microsoft.graph.allDevicesAssignmentTarget' { "All Devices" }
@@ -2124,17 +2056,11 @@ do {
                                     }
                                     GroupId = if ($assignment.target.'@odata.type' -match "groupAssignmentTarget") { $assignment.target.groupId } else { $null }
                                 }
-                                if ($assignmentDetails.Reason -eq "All Users" -or
-                                    ($assignmentDetails.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignmentDetails.GroupId)) {
-                                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentDetails.Reason -Force
-                                    [void]$edrPoliciesFound.Add($policy)
-                                    break
-                                }
-                                elseif ($assignmentDetails.Reason -eq "Group Exclusion" -and $groupMemberships.id -contains $assignmentDetails.GroupId) {
-                                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Excluded" -Force
-                                    [void]$edrPoliciesFound.Add($policy)
-                                    break
-                                }
+                            }
+                            $reason = Resolve-AssignmentReason -Assignments $assignmentDetailsList -GroupMembershipIds $groupMemberships.id -IncludeReasons @("All Users")
+                            if ($reason) {
+                                $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
+                                [void]$edrPoliciesFound.Add($policy)
                             }
                         }
                     }
@@ -2154,18 +2080,10 @@ do {
                     foreach ($policy in $matchingConfigPoliciesASR) {
                         if ($processedASRIds.Add($policy.id)) {
                             $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
-                            foreach ($assignmentDetail in $assignments) {
-                                if ($assignmentDetail.Reason -eq "All Users" -or
-                                    ($assignmentDetail.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignmentDetail.GroupId)) {
-                                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentDetail.Reason -Force
-                                    [void]$asrPoliciesFound.Add($policy)
-                                    break
-                                }
-                                elseif ($assignmentDetail.Reason -eq "Group Exclusion" -and $groupMemberships.id -contains $assignmentDetail.GroupId) {
-                                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Excluded" -Force
-                                    [void]$asrPoliciesFound.Add($policy)
-                                    break
-                                }
+                            $reason = Resolve-AssignmentReason -Assignments $assignments -GroupMembershipIds $groupMemberships.id -IncludeReasons @("All Users")
+                            if ($reason) {
+                                $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
+                                [void]$asrPoliciesFound.Add($policy)
                             }
                         }
                     }
@@ -2181,8 +2099,8 @@ do {
                         if ($processedASRIds.Add($policy.id)) {
                             $assignmentsResponse = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
                             $assignments = $assignmentsResponse.value
-                            foreach ($assignment in $assignments) {
-                                $assignmentDetails = @{
+                            $assignmentDetailsList = foreach ($assignment in $assignments) {
+                                [PSCustomObject]@{
                                     Reason  = switch ($assignment.target.'@odata.type') {
                                         '#microsoft.graph.allLicensedUsersAssignmentTarget' { "All Users" }
                                         '#microsoft.graph.allDevicesAssignmentTarget' { "All Devices" }
@@ -2192,17 +2110,11 @@ do {
                                     }
                                     GroupId = if ($assignment.target.'@odata.type' -match "groupAssignmentTarget") { $assignment.target.groupId } else { $null }
                                 }
-                                if ($assignmentDetails.Reason -eq "All Users" -or
-                                    ($assignmentDetails.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignmentDetails.GroupId)) {
-                                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentDetails.Reason -Force
-                                    [void]$asrPoliciesFound.Add($policy)
-                                    break
-                                }
-                                elseif ($assignmentDetails.Reason -eq "Group Exclusion" -and $groupMemberships.id -contains $assignmentDetails.GroupId) {
-                                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Excluded" -Force
-                                    [void]$asrPoliciesFound.Add($policy)
-                                    break
-                                }
+                            }
+                            $reason = Resolve-AssignmentReason -Assignments $assignmentDetailsList -GroupMembershipIds $groupMemberships.id -IncludeReasons @("All Users")
+                            if ($reason) {
+                                $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
+                                [void]$asrPoliciesFound.Add($policy)
                             }
                         }
                     }
@@ -3804,14 +3716,10 @@ do {
                 $deviceConfigs = Get-IntuneEntities -EntityType "deviceConfigurations"
                 foreach ($config in $deviceConfigs) {
                     $assignments = Get-IntuneAssignments -EntityType "deviceConfigurations" -EntityId $config.id
-                    foreach ($assignment in $assignments) {
-                        if ($assignment.Reason -ne "All Users" -and
-                            ($assignment.Reason -eq "All Devices" -or
-                            ($assignment.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignment.GroupId))) {
-                            $config | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignment.Reason -Force
-                            $relevantPolicies.DeviceConfigs += $config
-                            break
-                        }
+                    $reason = Resolve-AssignmentReason -Assignments $assignments -GroupMembershipIds $groupMemberships.id -IncludeReasons @("All Devices")
+                    if ($reason) {
+                        $config | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
+                        $relevantPolicies.DeviceConfigs += $config
                     }
                 }
 
@@ -3820,14 +3728,10 @@ do {
                 $settingsCatalog = Get-IntuneEntities -EntityType "configurationPolicies"
                 foreach ($policy in $settingsCatalog) {
                     $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
-                    foreach ($assignment in $assignments) {
-                        if ($assignment.Reason -ne "All Users" -and
-                            ($assignment.Reason -eq "All Devices" -or
-                            ($assignment.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignment.GroupId))) {
-                            $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignment.Reason -Force
-                            $relevantPolicies.SettingsCatalog += $policy
-                            break
-                        }
+                    $reason = Resolve-AssignmentReason -Assignments $assignments -GroupMembershipIds $groupMemberships.id -IncludeReasons @("All Devices")
+                    if ($reason) {
+                        $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
+                        $relevantPolicies.SettingsCatalog += $policy
                     }
                 }
 
@@ -3836,14 +3740,10 @@ do {
                 $adminTemplates = Get-IntuneEntities -EntityType "groupPolicyConfigurations"
                 foreach ($template in $adminTemplates) {
                     $assignments = Get-IntuneAssignments -EntityType "groupPolicyConfigurations" -EntityId $template.id
-                    foreach ($assignment in $assignments) {
-                        if ($assignment.Reason -ne "All Users" -and
-                            ($assignment.Reason -eq "All Devices" -or
-                            ($assignment.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignment.GroupId))) {
-                            $template | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignment.Reason -Force
-                            $relevantPolicies.AdminTemplates += $template
-                            break
-                        }
+                    $reason = Resolve-AssignmentReason -Assignments $assignments -GroupMembershipIds $groupMemberships.id -IncludeReasons @("All Devices")
+                    if ($reason) {
+                        $template | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
+                        $relevantPolicies.AdminTemplates += $template
                     }
                 }
 
@@ -3852,14 +3752,10 @@ do {
                 $compliancePolicies = Get-IntuneEntities -EntityType "deviceCompliancePolicies"
                 foreach ($policy in $compliancePolicies) {
                     $assignments = Get-IntuneAssignments -EntityType "deviceCompliancePolicies" -EntityId $policy.id
-                    foreach ($assignment in $assignments) {
-                        if ($assignment.Reason -ne "All Users" -and
-                            ($assignment.Reason -eq "All Devices" -or
-                            ($assignment.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignment.GroupId))) {
-                            $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignment.Reason -Force
-                            $relevantPolicies.CompliancePolicies += $policy
-                            break
-                        }
+                    $reason = Resolve-AssignmentReason -Assignments $assignments -GroupMembershipIds $groupMemberships.id -IncludeReasons @("All Devices")
+                    if ($reason) {
+                        $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
+                        $relevantPolicies.CompliancePolicies += $policy
                     }
                 }
 
@@ -3933,14 +3829,10 @@ do {
                 $appConfigPolicies = Get-IntuneEntities -EntityType "deviceAppManagement/mobileAppConfigurations"
                 foreach ($policy in $appConfigPolicies) {
                     $assignments = Get-IntuneAssignments -EntityType "mobileAppConfigurations" -EntityId $policy.id
-                    foreach ($assignment in $assignments) {
-                        if ($assignment.Reason -ne "All Users" -and
-                            ($assignment.Reason -eq "All Devices" -or
-                            ($assignment.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignment.GroupId))) {
-                            $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignment.Reason -Force
-                            $relevantPolicies.AppConfigurationPolicies += $policy
-                            break
-                        }
+                    $reason = Resolve-AssignmentReason -Assignments $assignments -GroupMembershipIds $groupMemberships.id -IncludeReasons @("All Devices")
+                    if ($reason) {
+                        $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
+                        $relevantPolicies.AppConfigurationPolicies += $policy
                     }
                 }
 
@@ -3949,14 +3841,10 @@ do {
                 $platformScripts = Get-IntuneEntities -EntityType "deviceManagementScripts"
                 foreach ($script in $platformScripts) {
                     $assignments = Get-IntuneAssignments -EntityType "deviceManagementScripts" -EntityId $script.id
-                    foreach ($assignment in $assignments) {
-                        if ($assignment.Reason -ne "All Users" -and
-                            ($assignment.Reason -eq "All Devices" -or
-                            ($assignment.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignment.GroupId))) {
-                            $script | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignment.Reason -Force
-                            $relevantPolicies.PlatformScripts += $script
-                            break
-                        }
+                    $reason = Resolve-AssignmentReason -Assignments $assignments -GroupMembershipIds $groupMemberships.id -IncludeReasons @("All Devices")
+                    if ($reason) {
+                        $script | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
+                        $relevantPolicies.PlatformScripts += $script
                     }
                 }
 
@@ -3965,14 +3853,10 @@ do {
                 $healthScripts = Get-IntuneEntities -EntityType "deviceHealthScripts"
                 foreach ($script in $healthScripts) {
                     $assignments = Get-IntuneAssignments -EntityType "deviceHealthScripts" -EntityId $script.id
-                    foreach ($assignment in $assignments) {
-                        if ($assignment.Reason -ne "All Users" -and
-                            ($assignment.Reason -eq "All Devices" -or
-                            ($assignment.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignment.GroupId))) {
-                            $script | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignment.Reason -Force
-                            $relevantPolicies.HealthScripts += $script
-                            break
-                        }
+                    $reason = Resolve-AssignmentReason -Assignments $assignments -GroupMembershipIds $groupMemberships.id -IncludeReasons @("All Devices")
+                    if ($reason) {
+                        $script | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
+                        $relevantPolicies.HealthScripts += $script
                     }
                 }
 
@@ -4080,18 +3964,10 @@ do {
                     foreach ($policy in $matchingConfigPoliciesAntivirusDevice) {
                         if ($processedAntivirusIdsDevice.Add($policy.id)) {
                             $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
-                            foreach ($assignmentDetail in $assignments) {
-                                if (($assignmentDetail.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignmentDetail.GroupId) -or
-                                    ($assignmentDetail.Reason -eq "All Devices")) {
-                                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentDetail.Reason -Force
-                                    [void]$antivirusPoliciesFoundDevice.Add($policy)
-                                    break
-                                }
-                                elseif ($assignmentDetail.Reason -eq "Group Exclusion" -and $groupMemberships.id -contains $assignmentDetail.GroupId) {
-                                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Excluded" -Force
-                                    [void]$antivirusPoliciesFoundDevice.Add($policy)
-                                    break
-                                }
+                            $reason = Resolve-AssignmentReason -Assignments $assignments -GroupMembershipIds $groupMemberships.id -IncludeReasons @("All Devices")
+                            if ($reason) {
+                                $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
+                                [void]$antivirusPoliciesFoundDevice.Add($policy)
                             }
                         }
                     }
@@ -4107,9 +3983,8 @@ do {
                         if ($processedAntivirusIdsDevice.Add($policy.id)) {
                             $assignmentsResponse = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
                             $assignments = $assignmentsResponse.value
-
-                            foreach ($assignment in $assignments) {
-                                $assignmentDetails = @{
+                            $assignmentDetailsList = foreach ($assignment in $assignments) {
+                                [PSCustomObject]@{
                                     Reason  = switch ($assignment.target.'@odata.type') {
                                         '#microsoft.graph.allDevicesAssignmentTarget' { "All Devices" }
                                         '#microsoft.graph.groupAssignmentTarget' { "Group Assignment" }
@@ -4118,18 +3993,11 @@ do {
                                     }
                                     GroupId = if ($assignment.target.'@odata.type' -match "groupAssignmentTarget") { $assignment.target.groupId } else { $null }
                                 }
-
-                                if (($assignmentDetails.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignmentDetails.GroupId) -or
-                                    ($assignmentDetails.Reason -eq "All Devices")) {
-                                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentDetails.Reason -Force
-                                    [void]$antivirusPoliciesFoundDevice.Add($policy)
-                                    break
-                                }
-                                elseif ($assignmentDetails.Reason -eq "Group Exclusion" -and $groupMemberships.id -contains $assignmentDetails.GroupId) {
-                                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Excluded" -Force
-                                    [void]$antivirusPoliciesFoundDevice.Add($policy)
-                                    break
-                                }
+                            }
+                            $reason = Resolve-AssignmentReason -Assignments $assignmentDetailsList -GroupMembershipIds $groupMemberships.id -IncludeReasons @("All Devices")
+                            if ($reason) {
+                                $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
+                                [void]$antivirusPoliciesFoundDevice.Add($policy)
                             }
                         }
                     }
@@ -4149,18 +4017,10 @@ do {
                     foreach ($policy in $matchingConfigPoliciesDiskEncDevice) {
                         if ($processedDiskEncryptionIdsDevice.Add($policy.id)) {
                             $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
-                            foreach ($assignmentDetail in $assignments) {
-                                if (($assignmentDetail.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignmentDetail.GroupId) -or
-                                    ($assignmentDetail.Reason -eq "All Devices")) {
-                                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentDetail.Reason -Force
-                                    [void]$diskEncryptionPoliciesFoundDevice.Add($policy)
-                                    break
-                                }
-                                elseif ($assignmentDetail.Reason -eq "Group Exclusion" -and $groupMemberships.id -contains $assignmentDetail.GroupId) {
-                                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Excluded" -Force
-                                    [void]$diskEncryptionPoliciesFoundDevice.Add($policy)
-                                    break
-                                }
+                            $reason = Resolve-AssignmentReason -Assignments $assignments -GroupMembershipIds $groupMemberships.id -IncludeReasons @("All Devices")
+                            if ($reason) {
+                                $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
+                                [void]$diskEncryptionPoliciesFoundDevice.Add($policy)
                             }
                         }
                     }
@@ -4176,8 +4036,8 @@ do {
                         if ($processedDiskEncryptionIdsDevice.Add($policy.id)) {
                             $assignmentsResponse = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
                             $assignments = $assignmentsResponse.value
-                            foreach ($assignment in $assignments) {
-                                $assignmentDetails = @{
+                            $assignmentDetailsList = foreach ($assignment in $assignments) {
+                                [PSCustomObject]@{
                                     Reason  = switch ($assignment.target.'@odata.type') {
                                         '#microsoft.graph.allDevicesAssignmentTarget' { "All Devices" }
                                         '#microsoft.graph.groupAssignmentTarget' { "Group Assignment" }
@@ -4186,17 +4046,11 @@ do {
                                     }
                                     GroupId = if ($assignment.target.'@odata.type' -match "groupAssignmentTarget") { $assignment.target.groupId } else { $null }
                                 }
-                                if (($assignmentDetails.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignmentDetails.GroupId) -or
-                                    ($assignmentDetails.Reason -eq "All Devices")) {
-                                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentDetails.Reason -Force
-                                    [void]$diskEncryptionPoliciesFoundDevice.Add($policy)
-                                    break
-                                }
-                                elseif ($assignmentDetails.Reason -eq "Group Exclusion" -and $groupMemberships.id -contains $assignmentDetails.GroupId) {
-                                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Excluded" -Force
-                                    [void]$diskEncryptionPoliciesFoundDevice.Add($policy)
-                                    break
-                                }
+                            }
+                            $reason = Resolve-AssignmentReason -Assignments $assignmentDetailsList -GroupMembershipIds $groupMemberships.id -IncludeReasons @("All Devices")
+                            if ($reason) {
+                                $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
+                                [void]$diskEncryptionPoliciesFoundDevice.Add($policy)
                             }
                         }
                     }
@@ -4216,18 +4070,10 @@ do {
                     foreach ($policy in $matchingConfigPoliciesFirewallDevice) {
                         if ($processedFirewallIdsDevice.Add($policy.id)) {
                             $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
-                            foreach ($assignmentDetail in $assignments) {
-                                if (($assignmentDetail.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignmentDetail.GroupId) -or
-                                    ($assignmentDetail.Reason -eq "All Devices")) {
-                                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentDetail.Reason -Force
-                                    [void]$firewallPoliciesFoundDevice.Add($policy)
-                                    break
-                                }
-                                elseif ($assignmentDetail.Reason -eq "Group Exclusion" -and $groupMemberships.id -contains $assignmentDetail.GroupId) {
-                                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Excluded" -Force
-                                    [void]$firewallPoliciesFoundDevice.Add($policy)
-                                    break
-                                }
+                            $reason = Resolve-AssignmentReason -Assignments $assignments -GroupMembershipIds $groupMemberships.id -IncludeReasons @("All Devices")
+                            if ($reason) {
+                                $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
+                                [void]$firewallPoliciesFoundDevice.Add($policy)
                             }
                         }
                     }
@@ -4243,8 +4089,8 @@ do {
                         if ($processedFirewallIdsDevice.Add($policy.id)) {
                             $assignmentsResponse = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
                             $assignments = $assignmentsResponse.value
-                            foreach ($assignment in $assignments) {
-                                $assignmentDetails = @{
+                            $assignmentDetailsList = foreach ($assignment in $assignments) {
+                                [PSCustomObject]@{
                                     Reason  = switch ($assignment.target.'@odata.type') {
                                         '#microsoft.graph.allDevicesAssignmentTarget' { "All Devices" }
                                         '#microsoft.graph.groupAssignmentTarget' { "Group Assignment" }
@@ -4253,17 +4099,11 @@ do {
                                     }
                                     GroupId = if ($assignment.target.'@odata.type' -match "groupAssignmentTarget") { $assignment.target.groupId } else { $null }
                                 }
-                                if (($assignmentDetails.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignmentDetails.GroupId) -or
-                                    ($assignmentDetails.Reason -eq "All Devices")) {
-                                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentDetails.Reason -Force
-                                    [void]$firewallPoliciesFoundDevice.Add($policy)
-                                    break
-                                }
-                                elseif ($assignmentDetails.Reason -eq "Group Exclusion" -and $groupMemberships.id -contains $assignmentDetails.GroupId) {
-                                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Excluded" -Force
-                                    [void]$firewallPoliciesFoundDevice.Add($policy)
-                                    break
-                                }
+                            }
+                            $reason = Resolve-AssignmentReason -Assignments $assignmentDetailsList -GroupMembershipIds $groupMemberships.id -IncludeReasons @("All Devices")
+                            if ($reason) {
+                                $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
+                                [void]$firewallPoliciesFoundDevice.Add($policy)
                             }
                         }
                     }
@@ -4283,18 +4123,10 @@ do {
                     foreach ($policy in $matchingConfigPoliciesEDRDevice) {
                         if ($processedEDRIdsDevice.Add($policy.id)) {
                             $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
-                            foreach ($assignmentDetail in $assignments) {
-                                if (($assignmentDetail.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignmentDetail.GroupId) -or
-                                    ($assignmentDetail.Reason -eq "All Devices")) {
-                                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentDetail.Reason -Force
-                                    [void]$edrPoliciesFoundDevice.Add($policy)
-                                    break
-                                }
-                                elseif ($assignmentDetail.Reason -eq "Group Exclusion" -and $groupMemberships.id -contains $assignmentDetail.GroupId) {
-                                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Excluded" -Force
-                                    [void]$edrPoliciesFoundDevice.Add($policy)
-                                    break
-                                }
+                            $reason = Resolve-AssignmentReason -Assignments $assignments -GroupMembershipIds $groupMemberships.id -IncludeReasons @("All Devices")
+                            if ($reason) {
+                                $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
+                                [void]$edrPoliciesFoundDevice.Add($policy)
                             }
                         }
                     }
@@ -4310,8 +4142,8 @@ do {
                         if ($processedEDRIdsDevice.Add($policy.id)) {
                             $assignmentsResponse = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
                             $assignments = $assignmentsResponse.value
-                            foreach ($assignment in $assignments) {
-                                $assignmentDetails = @{
+                            $assignmentDetailsList = foreach ($assignment in $assignments) {
+                                [PSCustomObject]@{
                                     Reason  = switch ($assignment.target.'@odata.type') {
                                         '#microsoft.graph.allDevicesAssignmentTarget' { "All Devices" }
                                         '#microsoft.graph.groupAssignmentTarget' { "Group Assignment" }
@@ -4320,17 +4152,11 @@ do {
                                     }
                                     GroupId = if ($assignment.target.'@odata.type' -match "groupAssignmentTarget") { $assignment.target.groupId } else { $null }
                                 }
-                                if (($assignmentDetails.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignmentDetails.GroupId) -or
-                                    ($assignmentDetails.Reason -eq "All Devices")) {
-                                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentDetails.Reason -Force
-                                    [void]$edrPoliciesFoundDevice.Add($policy)
-                                    break
-                                }
-                                elseif ($assignmentDetails.Reason -eq "Group Exclusion" -and $groupMemberships.id -contains $assignmentDetails.GroupId) {
-                                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Excluded" -Force
-                                    [void]$edrPoliciesFoundDevice.Add($policy)
-                                    break
-                                }
+                            }
+                            $reason = Resolve-AssignmentReason -Assignments $assignmentDetailsList -GroupMembershipIds $groupMemberships.id -IncludeReasons @("All Devices")
+                            if ($reason) {
+                                $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
+                                [void]$edrPoliciesFoundDevice.Add($policy)
                             }
                         }
                     }
@@ -4350,18 +4176,10 @@ do {
                     foreach ($policy in $matchingConfigPoliciesASRDevice) {
                         if ($processedASRIdsDevice.Add($policy.id)) {
                             $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
-                            foreach ($assignmentDetail in $assignments) {
-                                if (($assignmentDetail.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignmentDetail.GroupId) -or
-                                    ($assignmentDetail.Reason -eq "All Devices")) {
-                                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentDetail.Reason -Force
-                                    [void]$asrPoliciesFoundDevice.Add($policy)
-                                    break
-                                }
-                                elseif ($assignmentDetail.Reason -eq "Group Exclusion" -and $groupMemberships.id -contains $assignmentDetail.GroupId) {
-                                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Excluded" -Force
-                                    [void]$asrPoliciesFoundDevice.Add($policy)
-                                    break
-                                }
+                            $reason = Resolve-AssignmentReason -Assignments $assignments -GroupMembershipIds $groupMemberships.id -IncludeReasons @("All Devices")
+                            if ($reason) {
+                                $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
+                                [void]$asrPoliciesFoundDevice.Add($policy)
                             }
                         }
                     }
@@ -4377,8 +4195,8 @@ do {
                         if ($processedASRIdsDevice.Add($policy.id)) {
                             $assignmentsResponse = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
                             $assignments = $assignmentsResponse.value
-                            foreach ($assignment in $assignments) {
-                                $assignmentDetails = @{
+                            $assignmentDetailsList = foreach ($assignment in $assignments) {
+                                [PSCustomObject]@{
                                     Reason  = switch ($assignment.target.'@odata.type') {
                                         '#microsoft.graph.allDevicesAssignmentTarget' { "All Devices" }
                                         '#microsoft.graph.groupAssignmentTarget' { "Group Assignment" }
@@ -4387,17 +4205,11 @@ do {
                                     }
                                     GroupId = if ($assignment.target.'@odata.type' -match "groupAssignmentTarget") { $assignment.target.groupId } else { $null }
                                 }
-                                if (($assignmentDetails.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignmentDetails.GroupId) -or
-                                    ($assignmentDetails.Reason -eq "All Devices")) {
-                                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentDetails.Reason -Force
-                                    [void]$asrPoliciesFoundDevice.Add($policy)
-                                    break
-                                }
-                                elseif ($assignmentDetails.Reason -eq "Group Exclusion" -and $groupMemberships.id -contains $assignmentDetails.GroupId) {
-                                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Excluded" -Force
-                                    [void]$asrPoliciesFoundDevice.Add($policy)
-                                    break
-                                }
+                            }
+                            $reason = Resolve-AssignmentReason -Assignments $assignmentDetailsList -GroupMembershipIds $groupMemberships.id -IncludeReasons @("All Devices")
+                            if ($reason) {
+                                $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
+                                [void]$asrPoliciesFoundDevice.Add($policy)
                             }
                         }
                     }
