@@ -348,6 +348,18 @@ $script:CurrentTenantId = $null
 $script:CurrentTenantName = $null
 $script:CurrentUserUPN = $null
 
+# Mapping from template subtypes (used in deviceManagement/templates) to templateFamily values
+# Note: 'endpointDetectionReponse' is a typo in the Microsoft Graph API (missing 's') - must match exactly
+$script:IntentTemplateSubtypeToFamily = @{
+    'antivirus'                = 'endpointSecurityAntivirus'
+    'diskEncryption'           = 'endpointSecurityDiskEncryption'
+    'firewall'                 = 'endpointSecurityFirewall'
+    'endpointDetectionReponse' = 'endpointSecurityEndpointDetectionAndResponse'
+    'attackSurfaceReduction'   = 'endpointSecurityAttackSurfaceReductionRules'
+    'accountProtection'        = 'endpointSecurityAccountProtection'
+}
+$script:TemplateIdToFamilyCache = $null
+
 # Ask user to select the Intune environment
 function Set-Environment {
     param (
@@ -805,6 +817,47 @@ function Get-IntuneEntities {
     } while ($currentUri)
 
     return $entities
+}
+
+function Get-IntentTemplateFamilyLookup {
+    if ($null -ne $script:TemplateIdToFamilyCache) {
+        return $script:TemplateIdToFamilyCache
+    }
+
+    $script:TemplateIdToFamilyCache = @{}
+    try {
+        $templates = Get-IntuneEntities -EntityType "deviceManagement/templates"
+        foreach ($template in $templates) {
+            $subtype = $template.templateSubtype
+            if ($subtype -and $script:IntentTemplateSubtypeToFamily.ContainsKey($subtype)) {
+                $script:TemplateIdToFamilyCache[$template.id] = $script:IntentTemplateSubtypeToFamily[$subtype]
+            }
+        }
+    }
+    catch {
+        Write-Warning "Unable to fetch deviceManagement/templates for intent enrichment: $($_.Exception.Message)"
+    }
+
+    return $script:TemplateIdToFamilyCache
+}
+
+function Add-IntentTemplateFamilyInfo {
+    param (
+        [Parameter(Mandatory = $true)]
+        [System.Collections.ArrayList]$IntentPolicies
+    )
+
+    $lookup = Get-IntentTemplateFamilyLookup
+
+    foreach ($intent in $IntentPolicies) {
+        if ($intent.templateId -and $lookup.ContainsKey($intent.templateId)) {
+            if (-not $intent.templateReference) {
+                $intent | Add-Member -NotePropertyName 'templateReference' -NotePropertyValue @{
+                    templateFamily = $lookup[$intent.templateId]
+                }
+            }
+        }
+    }
 }
 
 function Get-PolicyPlatform {
@@ -1843,6 +1896,7 @@ do {
 
                 # 2. Check deviceManagement/intents
                 $allIntentsForAntivirus = Get-IntuneEntities -EntityType "deviceManagement/intents"
+                Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentsForAntivirus
                 $matchingIntentsAntivirus = $allIntentsForAntivirus | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAntivirus' }
 
                 if ($matchingIntentsAntivirus) {
@@ -1912,6 +1966,7 @@ do {
 
                 # 2. Check deviceManagement/intents (excluding those already found)
                 $allIntentsForDiskEncryption = Get-IntuneEntities -EntityType "deviceManagement/intents"
+                Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentsForDiskEncryption
                 $matchingIntentsDiskEnc = $allIntentsForDiskEncryption | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityDiskEncryption' }
 
                 if ($matchingIntentsDiskEnc) {
@@ -1982,6 +2037,7 @@ do {
 
                 # 2. Check deviceManagement/intents
                 $allIntentsForFirewall = Get-IntuneEntities -EntityType "deviceManagement/intents"
+                Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentsForFirewall
                 $matchingIntentsFirewall = $allIntentsForFirewall | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityFirewall' }
 
                 if ($matchingIntentsFirewall) {
@@ -2049,6 +2105,7 @@ do {
 
                 # 2. Check deviceManagement/intents
                 $allIntentsForEDR = Get-IntuneEntities -EntityType "deviceManagement/intents"
+                Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentsForEDR
                 $matchingIntentsEDR = $allIntentsForEDR | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityEndpointDetectionAndResponse' }
 
                 if ($matchingIntentsEDR) {
@@ -2116,6 +2173,7 @@ do {
 
                 # 2. Check deviceManagement/intents
                 $allIntentsForASR = Get-IntuneEntities -EntityType "deviceManagement/intents"
+                Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentsForASR
                 $matchingIntentsASR = $allIntentsForASR | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReductionRules' }
 
                 if ($matchingIntentsASR) {
@@ -3234,6 +3292,7 @@ do {
 
                     # 2. Check deviceManagement/intents (Template style ES policies)
                     $allIntentEsPolicies = Get-IntuneEntities -EntityType "deviceManagement/intents" # Fetch all, then filter
+                    Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentEsPolicies
                     $matchingIntentEsPolicies = $allIntentEsPolicies | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq $esCategory.TemplateFamily }
                     if ($matchingIntentEsPolicies) {
                         foreach ($policy in $matchingIntentEsPolicies) {
@@ -4040,6 +4099,7 @@ do {
 
                 # 2. Check deviceManagement/intents
                 $allIntentsForAntivirusDevice = Get-IntuneEntities -EntityType "deviceManagement/intents"
+                Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentsForAntivirusDevice
                 $matchingIntentsAntivirusDevice = $allIntentsForAntivirusDevice | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAntivirus' }
 
                 if ($matchingIntentsAntivirusDevice) {
@@ -4108,6 +4168,7 @@ do {
 
                 # 2. Check deviceManagement/intents
                 $allIntentsForDiskEncDevice = Get-IntuneEntities -EntityType "deviceManagement/intents"
+                Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentsForDiskEncDevice
                 $matchingIntentsDiskEncDevice = $allIntentsForDiskEncDevice | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityDiskEncryption' }
 
                 if ($matchingIntentsDiskEncDevice) {
@@ -4174,6 +4235,7 @@ do {
 
                 # 2. Check deviceManagement/intents
                 $allIntentsForFirewallDevice = Get-IntuneEntities -EntityType "deviceManagement/intents"
+                Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentsForFirewallDevice
                 $matchingIntentsFirewallDevice = $allIntentsForFirewallDevice | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityFirewall' }
 
                 if ($matchingIntentsFirewallDevice) {
@@ -4240,6 +4302,7 @@ do {
 
                 # 2. Check deviceManagement/intents
                 $allIntentsForEDRDevice = Get-IntuneEntities -EntityType "deviceManagement/intents"
+                Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentsForEDRDevice
                 $matchingIntentsEDRDevice = $allIntentsForEDRDevice | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityEndpointDetectionAndResponse' }
 
                 if ($matchingIntentsEDRDevice) {
@@ -4306,6 +4369,7 @@ do {
 
                 # 2. Check deviceManagement/intents
                 $allIntentsForASRDevice = Get-IntuneEntities -EntityType "deviceManagement/intents"
+                Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentsForASRDevice
                 $matchingIntentsASRDevice = $allIntentsForASRDevice | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReductionRules' }
 
                 if ($matchingIntentsASRDevice) {
@@ -4950,6 +5014,7 @@ do {
 
             # 2. Check deviceManagement/intents
             $allIntentsForAntivirusAll = Get-IntuneEntities -EntityType "deviceManagement/intents"
+            Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentsForAntivirusAll
             $matchingIntentsAntivirusAll = $allIntentsForAntivirusAll | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAntivirus' }
 
             if ($matchingIntentsAntivirusAll) {
@@ -5001,6 +5066,7 @@ do {
 
             # 2. Check deviceManagement/intents
             $allIntentsForDiskEncAll = Get-IntuneEntities -EntityType "deviceManagement/intents"
+            Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentsForDiskEncAll
             $matchingIntentsDiskEncAll = $allIntentsForDiskEncAll | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityDiskEncryption' }
 
             if ($matchingIntentsDiskEncAll) {
@@ -5052,6 +5118,7 @@ do {
 
             # 2. Check deviceManagement/intents
             $allIntentsForFirewallAll = Get-IntuneEntities -EntityType "deviceManagement/intents"
+            Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentsForFirewallAll
             $matchingIntentsFirewallAll = $allIntentsForFirewallAll | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityFirewall' }
 
             if ($matchingIntentsFirewallAll) {
@@ -5103,6 +5170,7 @@ do {
 
             # 2. Check deviceManagement/intents
             $allIntentsForEDRAll = Get-IntuneEntities -EntityType "deviceManagement/intents"
+            Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentsForEDRAll
             $matchingIntentsEDRAll = $allIntentsForEDRAll | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityEndpointDetectionAndResponse' }
 
             if ($matchingIntentsEDRAll) {
@@ -5154,6 +5222,7 @@ do {
 
             # 2. Check deviceManagement/intents
             $allIntentsForASRAll = Get-IntuneEntities -EntityType "deviceManagement/intents"
+            Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentsForASRAll
             $matchingIntentsASRAll = $allIntentsForASRAll | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReductionRules' }
 
             if ($matchingIntentsASRAll) {
@@ -5408,6 +5477,7 @@ do {
 
             # 2. Check deviceManagement/intents
             $allIntentsForAntivirus_AllUsers = Get-IntuneEntities -EntityType "deviceManagement/intents"
+            Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentsForAntivirus_AllUsers
             $matchingIntentsAntivirus_AllUsers = $allIntentsForAntivirus_AllUsers | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAntivirus' }
 
             if ($matchingIntentsAntivirus_AllUsers) {
@@ -5451,6 +5521,7 @@ do {
 
             # 2. Check deviceManagement/intents
             $allIntentsForDiskEnc_AllUsers = Get-IntuneEntities -EntityType "deviceManagement/intents"
+            Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentsForDiskEnc_AllUsers
             $matchingIntentsDiskEnc_AllUsers = $allIntentsForDiskEnc_AllUsers | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityDiskEncryption' }
 
             if ($matchingIntentsDiskEnc_AllUsers) {
@@ -5489,6 +5560,7 @@ do {
 
             # 2. Check deviceManagement/intents
             $allIntentsForFirewall_AllUsers = Get-IntuneEntities -EntityType "deviceManagement/intents"
+            Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentsForFirewall_AllUsers
             $matchingIntentsFirewall_AllUsers = $allIntentsForFirewall_AllUsers | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityFirewall' }
 
             if ($matchingIntentsFirewall_AllUsers) {
@@ -5527,6 +5599,7 @@ do {
 
             # 2. Check deviceManagement/intents
             $allIntentsForEDR_AllUsers = Get-IntuneEntities -EntityType "deviceManagement/intents"
+            Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentsForEDR_AllUsers
             $matchingIntentsEDR_AllUsers = $allIntentsForEDR_AllUsers | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityEndpointDetectionAndResponse' }
 
             if ($matchingIntentsEDR_AllUsers) {
@@ -5565,6 +5638,7 @@ do {
 
             # 2. Check deviceManagement/intents
             $allIntentsForASR_AllUsers = Get-IntuneEntities -EntityType "deviceManagement/intents"
+            Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentsForASR_AllUsers
             $matchingIntentsASR_AllUsers = $allIntentsForASR_AllUsers | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReductionRules' }
 
             if ($matchingIntentsASR_AllUsers) {
@@ -6067,6 +6141,7 @@ do {
 
             # 2. Check deviceManagement/intents for Antivirus
             $allIntentsForAntivirus_AllDevices = Get-IntuneEntities -EntityType "deviceManagement/intents"
+            Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentsForAntivirus_AllDevices
             $matchingIntentsAntivirus_AllDevices = $allIntentsForAntivirus_AllDevices | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAntivirus' }
             if ($matchingIntentsAntivirus_AllDevices) {
                 foreach ($policy in $matchingIntentsAntivirus_AllDevices) {
@@ -6103,6 +6178,7 @@ do {
 
             # 2. Check deviceManagement/intents for Disk Encryption
             $allIntentsForDiskEnc_AllDevices = Get-IntuneEntities -EntityType "deviceManagement/intents"
+            Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentsForDiskEnc_AllDevices
             $matchingIntentsDiskEnc_AllDevices = $allIntentsForDiskEnc_AllDevices | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityDiskEncryption' }
             if ($matchingIntentsDiskEnc_AllDevices) {
                 foreach ($policy in $matchingIntentsDiskEnc_AllDevices) {
@@ -6139,6 +6215,7 @@ do {
 
             # 2. Check deviceManagement/intents for Firewall
             $allIntentsForFirewall_AllDevices = Get-IntuneEntities -EntityType "deviceManagement/intents"
+            Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentsForFirewall_AllDevices
             $matchingIntentsFirewall_AllDevices = $allIntentsForFirewall_AllDevices | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityFirewall' }
             if ($matchingIntentsFirewall_AllDevices) {
                 foreach ($policy in $matchingIntentsFirewall_AllDevices) {
@@ -6175,6 +6252,7 @@ do {
 
             # 2. Check deviceManagement/intents for EDR
             $allIntentsForEDR_AllDevices = Get-IntuneEntities -EntityType "deviceManagement/intents"
+            Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentsForEDR_AllDevices
             $matchingIntentsEDR_AllDevices = $allIntentsForEDR_AllDevices | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityEndpointDetectionAndResponse' }
             if ($matchingIntentsEDR_AllDevices) {
                 foreach ($policy in $matchingIntentsEDR_AllDevices) {
@@ -6211,6 +6289,7 @@ do {
 
             # 2. Check deviceManagement/intents for ASR
             $allIntentsForASR_AllDevices = Get-IntuneEntities -EntityType "deviceManagement/intents"
+            Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentsForASR_AllDevices
             $matchingIntentsASR_AllDevices = $allIntentsForASR_AllDevices | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReductionRules' }
             if ($matchingIntentsASR_AllDevices) {
                 foreach ($policy in $matchingIntentsASR_AllDevices) {
@@ -6642,6 +6721,7 @@ do {
             # Get Endpoint Security - Antivirus Policies
             Write-Host "Fetching Antivirus Policies..." -ForegroundColor Yellow
             $allIntentsForAntivirusUnassigned = Get-IntuneEntities -EntityType "deviceManagement/intents"
+            Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentsForAntivirusUnassigned
             $antivirusPolicies = $allIntentsForAntivirusUnassigned | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAntivirus' }
             if ($antivirusPolicies) {
                 foreach ($policy in $antivirusPolicies) {
@@ -6655,6 +6735,7 @@ do {
             # Get Endpoint Security - Disk Encryption Policies
             Write-Host "Fetching Disk Encryption Policies..." -ForegroundColor Yellow
             $allIntentsForDiskEncUnassigned = Get-IntuneEntities -EntityType "deviceManagement/intents"
+            Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentsForDiskEncUnassigned
             $diskEncryptionPolicies = $allIntentsForDiskEncUnassigned | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityDiskEncryption' }
             if ($diskEncryptionPolicies) {
                 foreach ($policy in $diskEncryptionPolicies) {
@@ -6668,6 +6749,7 @@ do {
             # Get Endpoint Security - Firewall Policies
             Write-Host "Fetching Firewall Policies..." -ForegroundColor Yellow
             $allIntentsForFirewallUnassigned = Get-IntuneEntities -EntityType "deviceManagement/intents"
+            Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentsForFirewallUnassigned
             $firewallPolicies = $allIntentsForFirewallUnassigned | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityFirewall' }
             if ($firewallPolicies) {
                 foreach ($policy in $firewallPolicies) {
@@ -6681,6 +6763,7 @@ do {
             # Get Endpoint Security - Endpoint Detection and Response Policies
             Write-Host "Fetching EDR Policies..." -ForegroundColor Yellow
             $allIntentsForEDRUnassigned = Get-IntuneEntities -EntityType "deviceManagement/intents"
+            Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentsForEDRUnassigned
             $edrPolicies = $allIntentsForEDRUnassigned | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityEndpointDetectionAndResponse' }
             if ($edrPolicies) {
                 foreach ($policy in $edrPolicies) {
@@ -6694,6 +6777,7 @@ do {
             # Get Endpoint Security - Attack Surface Reduction Policies
             Write-Host "Fetching ASR Policies..." -ForegroundColor Yellow
             $allIntentsForASRUnassigned = Get-IntuneEntities -EntityType "deviceManagement/intents"
+            Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentsForASRUnassigned
             $asrPolicies = $allIntentsForASRUnassigned | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReductionRules' }
             if ($asrPolicies) {
                 foreach ($policy in $asrPolicies) {
@@ -7597,6 +7681,7 @@ do {
 
                 # Get Endpoint Security - Antivirus Policies
                 $allIntentsForAntivirusCompare = Get-IntuneEntities -EntityType "deviceManagement/intents"
+                Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentsForAntivirusCompare
                 $antivirusPolicies = $allIntentsForAntivirusCompare | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAntivirus' }
                 if ($antivirusPolicies) {
                     foreach ($policy in $antivirusPolicies) {
@@ -7609,6 +7694,7 @@ do {
 
                 # Get Endpoint Security - Disk Encryption Policies
                 $allIntentsForDiskEncCompare = Get-IntuneEntities -EntityType "deviceManagement/intents"
+                Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentsForDiskEncCompare
                 $diskEncryptionPolicies = $allIntentsForDiskEncCompare | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityDiskEncryption' }
                 if ($diskEncryptionPolicies) {
                     foreach ($policy in $diskEncryptionPolicies) {
@@ -7621,6 +7707,7 @@ do {
 
                 # Get Endpoint Security - Firewall Policies
                 $allIntentsForFirewallCompare = Get-IntuneEntities -EntityType "deviceManagement/intents"
+                Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentsForFirewallCompare
                 $firewallPolicies = $allIntentsForFirewallCompare | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityFirewall' }
                 if ($firewallPolicies) {
                     foreach ($policy in $firewallPolicies) {
@@ -7633,6 +7720,7 @@ do {
 
                 # Get Endpoint Security - Endpoint Detection and Response Policies
                 $allIntentsForEDRCompare = Get-IntuneEntities -EntityType "deviceManagement/intents"
+                Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentsForEDRCompare
                 $edrPolicies = $allIntentsForEDRCompare | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityEndpointDetectionAndResponse' }
                 if ($edrPolicies) {
                     foreach ($policy in $edrPolicies) {
@@ -7645,6 +7733,7 @@ do {
 
                 # Get Endpoint Security - Attack Surface Reduction Policies
                 $allIntentsForASRCompare = Get-IntuneEntities -EntityType "deviceManagement/intents"
+                Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentsForASRCompare
                 $asrPolicies = $allIntentsForASRCompare | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReductionRules' }
                 if ($asrPolicies) {
                     foreach ($policy in $asrPolicies) {
