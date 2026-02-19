@@ -954,6 +954,72 @@ function Get-PolicyPlatform {
     }
 }
 
+function Test-PlatformCompatibility {
+    param (
+        [string]$DeviceOS,
+        [PSObject]$Policy
+    )
+
+    # If device OS unknown, include everything (conservative)
+    if ([string]::IsNullOrWhiteSpace($DeviceOS)) { return $true }
+
+    $policyPlatform = Get-PolicyPlatform -Policy $Policy
+
+    # If platform can't be determined, include (conservative)
+    if ($policyPlatform -in @("Unknown", "Multi-Platform", "Settings Catalog")) {
+        return $true
+    }
+
+    # Handle Settings Catalog comma-separated platforms (e.g. "windows10, macOS")
+    if ($policyPlatform -match ',') {
+        $platforms = ($policyPlatform -split ',').Trim().ToLower()
+        switch ($DeviceOS) {
+            "Windows" { return [bool]($platforms | Where-Object { $_ -match "windows" }) }
+            "iOS"     { return [bool]($platforms | Where-Object { $_ -match "ios" }) }
+            "macOS"   { return [bool]($platforms | Where-Object { $_ -match "macos" }) }
+            "Android" { return [bool]($platforms | Where-Object { $_ -match "android" }) }
+            "Linux"   { return [bool]($platforms | Where-Object { $_ -match "linux" }) }
+            default   { return $true }
+        }
+    }
+
+    # Single platform string matching
+    switch ($DeviceOS) {
+        "Windows" { return $policyPlatform -match "^Windows" }
+        "iOS"     { return $policyPlatform -match "iOS|iPadOS" }
+        "macOS"   { return $policyPlatform -eq "macOS" }
+        "Android" { return $policyPlatform -match "^Android" }
+        "Linux"   { return $policyPlatform -match "Linux" }
+        default   { return $true }
+    }
+}
+
+function Test-AppPlatformCompatibility {
+    param (
+        [string]$DeviceOS,
+        [PSObject]$App
+    )
+
+    if ([string]::IsNullOrWhiteSpace($DeviceOS)) { return $true }
+
+    $odataType = $App.'@odata.type'
+    if ([string]::IsNullOrWhiteSpace($odataType)) { return $true }
+
+    $typeLower = $odataType.ToLower()
+
+    # Web apps and managed app bundles target any platform
+    if ($typeLower -match "webapp") { return $true }
+
+    switch ($DeviceOS) {
+        "Windows" { return $typeLower -match "win32|windows|officesuite|microsoftstoreforbusiness" }
+        "iOS"     { return $typeLower -match "ios|ipad|iphone" }
+        "macOS"   { return $typeLower -match "macos" }
+        "Android" { return $typeLower -match "android" }
+        "Linux"   { return $typeLower -match "linux" }
+        default   { return $true }
+    }
+}
+
 function Get-GroupInfo {
     param (
         [Parameter(Mandatory = $true)]
@@ -989,16 +1055,18 @@ function Get-DeviceInfo {
 
     if ($deviceResponse.value) {
         return @{
-            Id          = $deviceResponse.value[0].id
-            DisplayName = $deviceResponse.value[0].displayName
-            Success     = $true
+            Id              = $deviceResponse.value[0].id
+            DisplayName     = $deviceResponse.value[0].displayName
+            OperatingSystem = $deviceResponse.value[0].operatingSystem
+            Success         = $true
         }
     }
 
     return @{
-        Id          = $null
-        DisplayName = $DeviceName
-        Success     = $false
+        Id              = $null
+        DisplayName     = $DeviceName
+        OperatingSystem = $null
+        Success         = $false
     }
 }
 
@@ -3674,6 +3742,11 @@ do {
                     continue
                 }
 
+                $deviceOS = $deviceInfo.OperatingSystem
+                if ($deviceOS) {
+                    Write-Host "Device OS: $deviceOS" -ForegroundColor Green
+                }
+
                 # Get Device Group Memberships
                 try {
                     $groupMemberships = Get-GroupMemberships -ObjectId $deviceInfo.Id -ObjectType "Device"
@@ -3717,7 +3790,7 @@ do {
                 foreach ($config in $deviceConfigs) {
                     $assignments = Get-IntuneAssignments -EntityType "deviceConfigurations" -EntityId $config.id
                     $reason = Resolve-AssignmentReason -Assignments $assignments -GroupMembershipIds $groupMemberships.id -IncludeReasons @("All Devices")
-                    if ($reason) {
+                    if ($reason -and (Test-PlatformCompatibility -DeviceOS $deviceOS -Policy $config)) {
                         $config | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
                         $relevantPolicies.DeviceConfigs += $config
                     }
@@ -3729,7 +3802,7 @@ do {
                 foreach ($policy in $settingsCatalog) {
                     $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
                     $reason = Resolve-AssignmentReason -Assignments $assignments -GroupMembershipIds $groupMemberships.id -IncludeReasons @("All Devices")
-                    if ($reason) {
+                    if ($reason -and (Test-PlatformCompatibility -DeviceOS $deviceOS -Policy $policy)) {
                         $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
                         $relevantPolicies.SettingsCatalog += $policy
                     }
@@ -3741,7 +3814,7 @@ do {
                 foreach ($template in $adminTemplates) {
                     $assignments = Get-IntuneAssignments -EntityType "groupPolicyConfigurations" -EntityId $template.id
                     $reason = Resolve-AssignmentReason -Assignments $assignments -GroupMembershipIds $groupMemberships.id -IncludeReasons @("All Devices")
-                    if ($reason) {
+                    if ($reason -and (Test-PlatformCompatibility -DeviceOS $deviceOS -Policy $template)) {
                         $template | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
                         $relevantPolicies.AdminTemplates += $template
                     }
@@ -3753,7 +3826,7 @@ do {
                 foreach ($policy in $compliancePolicies) {
                     $assignments = Get-IntuneAssignments -EntityType "deviceCompliancePolicies" -EntityId $policy.id
                     $reason = Resolve-AssignmentReason -Assignments $assignments -GroupMembershipIds $groupMemberships.id -IncludeReasons @("All Devices")
-                    if ($reason) {
+                    if ($reason -and (Test-PlatformCompatibility -DeviceOS $deviceOS -Policy $policy)) {
                         $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
                         $relevantPolicies.CompliancePolicies += $policy
                     }
@@ -3763,6 +3836,9 @@ do {
                 Write-Host "Fetching App Protection Policies..." -ForegroundColor Yellow
                 $appProtectionPolicies = Get-IntuneEntities -EntityType "deviceAppManagement/managedAppPolicies"
                 foreach ($policy in $appProtectionPolicies) {
+                    if (-not (Test-PlatformCompatibility -DeviceOS $deviceOS -Policy $policy)) {
+                        continue
+                    }
                     $policyType = $policy.'@odata.type'
                     $assignmentsUri = switch ($policyType) {
                         "#microsoft.graph.androidManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/androidManagedAppProtections('$($policy.id)')/assignments" }
@@ -3830,7 +3906,7 @@ do {
                 foreach ($policy in $appConfigPolicies) {
                     $assignments = Get-IntuneAssignments -EntityType "mobileAppConfigurations" -EntityId $policy.id
                     $reason = Resolve-AssignmentReason -Assignments $assignments -GroupMembershipIds $groupMemberships.id -IncludeReasons @("All Devices")
-                    if ($reason) {
+                    if ($reason -and (Test-PlatformCompatibility -DeviceOS $deviceOS -Policy $policy)) {
                         $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
                         $relevantPolicies.AppConfigurationPolicies += $policy
                     }
@@ -3842,7 +3918,7 @@ do {
                 foreach ($script in $platformScripts) {
                     $assignments = Get-IntuneAssignments -EntityType "deviceManagementScripts" -EntityId $script.id
                     $reason = Resolve-AssignmentReason -Assignments $assignments -GroupMembershipIds $groupMemberships.id -IncludeReasons @("All Devices")
-                    if ($reason) {
+                    if ($reason -and (Test-PlatformCompatibility -DeviceOS $deviceOS -Policy $script)) {
                         $script | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
                         $relevantPolicies.PlatformScripts += $script
                     }
@@ -3854,101 +3930,109 @@ do {
                 foreach ($script in $healthScripts) {
                     $assignments = Get-IntuneAssignments -EntityType "deviceHealthScripts" -EntityId $script.id
                     $reason = Resolve-AssignmentReason -Assignments $assignments -GroupMembershipIds $groupMemberships.id -IncludeReasons @("All Devices")
-                    if ($reason) {
+                    if ($reason -and (Test-PlatformCompatibility -DeviceOS $deviceOS -Policy $script)) {
                         $script | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
                         $relevantPolicies.HealthScripts += $script
                     }
                 }
 
-                # Get Autopilot Deployment Profiles
-                Write-Host "Fetching Autopilot Deployment Profiles..." -ForegroundColor Yellow
-                $autoProfiles = Get-IntuneEntities -EntityType "windowsAutopilotDeploymentProfiles"
-                foreach ($policyProfile in $autoProfiles) {
-                    $assignments = Get-IntuneAssignments -EntityType "windowsAutopilotDeploymentProfiles" -EntityId $policyProfile.id
-                    foreach ($assignment in $assignments) {
-                        if (($assignment.Reason -eq "All Devices") -or
-                            ($assignment.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignment.GroupId)) {
-                            $policyProfile | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignment.Reason -Force
-                            $relevantPolicies.DeploymentProfiles += $policyProfile
-                            break
-                        }
-                        elseif ($assignment.Reason -eq "Group Exclusion" -and $groupMemberships.id -contains $assignment.GroupId) {
-                            $policyProfile | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Excluded" -Force
-                            $relevantPolicies.DeploymentProfiles += $policyProfile
-                            break
-                        }
-                    }
-                }
-
-                # Get Enrollment Status Page Profiles
-                Write-Host "Fetching Enrollment Status Page Profiles..." -ForegroundColor Yellow
-                $enrollmentConfigs = Get-IntuneEntities -EntityType "deviceEnrollmentConfigurations"
-                $espProfiles = $enrollmentConfigs | Where-Object { $_.'@odata.type' -match 'EnrollmentCompletionPageConfiguration' }
-                foreach ($esp in $espProfiles) {
-                    $assignments = Get-IntuneAssignments -EntityType "deviceEnrollmentConfigurations" -EntityId $esp.id
-                    foreach ($assignment in $assignments) {
-                        if (($assignment.Reason -eq "All Devices") -or
-                            ($assignment.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignment.GroupId)) {
-                            $esp | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignment.Reason -Force
-                            $relevantPolicies.ESPProfiles += $esp
-                            break
-                        }
-                        elseif ($assignment.Reason -eq "Group Exclusion" -and $groupMemberships.id -contains $assignment.GroupId) {
-                            $esp | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Excluded" -Force
-                            $relevantPolicies.ESPProfiles += $esp
-                            break
-                        }
-                    }
-                }
-
-                # Get Windows 365 Cloud PC Provisioning Policies
-                Write-Host "Fetching Windows 365 Cloud PC Provisioning Policies..." -ForegroundColor Yellow
-                try {
-                    $cloudPCProvisioningPolicies = Get-IntuneEntities -EntityType "virtualEndpoint/provisioningPolicies"
-                    foreach ($policy in $cloudPCProvisioningPolicies) {
-                        $assignments = Get-IntuneAssignments -EntityType "virtualEndpoint/provisioningPolicies" -EntityId $policy.id
+                # Get Autopilot Deployment Profiles (Windows-only)
+                if (-not $deviceOS -or $deviceOS -eq "Windows") {
+                    Write-Host "Fetching Autopilot Deployment Profiles..." -ForegroundColor Yellow
+                    $autoProfiles = Get-IntuneEntities -EntityType "windowsAutopilotDeploymentProfiles"
+                    foreach ($policyProfile in $autoProfiles) {
+                        $assignments = Get-IntuneAssignments -EntityType "windowsAutopilotDeploymentProfiles" -EntityId $policyProfile.id
                         foreach ($assignment in $assignments) {
                             if (($assignment.Reason -eq "All Devices") -or
                                 ($assignment.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignment.GroupId)) {
-                                $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignment.Reason -Force
-                                $relevantPolicies.CloudPCProvisioningPolicies += $policy
+                                $policyProfile | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignment.Reason -Force
+                                $relevantPolicies.DeploymentProfiles += $policyProfile
                                 break
                             }
                             elseif ($assignment.Reason -eq "Group Exclusion" -and $groupMemberships.id -contains $assignment.GroupId) {
-                                $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Excluded" -Force
-                                $relevantPolicies.CloudPCProvisioningPolicies += $policy
+                                $policyProfile | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Excluded" -Force
+                                $relevantPolicies.DeploymentProfiles += $policyProfile
                                 break
                             }
                         }
                     }
                 }
-                catch {
-                    Write-Verbose "Skipping - Windows 365 may not be licensed for this tenant"
-                }
 
-                # Get Windows 365 Cloud PC User Settings
-                Write-Host "Fetching Windows 365 Cloud PC User Settings..." -ForegroundColor Yellow
-                try {
-                    $cloudPCUserSettings = Get-IntuneEntities -EntityType "virtualEndpoint/userSettings"
-                    foreach ($setting in $cloudPCUserSettings) {
-                        $assignments = Get-IntuneAssignments -EntityType "virtualEndpoint/userSettings" -EntityId $setting.id
+                # Get Enrollment Status Page Profiles (Windows-only)
+                if (-not $deviceOS -or $deviceOS -eq "Windows") {
+                    Write-Host "Fetching Enrollment Status Page Profiles..." -ForegroundColor Yellow
+                    $enrollmentConfigs = Get-IntuneEntities -EntityType "deviceEnrollmentConfigurations"
+                    $espProfiles = $enrollmentConfigs | Where-Object { $_.'@odata.type' -match 'EnrollmentCompletionPageConfiguration' }
+                    foreach ($esp in $espProfiles) {
+                        $assignments = Get-IntuneAssignments -EntityType "deviceEnrollmentConfigurations" -EntityId $esp.id
                         foreach ($assignment in $assignments) {
                             if (($assignment.Reason -eq "All Devices") -or
                                 ($assignment.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignment.GroupId)) {
-                                $setting | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignment.Reason -Force
-                                $relevantPolicies.CloudPCUserSettings += $setting
+                                $esp | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignment.Reason -Force
+                                $relevantPolicies.ESPProfiles += $esp
                                 break
                             }
                             elseif ($assignment.Reason -eq "Group Exclusion" -and $groupMemberships.id -contains $assignment.GroupId) {
-                                $setting | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Excluded" -Force
-                                $relevantPolicies.CloudPCUserSettings += $setting
+                                $esp | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Excluded" -Force
+                                $relevantPolicies.ESPProfiles += $esp
                                 break
                             }
                         }
                     }
                 }
-                catch {
-                    Write-Verbose "Skipping - Windows 365 may not be licensed for this tenant"
+
+                # Get Windows 365 Cloud PC Provisioning Policies (Windows-only)
+                if (-not $deviceOS -or $deviceOS -eq "Windows") {
+                    Write-Host "Fetching Windows 365 Cloud PC Provisioning Policies..." -ForegroundColor Yellow
+                    try {
+                        $cloudPCProvisioningPolicies = Get-IntuneEntities -EntityType "virtualEndpoint/provisioningPolicies"
+                        foreach ($policy in $cloudPCProvisioningPolicies) {
+                            $assignments = Get-IntuneAssignments -EntityType "virtualEndpoint/provisioningPolicies" -EntityId $policy.id
+                            foreach ($assignment in $assignments) {
+                                if (($assignment.Reason -eq "All Devices") -or
+                                    ($assignment.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignment.GroupId)) {
+                                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignment.Reason -Force
+                                    $relevantPolicies.CloudPCProvisioningPolicies += $policy
+                                    break
+                                }
+                                elseif ($assignment.Reason -eq "Group Exclusion" -and $groupMemberships.id -contains $assignment.GroupId) {
+                                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Excluded" -Force
+                                    $relevantPolicies.CloudPCProvisioningPolicies += $policy
+                                    break
+                                }
+                            }
+                        }
+                    }
+                    catch {
+                        Write-Verbose "Skipping - Windows 365 may not be licensed for this tenant"
+                    }
+                }
+
+                # Get Windows 365 Cloud PC User Settings (Windows-only)
+                if (-not $deviceOS -or $deviceOS -eq "Windows") {
+                    Write-Host "Fetching Windows 365 Cloud PC User Settings..." -ForegroundColor Yellow
+                    try {
+                        $cloudPCUserSettings = Get-IntuneEntities -EntityType "virtualEndpoint/userSettings"
+                        foreach ($setting in $cloudPCUserSettings) {
+                            $assignments = Get-IntuneAssignments -EntityType "virtualEndpoint/userSettings" -EntityId $setting.id
+                            foreach ($assignment in $assignments) {
+                                if (($assignment.Reason -eq "All Devices") -or
+                                    ($assignment.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignment.GroupId)) {
+                                    $setting | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignment.Reason -Force
+                                    $relevantPolicies.CloudPCUserSettings += $setting
+                                    break
+                                }
+                                elseif ($assignment.Reason -eq "Group Exclusion" -and $groupMemberships.id -contains $assignment.GroupId) {
+                                    $setting | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Excluded" -Force
+                                    $relevantPolicies.CloudPCUserSettings += $setting
+                                    break
+                                }
+                            }
+                        }
+                    }
+                    catch {
+                        Write-Verbose "Skipping - Windows 365 may not be licensed for this tenant"
+                    }
                 }
 
                 # Get Endpoint Security - Antivirus Policies
@@ -3965,7 +4049,7 @@ do {
                         if ($processedAntivirusIdsDevice.Add($policy.id)) {
                             $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
                             $reason = Resolve-AssignmentReason -Assignments $assignments -GroupMembershipIds $groupMemberships.id -IncludeReasons @("All Devices")
-                            if ($reason) {
+                            if ($reason -and (Test-PlatformCompatibility -DeviceOS $deviceOS -Policy $policy)) {
                                 $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
                                 [void]$antivirusPoliciesFoundDevice.Add($policy)
                             }
@@ -3995,7 +4079,7 @@ do {
                                 }
                             }
                             $reason = Resolve-AssignmentReason -Assignments $assignmentDetailsList -GroupMembershipIds $groupMemberships.id -IncludeReasons @("All Devices")
-                            if ($reason) {
+                            if ($reason -and (Test-PlatformCompatibility -DeviceOS $deviceOS -Policy $policy)) {
                                 $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
                                 [void]$antivirusPoliciesFoundDevice.Add($policy)
                             }
@@ -4018,7 +4102,7 @@ do {
                         if ($processedDiskEncryptionIdsDevice.Add($policy.id)) {
                             $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
                             $reason = Resolve-AssignmentReason -Assignments $assignments -GroupMembershipIds $groupMemberships.id -IncludeReasons @("All Devices")
-                            if ($reason) {
+                            if ($reason -and (Test-PlatformCompatibility -DeviceOS $deviceOS -Policy $policy)) {
                                 $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
                                 [void]$diskEncryptionPoliciesFoundDevice.Add($policy)
                             }
@@ -4048,7 +4132,7 @@ do {
                                 }
                             }
                             $reason = Resolve-AssignmentReason -Assignments $assignmentDetailsList -GroupMembershipIds $groupMemberships.id -IncludeReasons @("All Devices")
-                            if ($reason) {
+                            if ($reason -and (Test-PlatformCompatibility -DeviceOS $deviceOS -Policy $policy)) {
                                 $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
                                 [void]$diskEncryptionPoliciesFoundDevice.Add($policy)
                             }
@@ -4071,7 +4155,7 @@ do {
                         if ($processedFirewallIdsDevice.Add($policy.id)) {
                             $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
                             $reason = Resolve-AssignmentReason -Assignments $assignments -GroupMembershipIds $groupMemberships.id -IncludeReasons @("All Devices")
-                            if ($reason) {
+                            if ($reason -and (Test-PlatformCompatibility -DeviceOS $deviceOS -Policy $policy)) {
                                 $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
                                 [void]$firewallPoliciesFoundDevice.Add($policy)
                             }
@@ -4101,7 +4185,7 @@ do {
                                 }
                             }
                             $reason = Resolve-AssignmentReason -Assignments $assignmentDetailsList -GroupMembershipIds $groupMemberships.id -IncludeReasons @("All Devices")
-                            if ($reason) {
+                            if ($reason -and (Test-PlatformCompatibility -DeviceOS $deviceOS -Policy $policy)) {
                                 $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
                                 [void]$firewallPoliciesFoundDevice.Add($policy)
                             }
@@ -4124,7 +4208,7 @@ do {
                         if ($processedEDRIdsDevice.Add($policy.id)) {
                             $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
                             $reason = Resolve-AssignmentReason -Assignments $assignments -GroupMembershipIds $groupMemberships.id -IncludeReasons @("All Devices")
-                            if ($reason) {
+                            if ($reason -and (Test-PlatformCompatibility -DeviceOS $deviceOS -Policy $policy)) {
                                 $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
                                 [void]$edrPoliciesFoundDevice.Add($policy)
                             }
@@ -4154,7 +4238,7 @@ do {
                                 }
                             }
                             $reason = Resolve-AssignmentReason -Assignments $assignmentDetailsList -GroupMembershipIds $groupMemberships.id -IncludeReasons @("All Devices")
-                            if ($reason) {
+                            if ($reason -and (Test-PlatformCompatibility -DeviceOS $deviceOS -Policy $policy)) {
                                 $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
                                 [void]$edrPoliciesFoundDevice.Add($policy)
                             }
@@ -4177,7 +4261,7 @@ do {
                         if ($processedASRIdsDevice.Add($policy.id)) {
                             $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
                             $reason = Resolve-AssignmentReason -Assignments $assignments -GroupMembershipIds $groupMemberships.id -IncludeReasons @("All Devices")
-                            if ($reason) {
+                            if ($reason -and (Test-PlatformCompatibility -DeviceOS $deviceOS -Policy $policy)) {
                                 $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
                                 [void]$asrPoliciesFoundDevice.Add($policy)
                             }
@@ -4207,7 +4291,7 @@ do {
                                 }
                             }
                             $reason = Resolve-AssignmentReason -Assignments $assignmentDetailsList -GroupMembershipIds $groupMemberships.id -IncludeReasons @("All Devices")
-                            if ($reason) {
+                            if ($reason -and (Test-PlatformCompatibility -DeviceOS $deviceOS -Policy $policy)) {
                                 $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
                                 [void]$asrPoliciesFoundDevice.Add($policy)
                             }
@@ -4231,6 +4315,10 @@ do {
                 foreach ($app in $allApps) {
                     # Filter out irrelevant apps
                     if ($app.isFeatured -or $app.isBuiltIn) {
+                        continue
+                    }
+
+                    if (-not (Test-AppPlatformCompatibility -DeviceOS $deviceOS -App $app)) {
                         continue
                     }
 
