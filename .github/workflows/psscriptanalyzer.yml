@@ -44,7 +44,7 @@ jobs:
           Write-Host ""
 
           # Run the analysis
-          $results = Invoke-ScriptAnalyzer -Path ./IntuneAssignmentChecker.ps1 -IncludeDefaultRules -RecurseCustomRulePath
+          $results = Invoke-ScriptAnalyzer -Path ./IntuneAssignmentChecker.ps1 -Settings ./.PSScriptAnalyzerSettings.psd1 -RecurseCustomRulePath
 
           if ($results) {
               # Group by severity

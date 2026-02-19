@@ -1205,7 +1205,7 @@ function Show-SaveFileDialog {
             return $null
         }
         catch {
-            # Fall through to manual path entry if Windows Forms fails
+            Write-Verbose "Windows Forms dialog unavailable, falling back to manual path entry"
         }
     }
 
@@ -2173,7 +2173,7 @@ do {
                     }
                 }
                 catch {
-                    # Silently skip - Windows 365 may not be licensed for this tenant
+                    Write-Verbose "Skipping - Windows 365 may not be licensed for this tenant"
                 }
 
                 # Get Windows 365 Cloud PC User Settings
@@ -2198,7 +2198,7 @@ do {
                     }
                 }
                 catch {
-                    # Silently skip - Windows 365 may not be licensed for this tenant
+                    Write-Verbose "Skipping - Windows 365 may not be licensed for this tenant"
                 }
 
                 # Display results
@@ -3439,7 +3439,7 @@ do {
                     }
                 }
                 catch {
-                    # Silently skip - Windows 365 may not be licensed for this tenant
+                    Write-Verbose "Skipping - Windows 365 may not be licensed for this tenant"
                 }
 
                 # Get Windows 365 Cloud PC User Settings
@@ -3465,7 +3465,7 @@ do {
                     }
                 }
                 catch {
-                    # Silently skip - Windows 365 may not be licensed for this tenant
+                    Write-Verbose "Skipping - Windows 365 may not be licensed for this tenant"
                 }
 
                 # Function to format and display policy table (specific to Option 2)
@@ -3980,7 +3980,7 @@ do {
                     }
                 }
                 catch {
-                    # Silently skip - Windows 365 may not be licensed for this tenant
+                    Write-Verbose "Skipping - Windows 365 may not be licensed for this tenant"
                 }
 
                 # Get Windows 365 Cloud PC User Settings
@@ -4005,7 +4005,7 @@ do {
                     }
                 }
                 catch {
-                    # Silently skip - Windows 365 may not be licensed for this tenant
+                    Write-Verbose "Skipping - Windows 365 may not be licensed for this tenant"
                 }
 
                 # Get Endpoint Security - Antivirus Policies
