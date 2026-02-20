@@ -1011,7 +1011,7 @@ function Test-AppPlatformCompatibility {
     if ($typeLower -match "webapp") { return $true }
 
     switch ($DeviceOS) {
-        "Windows" { return $typeLower -match "win32|windows|officesuite|microsoftstoreforbusiness" }
+        "Windows" { return $typeLower -match "win32|windows|officesuite|microsoftstore|winget" }
         "iOS"     { return $typeLower -match "ios|ipad|iphone" }
         "macOS"   { return $typeLower -match "macos" }
         "Android" { return $typeLower -match "android" }
@@ -3808,15 +3808,17 @@ do {
                     }
                 }
 
-                # Get Administrative Templates
-                Write-Host "Fetching Administrative Templates..." -ForegroundColor Yellow
-                $adminTemplates = Get-IntuneEntities -EntityType "groupPolicyConfigurations"
-                foreach ($template in $adminTemplates) {
-                    $assignments = Get-IntuneAssignments -EntityType "groupPolicyConfigurations" -EntityId $template.id
-                    $reason = Resolve-AssignmentReason -Assignments $assignments -GroupMembershipIds $groupMemberships.id -IncludeReasons @("All Devices")
-                    if ($reason -and (Test-PlatformCompatibility -DeviceOS $deviceOS -Policy $template)) {
-                        $template | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
-                        $relevantPolicies.AdminTemplates += $template
+                # Get Administrative Templates (Windows-only, Group Policy)
+                if (-not $deviceOS -or $deviceOS -eq "Windows") {
+                    Write-Host "Fetching Administrative Templates..." -ForegroundColor Yellow
+                    $adminTemplates = Get-IntuneEntities -EntityType "groupPolicyConfigurations"
+                    foreach ($template in $adminTemplates) {
+                        $assignments = Get-IntuneAssignments -EntityType "groupPolicyConfigurations" -EntityId $template.id
+                        $reason = Resolve-AssignmentReason -Assignments $assignments -GroupMembershipIds $groupMemberships.id -IncludeReasons @("All Devices")
+                        if ($reason) {
+                            $template | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
+                            $relevantPolicies.AdminTemplates += $template
+                        }
                     }
                 }
 
