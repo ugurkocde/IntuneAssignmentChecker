@@ -94,7 +94,7 @@ param(
     [Parameter(Mandatory = $false, HelpMessage = "Generate HTML report")]
     [switch]$GenerateHTMLReport,
 
-    [Parameter(Mandatory = $false, HelpMessage = "Show policies without assignments")]
+    [Parameter(Mandatory = $false, HelpMessage = "Show policies and apps without assignments")]
     [switch]$ShowPoliciesWithoutAssignments,
 
     [Parameter(Mandatory = $false, HelpMessage = "Check for empty groups in assignments")]
@@ -188,7 +188,7 @@ elseif ($ShowFailedAssignments) { $parameterMode = $true; $selectedOption = '11'
     Generate HTML report.
 
 .PARAMETER ShowPoliciesWithoutAssignments
-    Show policies without assignments.
+    Show policies and apps without assignments.
 
 .PARAMETER CheckEmptyGroups
     Check for empty groups in assignments.
@@ -1515,7 +1515,7 @@ function Show-Menu {
 
     Write-Host "Advanced Options:" -ForegroundColor Cyan
     Write-Host "  [7] Generate HTML Report" -ForegroundColor White
-    Write-Host "  [8] Show Policies Without Assignments" -ForegroundColor White
+    Write-Host "  [8] Show Policies and Apps Without Assignments" -ForegroundColor White
     Write-Host "  [9] Check for Empty Groups in Assignments" -ForegroundColor White
     Write-Host "  [10] Compare Assignments Between Groups" -ForegroundColor White
     Write-Host "  [11] Show All Failed Assignments" -ForegroundColor White
@@ -6521,6 +6521,7 @@ do {
                 AppConfigurationPolicies = @()
                 PlatformScripts          = @()
                 HealthScripts            = @()
+                Apps                     = @()
             }
 
             # Get Device Configurations
@@ -6688,8 +6689,20 @@ do {
                 }
             }
 
+            # Get Unassigned Apps
+            Write-Host "Fetching Unassigned Apps..." -ForegroundColor Yellow
+            $unassignedAppUri = "$GraphEndpoint/beta/deviceAppManagement/mobileApps?`$filter=isAssigned eq false"
+            $unassignedAppResponse = Invoke-MgGraphRequest -Uri $unassignedAppUri -Method Get
+            $unassignedApps = $unassignedAppResponse.value
+            while ($unassignedAppResponse.'@odata.nextLink') {
+                $unassignedAppResponse = Invoke-MgGraphRequest -Uri $unassignedAppResponse.'@odata.nextLink' -Method Get
+                $unassignedApps += $unassignedAppResponse.value
+            }
+            $unassignedApps = $unassignedApps | Where-Object { -not $_.isFeatured -and -not $_.isBuiltIn }
+            $unassignedPolicies.Apps = $unassignedApps
+
             # Display results
-            Write-Host "`nPolicies Without Assignments:" -ForegroundColor Green
+            Write-Host "`nPolicies and Apps Without Assignments:" -ForegroundColor Green
 
             # Display Device Configurations
             Write-Host "`n------- Device Configurations -------" -ForegroundColor Cyan
@@ -6860,6 +6873,19 @@ do {
                 foreach ($policyProfile in $unassignedPolicies.AttackSurfaceProfiles) {
                     Write-Host "ASR Profile Name: $($policyProfile.displayName), Profile ID: $($policyProfile.id)" -ForegroundColor White
                     Add-ExportData -ExportData $exportData -Category "Endpoint Security - ASR" -Items @($policyProfile) -AssignmentReason "No Assignment"
+                }
+            }
+
+            # Display Applications
+            Write-Host "`n------- Applications -------" -ForegroundColor Cyan
+            if ($unassignedPolicies.Apps.Count -eq 0) {
+                Write-Host "No unassigned Apps found" -ForegroundColor Gray
+            }
+            else {
+                foreach ($app in $unassignedPolicies.Apps) {
+                    $appType = if ($app.'@odata.type') { ($app.'@odata.type' -replace '#microsoft\.graph\.', '') } else { "Unknown" }
+                    Write-Host "App Name: $($app.displayName), Type: $appType, App ID: $($app.id)" -ForegroundColor White
+                    Add-ExportData -ExportData $exportData -Category "Apps" -Items @($app) -AssignmentReason "No Assignment"
                 }
             }
 
