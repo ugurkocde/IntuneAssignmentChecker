@@ -129,7 +129,10 @@ param(
 
     [Parameter(Mandatory = $false, HelpMessage = "Environment (Global, USGov, USGovDoD)")]
     [ValidateSet("Global", "USGov", "USGovDoD")]
-    [string]$Environment = "Global"
+    [string]$Environment = "Global",
+
+    [Parameter(Mandatory = $false, HelpMessage = "Include assignments inherited from parent groups")]
+    [switch]$IncludeNestedGroups
 )
 
 # Check if any command-line parameters were provided
@@ -655,8 +658,16 @@ function Get-IntuneAssignments {
         [string]$EntityId,
 
         [Parameter(Mandatory = $false)]
-        [string]$GroupId = $null
+        [string]$GroupId = $null,
+
+        [Parameter(Mandatory = $false)]
+        [string[]]$GroupIds = @()
     )
+
+    # Unify GroupId and GroupIds into a single effective list
+    $effectiveGroupIds = if ($GroupIds.Count -gt 0) { $GroupIds }
+                         elseif ($GroupId) { @($GroupId) }
+                         else { @() }
 
     # Determine the correct assignments URI based on EntityType
     $actualAssignmentsUri = $null
@@ -735,9 +746,9 @@ function Get-IntuneAssignments {
 
                 if ($odataType -eq '#microsoft.graph.groupAssignmentTarget') {
                     $currentTargetGroupId = $assignment.target.groupId
-                    if ($GroupId) {
+                    if ($effectiveGroupIds.Count -gt 0) {
                         # Specific group check requested
-                        if ($currentTargetGroupId -eq $GroupId) {
+                        if ($effectiveGroupIds -contains $currentTargetGroupId) {
                             $currentAssignmentReason = "Direct Assignment"
                         }
                     }
@@ -748,9 +759,9 @@ function Get-IntuneAssignments {
                 }
                 elseif ($odataType -eq '#microsoft.graph.exclusionGroupAssignmentTarget') {
                     $currentTargetGroupId = $assignment.target.groupId
-                    if ($GroupId) {
+                    if ($effectiveGroupIds.Count -gt 0) {
                         # Specific group check requested
-                        if ($currentTargetGroupId -eq $GroupId) {
+                        if ($effectiveGroupIds -contains $currentTargetGroupId) {
                             $currentAssignmentReason = "Direct Exclusion"
                         }
                     }
@@ -759,7 +770,7 @@ function Get-IntuneAssignments {
                         $currentAssignmentReason = "Group Exclusion"
                     }
                 }
-                elseif (-not $GroupId) {
+                elseif ($effectiveGroupIds.Count -eq 0) {
                     # Only consider non-group assignments if NOT querying for a specific group
                     $currentAssignmentReason = switch ($odataType) {
                         '#microsoft.graph.allLicensedUsersAssignmentTarget' { "All Users" }
@@ -1145,6 +1156,70 @@ function Get-GroupMemberships {
     $response = Invoke-MgGraphRequest -Uri $uri -Method Get
 
     return $response.value
+}
+
+function Get-TransitiveGroupMembership {
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$GroupId
+    )
+
+    $parentGroups = [System.Collections.ArrayList]::new()
+    $uri = "$GraphEndpoint/v1.0/groups/$GroupId/transitiveMemberOf/microsoft.graph.group?`$select=id,displayName"
+
+    try {
+        do {
+            $response = Invoke-MgGraphRequest -Uri $uri -Method Get
+            if ($response -and $null -ne $response.value) {
+                foreach ($group in $response.value) {
+                    $null = $parentGroups.Add([PSCustomObject]@{
+                        id          = $group.id
+                        displayName = $group.displayName
+                    })
+                }
+            }
+            $uri = $response.'@odata.nextLink'
+        } while (![string]::IsNullOrEmpty($uri))
+    }
+    catch {
+        Write-Warning "Error fetching parent group memberships for group '$GroupId': $($_.Exception.Message)"
+    }
+
+    return $parentGroups
+}
+
+function Get-GroupAssignmentReasons {
+    param (
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyCollection()]
+        [AllowNull()]
+        [object[]]$Assignments,
+
+        [Parameter(Mandatory = $true)]
+        [string]$DirectGroupId,
+
+        [Parameter(Mandatory = $false)]
+        [hashtable]$ParentGroupMap = @{}
+    )
+
+    $reasons = @()
+    foreach ($assignment in $Assignments) {
+        if ($assignment.Reason -eq "Direct Assignment" -or $assignment.Reason -eq "Direct Exclusion") {
+            if ($assignment.GroupId -eq $DirectGroupId) {
+                $reasons += $assignment.Reason
+            }
+            elseif ($ParentGroupMap.ContainsKey($assignment.GroupId)) {
+                $parentName = $ParentGroupMap[$assignment.GroupId]
+                if ($assignment.Reason -eq "Direct Assignment") {
+                    $reasons += "Inherited (via $parentName)"
+                }
+                else {
+                    $reasons += "Inherited Exclusion (via $parentName)"
+                }
+            }
+        }
+    }
+    return $reasons
 }
 
 function Invoke-MultipleAssignments {
@@ -3156,6 +3231,18 @@ do {
             $groupInputs = $groupInput -split ',' | ForEach-Object { $_.Trim() }
             $exportData = [System.Collections.ArrayList]::new()
 
+            # Determine if nested group checking should be enabled
+            $checkNestedGroups = $false
+            if ($IncludeNestedGroups) {
+                $checkNestedGroups = $true
+            }
+            elseif (-not $parameterMode) {
+                $nestedPrompt = Read-Host "Include assignments inherited from parent groups? (y/n)"
+                if ($nestedPrompt -eq 'y') {
+                    $checkNestedGroups = $true
+                }
+            }
+
             foreach ($groupInput in $groupInputs) {
                 Write-Host "`nProcessing input: $groupInput" -ForegroundColor Yellow
 
@@ -3195,6 +3282,25 @@ do {
                 }
 
                 Write-Host "Found group: $groupName (ID: $groupId)" -ForegroundColor Green
+
+                # Build effective group IDs list (direct + parent groups if nested checking enabled)
+                $allGroupIds = @($groupId)
+                $parentGroupMap = @{}
+                if ($checkNestedGroups) {
+                    Write-Host "Checking parent group memberships..." -ForegroundColor Yellow
+                    $parentGroups = Get-TransitiveGroupMembership -GroupId $groupId
+                    if ($parentGroups.Count -gt 0) {
+                        foreach ($pg in $parentGroups) {
+                            $allGroupIds += $pg.id
+                            $parentGroupMap[$pg.id] = $pg.displayName
+                        }
+                        Write-Host "Found $($parentGroups.Count) parent group(s): $($parentGroups.displayName -join ', ')" -ForegroundColor Green
+                    }
+                    else {
+                        Write-Host "No parent groups found." -ForegroundColor Gray
+                    }
+                }
+
                 Write-Host "Fetching Intune Profiles and Applications for the group ... (this takes a few seconds)" -ForegroundColor Yellow
 
                 # Initialize collections for relevant policies
@@ -3227,16 +3333,9 @@ do {
                 Write-Host "Fetching Device Configurations..." -ForegroundColor Yellow
                 $deviceConfigs = Get-IntuneEntities -EntityType "deviceConfigurations"
                 foreach ($config in $deviceConfigs) {
-                    $directAssignments = Get-IntuneAssignments -EntityType "deviceConfigurations" -EntityId $config.id -GroupId $groupId
+                    $directAssignments = Get-IntuneAssignments -EntityType "deviceConfigurations" -EntityId $config.id -GroupIds $allGroupIds
                     if ($directAssignments.Count -gt 0) {
-                        # Process all assignments for this group
-                        $assignmentReasons = @()
-                        foreach ($assignment in $directAssignments) {
-                            if ($assignment.Reason -eq "Direct Assignment" -or $assignment.Reason -eq "Direct Exclusion") {
-                                $assignmentReasons += $assignment.Reason
-                            }
-                        }
-
+                        $assignmentReasons = Get-GroupAssignmentReasons -Assignments $directAssignments -DirectGroupId $groupId -ParentGroupMap $parentGroupMap
                         if ($assignmentReasons.Count -gt 0) {
                             $config | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue ($assignmentReasons -join "; ") -Force
                             $relevantPolicies.DeviceConfigs += $config
@@ -3259,16 +3358,9 @@ do {
                             continue
                         }
                     }
-                    $directAssignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id -GroupId $groupId
+                    $directAssignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id -GroupIds $allGroupIds
                     if ($directAssignments.Count -gt 0) {
-                        # Process all assignments for this group
-                        $assignmentReasons = @()
-                        foreach ($assignment in $directAssignments) {
-                            if ($assignment.Reason -eq "Direct Assignment" -or $assignment.Reason -eq "Direct Exclusion") {
-                                $assignmentReasons += $assignment.Reason
-                            }
-                        }
-
+                        $assignmentReasons = Get-GroupAssignmentReasons -Assignments $directAssignments -DirectGroupId $groupId -ParentGroupMap $parentGroupMap
                         if ($assignmentReasons.Count -gt 0) {
                             $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue ($assignmentReasons -join "; ") -Force
                             $relevantPolicies.SettingsCatalog += $policy
@@ -3280,16 +3372,9 @@ do {
                 Write-Host "Fetching Administrative Templates..." -ForegroundColor Yellow
                 $adminTemplates = Get-IntuneEntities -EntityType "groupPolicyConfigurations"
                 foreach ($template in $adminTemplates) {
-                    $directAssignments = Get-IntuneAssignments -EntityType "groupPolicyConfigurations" -EntityId $template.id -GroupId $groupId
+                    $directAssignments = Get-IntuneAssignments -EntityType "groupPolicyConfigurations" -EntityId $template.id -GroupIds $allGroupIds
                     if ($directAssignments.Count -gt 0) {
-                        # Process all assignments for this group
-                        $assignmentReasons = @()
-                        foreach ($assignment in $directAssignments) {
-                            if ($assignment.Reason -eq "Direct Assignment" -or $assignment.Reason -eq "Direct Exclusion") {
-                                $assignmentReasons += $assignment.Reason
-                            }
-                        }
-
+                        $assignmentReasons = Get-GroupAssignmentReasons -Assignments $directAssignments -DirectGroupId $groupId -ParentGroupMap $parentGroupMap
                         if ($assignmentReasons.Count -gt 0) {
                             $template | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue ($assignmentReasons -join "; ") -Force
                             $relevantPolicies.AdminTemplates += $template
@@ -3301,16 +3386,9 @@ do {
                 Write-Host "Fetching Compliance Policies..." -ForegroundColor Yellow
                 $compliancePolicies = Get-IntuneEntities -EntityType "deviceCompliancePolicies"
                 foreach ($policy in $compliancePolicies) {
-                    $directAssignments = Get-IntuneAssignments -EntityType "deviceCompliancePolicies" -EntityId $policy.id -GroupId $groupId
+                    $directAssignments = Get-IntuneAssignments -EntityType "deviceCompliancePolicies" -EntityId $policy.id -GroupIds $allGroupIds
                     if ($directAssignments.Count -gt 0) {
-                        # Process all assignments for this group
-                        $assignmentReasons = @()
-                        foreach ($assignment in $directAssignments) {
-                            if ($assignment.Reason -eq "Direct Assignment" -or $assignment.Reason -eq "Direct Exclusion") {
-                                $assignmentReasons += $assignment.Reason
-                            }
-                        }
-
+                        $assignmentReasons = Get-GroupAssignmentReasons -Assignments $directAssignments -DirectGroupId $groupId -ParentGroupMap $parentGroupMap
                         if ($assignmentReasons.Count -gt 0) {
                             $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue ($assignmentReasons -join "; ") -Force
                             $relevantPolicies.CompliancePolicies += $policy
@@ -3324,16 +3402,9 @@ do {
                 foreach ($policy in $appProtectionPolicies) {
                     # Get-IntuneAssignments handles App Protection policy type resolution internally
                     try {
-                        $directAssignments = Get-IntuneAssignments -EntityType "deviceAppManagement/managedAppPolicies" -EntityId $policy.id -GroupId $groupId
+                        $directAssignments = Get-IntuneAssignments -EntityType "deviceAppManagement/managedAppPolicies" -EntityId $policy.id -GroupIds $allGroupIds
                         if ($directAssignments.Count -gt 0) {
-                            # Process all assignments for this group
-                            $assignmentReasons = @()
-                            foreach ($assignment in $directAssignments) {
-                                if ($assignment.Reason -eq "Direct Assignment" -or $assignment.Reason -eq "Direct Exclusion") {
-                                    $assignmentReasons += $assignment.Reason
-                                }
-                            }
-
+                            $assignmentReasons = Get-GroupAssignmentReasons -Assignments $directAssignments -DirectGroupId $groupId -ParentGroupMap $parentGroupMap
                             if ($assignmentReasons.Count -gt 0) {
                                 $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue ($assignmentReasons -join "; ") -Force
                                 $relevantPolicies.AppProtectionPolicies += $policy
@@ -3349,16 +3420,9 @@ do {
                 Write-Host "Fetching App Configuration Policies..." -ForegroundColor Yellow
                 $appConfigPolicies = Get-IntuneEntities -EntityType "deviceAppManagement/mobileAppConfigurations"
                 foreach ($policy in $appConfigPolicies) {
-                    $directAssignments = Get-IntuneAssignments -EntityType "mobileAppConfigurations" -EntityId $policy.id -GroupId $groupId
+                    $directAssignments = Get-IntuneAssignments -EntityType "mobileAppConfigurations" -EntityId $policy.id -GroupIds $allGroupIds
                     if ($directAssignments.Count -gt 0) {
-                        # Process all assignments for this group
-                        $assignmentReasons = @()
-                        foreach ($assignment in $directAssignments) {
-                            if ($assignment.Reason -eq "Direct Assignment" -or $assignment.Reason -eq "Direct Exclusion") {
-                                $assignmentReasons += $assignment.Reason
-                            }
-                        }
-
+                        $assignmentReasons = Get-GroupAssignmentReasons -Assignments $directAssignments -DirectGroupId $groupId -ParentGroupMap $parentGroupMap
                         if ($assignmentReasons.Count -gt 0) {
                             $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue ($assignmentReasons -join "; ") -Force
                             $relevantPolicies.AppConfigurationPolicies += $policy
@@ -3386,16 +3450,9 @@ do {
                     if ($matchingConfigEsPolicies) {
                         foreach ($policy in $matchingConfigEsPolicies) {
                             if ($processedEsPolicyIds.Add($policy.id)) {
-                                $directAssignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id -GroupId $groupId
+                                $directAssignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id -GroupIds $allGroupIds
                                 if ($directAssignments.Count -gt 0) {
-                                    # Process all assignments for this group
-                                    $assignmentReasons = @()
-                                    foreach ($assignment in $directAssignments) {
-                                        if ($assignment.Reason -eq "Direct Assignment" -or $assignment.Reason -eq "Direct Exclusion") {
-                                            $assignmentReasons += $assignment.Reason
-                                        }
-                                    }
-
+                                    $assignmentReasons = Get-GroupAssignmentReasons -Assignments $directAssignments -DirectGroupId $groupId -ParentGroupMap $parentGroupMap
                                     if ($assignmentReasons.Count -gt 0) {
                                         $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue ($assignmentReasons -join "; ") -Force
                                         $relevantPolicies[$esCategory.Key] += $policy
@@ -3424,19 +3481,29 @@ do {
                                         $currentIntentAssignmentsUri = $intentAssignmentsResponsePage.'@odata.nextLink'
                                     } while (![string]::IsNullOrEmpty($currentIntentAssignmentsUri))
 
-                                    $directGroupAssignment = $allIntentAssignments | Where-Object { $_.target.'@odata.type' -eq '#microsoft.graph.groupAssignmentTarget' -and $_.target.groupId -eq $groupId }
-                                    $directGroupExclusion = $allIntentAssignments | Where-Object { $_.target.'@odata.type' -eq '#microsoft.graph.exclusionGroupAssignmentTarget' -and $_.target.groupId -eq $groupId }
-
-                                    $assignmentReason = $null
-                                    if ($directGroupExclusion) {
-                                        $assignmentReason = "Direct Exclusion"
+                                    $assignmentReasons = @()
+                                    foreach ($intentAssignment in $allIntentAssignments) {
+                                        $targetGid = $intentAssignment.target.groupId
+                                        if ($intentAssignment.target.'@odata.type' -eq '#microsoft.graph.exclusionGroupAssignmentTarget' -and $allGroupIds -contains $targetGid) {
+                                            if ($targetGid -eq $groupId) {
+                                                $assignmentReasons += "Direct Exclusion"
+                                            }
+                                            elseif ($parentGroupMap.ContainsKey($targetGid)) {
+                                                $assignmentReasons += "Inherited Exclusion (via $($parentGroupMap[$targetGid]))"
+                                            }
+                                        }
+                                        elseif ($intentAssignment.target.'@odata.type' -eq '#microsoft.graph.groupAssignmentTarget' -and $allGroupIds -contains $targetGid) {
+                                            if ($targetGid -eq $groupId) {
+                                                $assignmentReasons += "Direct Assignment"
+                                            }
+                                            elseif ($parentGroupMap.ContainsKey($targetGid)) {
+                                                $assignmentReasons += "Inherited (via $($parentGroupMap[$targetGid]))"
+                                            }
+                                        }
                                     }
-                                    elseif ($directGroupAssignment) {
-                                        $assignmentReason = "Direct Assignment"
-                                    }
 
-                                    if ($assignmentReason) {
-                                        $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignmentReason -Force
+                                    if ($assignmentReasons.Count -gt 0) {
+                                        $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue ($assignmentReasons -join "; ") -Force
                                         $relevantPolicies[$esCategory.Key] += $policy
                                     }
                                 }
@@ -3476,25 +3543,33 @@ do {
                         $currentAppAssignmentsUri = $appAssignmentsResponsePage.'@odata.nextLink'
                     } while (![string]::IsNullOrEmpty($currentAppAssignmentsUri))
 
-                    $relevantAppAssignmentReason = $null
+                    $relevantAppAssignmentReasons = @()
                     $intentForGroup = $null
 
                     foreach ($assignmentItem in $allAppAssignments) {
-                        if ($assignmentItem.target.'@odata.type' -eq '#microsoft.graph.groupAssignmentTarget' -and $assignmentItem.target.groupId -eq $groupId) {
-                            $relevantAppAssignmentReason = "Direct Assignment"
-                            $intentForGroup = $assignmentItem.intent
-                            break
+                        $appTargetGid = $assignmentItem.target.groupId
+                        if ($assignmentItem.target.'@odata.type' -eq '#microsoft.graph.groupAssignmentTarget' -and $allGroupIds -contains $appTargetGid) {
+                            if ($appTargetGid -eq $groupId) {
+                                $relevantAppAssignmentReasons += "Direct Assignment"
+                            }
+                            elseif ($parentGroupMap.ContainsKey($appTargetGid)) {
+                                $relevantAppAssignmentReasons += "Inherited (via $($parentGroupMap[$appTargetGid]))"
+                            }
+                            if (-not $intentForGroup) { $intentForGroup = $assignmentItem.intent }
                         }
-                        elseif ($assignmentItem.target.'@odata.type' -eq '#microsoft.graph.exclusionGroupAssignmentTarget' -and $assignmentItem.target.groupId -eq $groupId) {
-                            $relevantAppAssignmentReason = "Group Exclusion"
-                            $intentForGroup = $assignmentItem.intent # Intent might still be relevant for excluded apps
-                            break
+                        elseif ($assignmentItem.target.'@odata.type' -eq '#microsoft.graph.exclusionGroupAssignmentTarget' -and $allGroupIds -contains $appTargetGid) {
+                            if ($appTargetGid -eq $groupId) {
+                                $relevantAppAssignmentReasons += "Group Exclusion"
+                            }
+                            elseif ($parentGroupMap.ContainsKey($appTargetGid)) {
+                                $relevantAppAssignmentReasons += "Inherited Exclusion (via $($parentGroupMap[$appTargetGid]))"
+                            }
                         }
                     }
 
-                    if ($relevantAppAssignmentReason) {
+                    if ($relevantAppAssignmentReasons.Count -gt 0) {
                         $appWithReason = $app.PSObject.Copy()
-                        $appWithReason | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $relevantAppAssignmentReason -Force
+                        $appWithReason | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue ($relevantAppAssignmentReasons -join "; ") -Force
                         if ($intentForGroup) {
                             switch ($intentForGroup) {
                                 "required" { $relevantPolicies.AppsRequired += $appWithReason }
@@ -3509,16 +3584,9 @@ do {
                 Write-Host "Fetching Platform Scripts..." -ForegroundColor Yellow
                 $platformScripts = Get-IntuneEntities -EntityType "deviceManagementScripts"
                 foreach ($script in $platformScripts) {
-                    $directAssignments = Get-IntuneAssignments -EntityType "deviceManagementScripts" -EntityId $script.id -GroupId $groupId
+                    $directAssignments = Get-IntuneAssignments -EntityType "deviceManagementScripts" -EntityId $script.id -GroupIds $allGroupIds
                     if ($directAssignments.Count -gt 0) {
-                        # Process all assignments for this group
-                        $assignmentReasons = @()
-                        foreach ($assignment in $directAssignments) {
-                            if ($assignment.Reason -eq "Direct Assignment" -or $assignment.Reason -eq "Direct Exclusion") {
-                                $assignmentReasons += $assignment.Reason
-                            }
-                        }
-
+                        $assignmentReasons = Get-GroupAssignmentReasons -Assignments $directAssignments -DirectGroupId $groupId -ParentGroupMap $parentGroupMap
                         if ($assignmentReasons.Count -gt 0) {
                             $script | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue ($assignmentReasons -join "; ") -Force
                             $relevantPolicies.PlatformScripts += $script
@@ -3530,16 +3598,9 @@ do {
                 Write-Host "Fetching Proactive Remediation Scripts..." -ForegroundColor Yellow
                 $healthScripts = Get-IntuneEntities -EntityType "deviceHealthScripts"
                 foreach ($script in $healthScripts) {
-                    $directAssignments = Get-IntuneAssignments -EntityType "deviceHealthScripts" -EntityId $script.id -GroupId $groupId
+                    $directAssignments = Get-IntuneAssignments -EntityType "deviceHealthScripts" -EntityId $script.id -GroupIds $allGroupIds
                     if ($directAssignments.Count -gt 0) {
-                        # Process all assignments for this group
-                        $assignmentReasons = @()
-                        foreach ($assignment in $directAssignments) {
-                            if ($assignment.Reason -eq "Direct Assignment" -or $assignment.Reason -eq "Direct Exclusion") {
-                                $assignmentReasons += $assignment.Reason
-                            }
-                        }
-
+                        $assignmentReasons = Get-GroupAssignmentReasons -Assignments $directAssignments -DirectGroupId $groupId -ParentGroupMap $parentGroupMap
                         if ($assignmentReasons.Count -gt 0) {
                             $script | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue ($assignmentReasons -join "; ") -Force
                             $relevantPolicies.HealthScripts += $script
@@ -3551,16 +3612,9 @@ do {
                 Write-Host "Fetching Autopilot Deployment Profiles..." -ForegroundColor Yellow
                 $autoProfiles = Get-IntuneEntities -EntityType "windowsAutopilotDeploymentProfiles"
                 foreach ($policyProfile in $autoProfiles) {
-                    $directAssignments = Get-IntuneAssignments -EntityType "windowsAutopilotDeploymentProfiles" -EntityId $policyProfile.id -GroupId $groupId
+                    $directAssignments = Get-IntuneAssignments -EntityType "windowsAutopilotDeploymentProfiles" -EntityId $policyProfile.id -GroupIds $allGroupIds
                     if ($directAssignments.Count -gt 0) {
-                        # Process all assignments for this group
-                        $assignmentReasons = @()
-                        foreach ($assignment in $directAssignments) {
-                            if ($assignment.Reason -eq "Direct Assignment" -or $assignment.Reason -eq "Direct Exclusion") {
-                                $assignmentReasons += $assignment.Reason
-                            }
-                        }
-
+                        $assignmentReasons = Get-GroupAssignmentReasons -Assignments $directAssignments -DirectGroupId $groupId -ParentGroupMap $parentGroupMap
                         if ($assignmentReasons.Count -gt 0) {
                             $policyProfile | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue ($assignmentReasons -join "; ") -Force
                             $relevantPolicies.DeploymentProfiles += $policyProfile
@@ -3573,16 +3627,9 @@ do {
                 $enrollmentConfigs = Get-IntuneEntities -EntityType "deviceEnrollmentConfigurations"
                 $espProfiles = $enrollmentConfigs | Where-Object { $_.'@odata.type' -match 'EnrollmentCompletionPageConfiguration' }
                 foreach ($esp in $espProfiles) {
-                    $directAssignments = Get-IntuneAssignments -EntityType "deviceEnrollmentConfigurations" -EntityId $esp.id -GroupId $groupId
+                    $directAssignments = Get-IntuneAssignments -EntityType "deviceEnrollmentConfigurations" -EntityId $esp.id -GroupIds $allGroupIds
                     if ($directAssignments.Count -gt 0) {
-                        # Process all assignments for this group
-                        $assignmentReasons = @()
-                        foreach ($assignment in $directAssignments) {
-                            if ($assignment.Reason -eq "Direct Assignment" -or $assignment.Reason -eq "Direct Exclusion") {
-                                $assignmentReasons += $assignment.Reason
-                            }
-                        }
-
+                        $assignmentReasons = Get-GroupAssignmentReasons -Assignments $directAssignments -DirectGroupId $groupId -ParentGroupMap $parentGroupMap
                         if ($assignmentReasons.Count -gt 0) {
                             $esp | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue ($assignmentReasons -join "; ") -Force
                             $relevantPolicies.ESPProfiles += $esp
@@ -3595,16 +3642,9 @@ do {
                 try {
                     $cloudPCProvisioningPolicies = Get-IntuneEntities -EntityType "virtualEndpoint/provisioningPolicies"
                     foreach ($policy in $cloudPCProvisioningPolicies) {
-                        $directAssignments = Get-IntuneAssignments -EntityType "virtualEndpoint/provisioningPolicies" -EntityId $policy.id -GroupId $groupId
+                        $directAssignments = Get-IntuneAssignments -EntityType "virtualEndpoint/provisioningPolicies" -EntityId $policy.id -GroupIds $allGroupIds
                         if ($directAssignments.Count -gt 0) {
-                            # Process all assignments for this group
-                            $assignmentReasons = @()
-                            foreach ($assignment in $directAssignments) {
-                                if ($assignment.Reason -eq "Direct Assignment" -or $assignment.Reason -eq "Direct Exclusion") {
-                                    $assignmentReasons += $assignment.Reason
-                                }
-                            }
-
+                            $assignmentReasons = Get-GroupAssignmentReasons -Assignments $directAssignments -DirectGroupId $groupId -ParentGroupMap $parentGroupMap
                             if ($assignmentReasons.Count -gt 0) {
                                 $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue ($assignmentReasons -join "; ") -Force
                                 $relevantPolicies.CloudPCProvisioningPolicies += $policy
@@ -3621,16 +3661,9 @@ do {
                 try {
                     $cloudPCUserSettings = Get-IntuneEntities -EntityType "virtualEndpoint/userSettings"
                     foreach ($setting in $cloudPCUserSettings) {
-                        $directAssignments = Get-IntuneAssignments -EntityType "virtualEndpoint/userSettings" -EntityId $setting.id -GroupId $groupId
+                        $directAssignments = Get-IntuneAssignments -EntityType "virtualEndpoint/userSettings" -EntityId $setting.id -GroupIds $allGroupIds
                         if ($directAssignments.Count -gt 0) {
-                            # Process all assignments for this group
-                            $assignmentReasons = @()
-                            foreach ($assignment in $directAssignments) {
-                                if ($assignment.Reason -eq "Direct Assignment" -or $assignment.Reason -eq "Direct Exclusion") {
-                                    $assignmentReasons += $assignment.Reason
-                                }
-                            }
-
+                            $assignmentReasons = Get-GroupAssignmentReasons -Assignments $directAssignments -DirectGroupId $groupId -ParentGroupMap $parentGroupMap
                             if ($assignmentReasons.Count -gt 0) {
                                 $setting | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue ($assignmentReasons -join "; ") -Force
                                 $relevantPolicies.CloudPCUserSettings += $setting
@@ -3665,7 +3698,7 @@ do {
                     }
 
                     # Create table header
-                    $headerFormat = "{0,-45} {1,-20} {2,-35} {3,-20}" -f "Policy Name", "Platform", "ID", "Assignment"
+                    $headerFormat = "{0,-45} {1,-20} {2,-35} {3,-40}" -f "Policy Name", "Platform", "ID", "Assignment"
 
                     Write-Host $headerFormat -ForegroundColor Yellow
                     Write-Host $localTableSeparator -ForegroundColor Gray
@@ -3683,11 +3716,17 @@ do {
                         if ($id.Length -gt 32) { $id = $id.Substring(0, 29) + "..." }
 
                         $assignment = if ($policy.AssignmentReason) { $policy.AssignmentReason } else { "N/A" }
-                        if ($assignment.Length -gt 17) { $assignment = $assignment.Substring(0, 14) + "..." }
+                        if ($assignment.Length -gt 37) { $assignment = $assignment.Substring(0, 34) + "..." }
 
-                        $rowFormat = "{0,-45} {1,-20} {2,-35} {3,-20}" -f $name, $platform, $id, $assignment
-                        if ($assignment -eq "Direct Exclusion") {
+                        $rowFormat = "{0,-45} {1,-20} {2,-35} {3,-40}" -f $name, $platform, $id, $assignment
+                        if ($assignment -match "Inherited Exclusion") {
+                            Write-Host $rowFormat -ForegroundColor Magenta
+                        }
+                        elseif ($assignment -match "Direct Exclusion") {
                             Write-Host $rowFormat -ForegroundColor Red
+                        }
+                        elseif ($assignment -match "Inherited") {
+                            Write-Host $rowFormat -ForegroundColor DarkYellow
                         }
                         else {
                             Write-Host $rowFormat -ForegroundColor White
@@ -7738,6 +7777,18 @@ do {
                 if ($parameterMode) { exit 1 } else { continue }
             }
 
+            # Determine if nested group checking should be enabled
+            $checkNestedGroupsCompare = $false
+            if ($IncludeNestedGroups) {
+                $checkNestedGroupsCompare = $true
+            }
+            elseif (-not $parameterMode) {
+                $nestedPromptCompare = Read-Host "Include assignments inherited from parent groups? (y/n)"
+                if ($nestedPromptCompare -eq 'y') {
+                    $checkNestedGroupsCompare = $true
+                }
+            }
+
             # Before caching starts, initialize the group assignments hashtable
             $groupAssignments = [ordered]@{}
 
@@ -7749,6 +7800,8 @@ do {
                 # Initialize variables
                 $groupId = $null
                 $groupName = $null
+                $allGroupIds = @()
+                $parentGroupMap = @{}
 
                 # Check if input is a GUID
                 if ($groupInput -match '^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$') {
@@ -7760,7 +7813,7 @@ do {
                         $groupName = $groupResponse.displayName
                         $resolvedGroups[$groupId] = $groupName
 
-                        # Initialize collections for this group (Add HealthScripts here)
+                        # Initialize collections for this group
                         $groupAssignments[$groupName] = @{
                             DeviceConfigs              = [System.Collections.ArrayList]::new()
                             SettingsCatalog            = [System.Collections.ArrayList]::new()
@@ -7780,6 +7833,20 @@ do {
                         }
 
                         Write-Host "Found group by ID: $groupName" -ForegroundColor Green
+
+                        # Build effective group IDs for nested group support
+                        $allGroupIds = @($groupId)
+                        $parentGroupMap = @{}
+                        if ($checkNestedGroupsCompare) {
+                            $parentGroups = Get-TransitiveGroupMembership -GroupId $groupId
+                            if ($parentGroups.Count -gt 0) {
+                                foreach ($pg in $parentGroups) {
+                                    $allGroupIds += $pg.id
+                                    $parentGroupMap[$pg.id] = $pg.displayName
+                                }
+                                Write-Host "  Found $($parentGroups.Count) parent group(s)" -ForegroundColor Green
+                            }
+                        }
                     }
                     catch {
                         Write-Host "No group found with ID: $groupInput" -ForegroundColor Red
@@ -7807,7 +7874,7 @@ do {
                     $groupName = $groupResponse.value[0].displayName
                     $resolvedGroups[$groupId] = $groupName
 
-                    # Initialize collections for this group (Add HealthScripts here)
+                    # Initialize collections for this group
                     $groupAssignments[$groupName] = @{
                         DeviceConfigs              = [System.Collections.ArrayList]::new()
                         SettingsCatalog            = [System.Collections.ArrayList]::new()
@@ -7827,6 +7894,20 @@ do {
                     }
 
                     Write-Host "Found group by name: $groupName (ID: $groupId)" -ForegroundColor Green
+
+                    # Build effective group IDs for nested group support
+                    $allGroupIds = @($groupId)
+                    $parentGroupMap = @{}
+                    if ($checkNestedGroupsCompare) {
+                        $parentGroups = Get-TransitiveGroupMembership -GroupId $groupId
+                        if ($parentGroups.Count -gt 0) {
+                            foreach ($pg in $parentGroups) {
+                                $allGroupIds += $pg.id
+                                $parentGroupMap[$pg.id] = $pg.displayName
+                            }
+                            Write-Host "  Found $($parentGroups.Count) parent group(s)" -ForegroundColor Green
+                        }
+                    }
                 }
 
                 # Process Device Configurations
@@ -7848,21 +7929,21 @@ do {
 
                     # Check for both inclusion and exclusion assignments
                     $hasAssignment = $assignmentResponse.value | Where-Object {
-                        $_.target.groupId -eq $groupId -and
+                        $allGroupIds -contains $_.target.groupId -and
                         ($_.target.'@odata.type' -eq '#microsoft.graph.groupAssignmentTarget' -or
                         $_.target.'@odata.type' -eq '#microsoft.graph.exclusionGroupAssignmentTarget')
                     }
                     if ($hasAssignment) {
-                        # Check if it's an exclusion
                         $isExclusion = $hasAssignment | Where-Object {
                             $_.target.'@odata.type' -eq '#microsoft.graph.exclusionGroupAssignmentTarget'
                         }
-                        $displayName = if ($isExclusion) {
-                            "$($config.displayName) [EXCLUDED]"
+                        $isInherited = $hasAssignment | Where-Object {
+                            $_.target.groupId -ne $groupId
                         }
-                        else {
-                            $config.displayName
-                        }
+                        $suffix = ""
+                        if ($isExclusion) { $suffix += " [EXCLUDED]" }
+                        if ($isInherited) { $suffix += " [INHERITED]" }
+                        $displayName = "$($config.displayName)$suffix"
                         [void]$groupAssignments[$groupName].DeviceConfigs.Add($displayName)
                     }
                 }
@@ -7881,21 +7962,21 @@ do {
 
                     # Check for both inclusion and exclusion assignments
                     $hasAssignment = $assignmentResponse.value | Where-Object {
-                        $_.target.groupId -eq $groupId -and
+                        $allGroupIds -contains $_.target.groupId -and
                         ($_.target.'@odata.type' -eq '#microsoft.graph.groupAssignmentTarget' -or
                         $_.target.'@odata.type' -eq '#microsoft.graph.exclusionGroupAssignmentTarget')
                     }
                     if ($hasAssignment) {
-                        # Check if it's an exclusion
                         $isExclusion = $hasAssignment | Where-Object {
                             $_.target.'@odata.type' -eq '#microsoft.graph.exclusionGroupAssignmentTarget'
                         }
-                        $displayName = if ($isExclusion) {
-                            "$($policy.name) [EXCLUDED]"
+                        $isInherited = $hasAssignment | Where-Object {
+                            $_.target.groupId -ne $groupId
                         }
-                        else {
-                            $policy.name
-                        }
+                        $suffix = ""
+                        if ($isExclusion) { $suffix += " [EXCLUDED]" }
+                        if ($isInherited) { $suffix += " [INHERITED]" }
+                        $displayName = "$($policy.name)$suffix"
                         [void]$groupAssignments[$groupName].SettingsCatalog.Add($displayName)
                     }
                 }
@@ -7909,8 +7990,11 @@ do {
                     $assignmentsUri = "$GraphEndpoint/beta/deviceManagement/groupPolicyConfigurations('$templateId')/assignments"
                     $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
 
-                    if ($assignmentResponse.value | Where-Object { $_.target.groupId -eq $groupId }) {
-                        [void]$groupAssignments[$groupName].AdminTemplates.Add($template.displayName)
+                    $hasAssignment = $assignmentResponse.value | Where-Object { $allGroupIds -contains $_.target.groupId }
+                    if ($hasAssignment) {
+                        $isInherited = $hasAssignment | Where-Object { $_.target.groupId -ne $groupId }
+                        $suffix = if ($isInherited) { " [INHERITED]" } else { "" }
+                        [void]$groupAssignments[$groupName].AdminTemplates.Add("$($template.displayName)$suffix")
                     }
                 }
 
@@ -7925,21 +8009,21 @@ do {
 
                     # Check for both inclusion and exclusion assignments
                     $hasAssignment = $assignmentResponse.value | Where-Object {
-                        $_.target.groupId -eq $groupId -and
+                        $allGroupIds -contains $_.target.groupId -and
                         ($_.target.'@odata.type' -eq '#microsoft.graph.groupAssignmentTarget' -or
                         $_.target.'@odata.type' -eq '#microsoft.graph.exclusionGroupAssignmentTarget')
                     }
                     if ($hasAssignment) {
-                        # Check if it's an exclusion
                         $isExclusion = $hasAssignment | Where-Object {
                             $_.target.'@odata.type' -eq '#microsoft.graph.exclusionGroupAssignmentTarget'
                         }
-                        $displayName = if ($isExclusion) {
-                            "$($policy.displayName) [EXCLUDED]"
+                        $isInherited = $hasAssignment | Where-Object {
+                            $_.target.groupId -ne $groupId
                         }
-                        else {
-                            $policy.displayName
-                        }
+                        $suffix = ""
+                        if ($isExclusion) { $suffix += " [EXCLUDED]" }
+                        if ($isInherited) { $suffix += " [INHERITED]" }
+                        $displayName = "$($policy.displayName)$suffix"
                         [void]$groupAssignments[$groupName].CompliancePolicies.Add($displayName)
                     }
                 }
@@ -7959,11 +8043,12 @@ do {
                     $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
 
                     foreach ($assignment in $assignmentResponse.value) {
-                        if ($assignment.target.groupId -eq $groupId) {
+                        if ($allGroupIds -contains $assignment.target.groupId) {
+                            $inheritedSuffix = if ($assignment.target.groupId -ne $groupId) { " [INHERITED]" } else { "" }
                             switch ($assignment.intent) {
-                                "required" { [void]$groupAssignments[$groupName].RequiredApps.Add($app.displayName) }
-                                "available" { [void]$groupAssignments[$groupName].AvailableApps.Add($app.displayName) }
-                                "uninstall" { [void]$groupAssignments[$groupName].UninstallApps.Add($app.displayName) }
+                                "required" { [void]$groupAssignments[$groupName].RequiredApps.Add("$($app.displayName)$inheritedSuffix") }
+                                "available" { [void]$groupAssignments[$groupName].AvailableApps.Add("$($app.displayName)$inheritedSuffix") }
+                                "uninstall" { [void]$groupAssignments[$groupName].UninstallApps.Add("$($app.displayName)$inheritedSuffix") }
                             }
                         }
                     }
@@ -7978,8 +8063,11 @@ do {
                     $assignmentsUri = "$GraphEndpoint/beta/deviceManagement/deviceManagementScripts('$scriptId')/assignments"
                     $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
 
-                    if ($assignmentResponse.value | Where-Object { $_.target.groupId -eq $groupId }) {
-                        $scriptInfo = "$($script.displayName) (PowerShell)"
+                    $hasAssignment = $assignmentResponse.value | Where-Object { $allGroupIds -contains $_.target.groupId }
+                    if ($hasAssignment) {
+                        $isInherited = $hasAssignment | Where-Object { $_.target.groupId -ne $groupId }
+                        $suffix = if ($isInherited) { " [INHERITED]" } else { "" }
+                        $scriptInfo = "$($script.displayName) (PowerShell)$suffix"
                         [void]$groupAssignments[$groupName].PlatformScripts.Add($scriptInfo)
                     }
                 }
@@ -7993,8 +8081,11 @@ do {
                     $assignmentsUri = "$GraphEndpoint/beta/deviceManagement/deviceShellScripts('$scriptId')/groupAssignments"
                     $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
 
-                    if ($assignmentResponse.value | Where-Object { $_.targetGroupId -eq $groupId }) {
-                        $scriptInfo = "$($script.displayName) (Shell)"
+                    $hasAssignment = $assignmentResponse.value | Where-Object { $allGroupIds -contains $_.targetGroupId }
+                    if ($hasAssignment) {
+                        $isInherited = $hasAssignment | Where-Object { $_.targetGroupId -ne $groupId }
+                        $suffix = if ($isInherited) { " [INHERITED]" } else { "" }
+                        $scriptInfo = "$($script.displayName) (Shell)$suffix"
                         [void]$groupAssignments[$groupName].PlatformScripts.Add($scriptInfo)
                     }
                 }
@@ -8007,8 +8098,11 @@ do {
                     $assignmentsUri = "$GraphEndpoint/beta/deviceManagement/deviceHealthScripts('$scriptId')/assignments"
                     $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
 
-                    if ($assignmentResponse.value | Where-Object { $_.target.'@odata.type' -eq '#microsoft.graph.groupAssignmentTarget' -and $_.target.groupId -eq $groupId }) {
-                        [void]$groupAssignments[$groupName].HealthScripts.Add($script.displayName)
+                    $hasAssignment = $assignmentResponse.value | Where-Object { $_.target.'@odata.type' -eq '#microsoft.graph.groupAssignmentTarget' -and $allGroupIds -contains $_.target.groupId }
+                    if ($hasAssignment) {
+                        $isInherited = $hasAssignment | Where-Object { $_.target.groupId -ne $groupId }
+                        $suffix = if ($isInherited) { " [INHERITED]" } else { "" }
+                        [void]$groupAssignments[$groupName].HealthScripts.Add("$($script.displayName)$suffix")
                     }
                 }
 
@@ -8019,8 +8113,11 @@ do {
                 if ($antivirusPolicies) {
                     foreach ($policy in $antivirusPolicies) {
                         $assignments = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
-                        if ($assignments.value | Where-Object { $_.target.'@odata.type' -eq '#microsoft.graph.groupAssignmentTarget' -and $_.target.groupId -eq $groupId }) {
-                            [void]$groupAssignments[$groupName].AntivirusProfiles.Add($policy.displayName)
+                        $hasAssignment = $assignments.value | Where-Object { $_.target.'@odata.type' -eq '#microsoft.graph.groupAssignmentTarget' -and $allGroupIds -contains $_.target.groupId }
+                        if ($hasAssignment) {
+                            $isInherited = $hasAssignment | Where-Object { $_.target.groupId -ne $groupId }
+                            $suffix = if ($isInherited) { " [INHERITED]" } else { "" }
+                            [void]$groupAssignments[$groupName].AntivirusProfiles.Add("$($policy.displayName)$suffix")
                         }
                     }
                 }
@@ -8032,8 +8129,11 @@ do {
                 if ($diskEncryptionPolicies) {
                     foreach ($policy in $diskEncryptionPolicies) {
                         $assignments = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
-                        if ($assignments.value | Where-Object { $_.target.'@odata.type' -eq '#microsoft.graph.groupAssignmentTarget' -and $_.target.groupId -eq $groupId }) {
-                            [void]$groupAssignments[$groupName].DiskEncryptionProfiles.Add($policy.displayName)
+                        $hasAssignment = $assignments.value | Where-Object { $_.target.'@odata.type' -eq '#microsoft.graph.groupAssignmentTarget' -and $allGroupIds -contains $_.target.groupId }
+                        if ($hasAssignment) {
+                            $isInherited = $hasAssignment | Where-Object { $_.target.groupId -ne $groupId }
+                            $suffix = if ($isInherited) { " [INHERITED]" } else { "" }
+                            [void]$groupAssignments[$groupName].DiskEncryptionProfiles.Add("$($policy.displayName)$suffix")
                         }
                     }
                 }
@@ -8045,8 +8145,11 @@ do {
                 if ($firewallPolicies) {
                     foreach ($policy in $firewallPolicies) {
                         $assignments = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
-                        if ($assignments.value | Where-Object { $_.target.'@odata.type' -eq '#microsoft.graph.groupAssignmentTarget' -and $_.target.groupId -eq $groupId }) {
-                            [void]$groupAssignments[$groupName].FirewallProfiles.Add($policy.displayName)
+                        $hasAssignment = $assignments.value | Where-Object { $_.target.'@odata.type' -eq '#microsoft.graph.groupAssignmentTarget' -and $allGroupIds -contains $_.target.groupId }
+                        if ($hasAssignment) {
+                            $isInherited = $hasAssignment | Where-Object { $_.target.groupId -ne $groupId }
+                            $suffix = if ($isInherited) { " [INHERITED]" } else { "" }
+                            [void]$groupAssignments[$groupName].FirewallProfiles.Add("$($policy.displayName)$suffix")
                         }
                     }
                 }
@@ -8058,8 +8161,11 @@ do {
                 if ($edrPolicies) {
                     foreach ($policy in $edrPolicies) {
                         $assignments = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
-                        if ($assignments.value | Where-Object { $_.target.'@odata.type' -eq '#microsoft.graph.groupAssignmentTarget' -and $_.target.groupId -eq $groupId }) {
-                            [void]$groupAssignments[$groupName].EndpointDetectionProfiles.Add($policy.displayName)
+                        $hasAssignment = $assignments.value | Where-Object { $_.target.'@odata.type' -eq '#microsoft.graph.groupAssignmentTarget' -and $allGroupIds -contains $_.target.groupId }
+                        if ($hasAssignment) {
+                            $isInherited = $hasAssignment | Where-Object { $_.target.groupId -ne $groupId }
+                            $suffix = if ($isInherited) { " [INHERITED]" } else { "" }
+                            [void]$groupAssignments[$groupName].EndpointDetectionProfiles.Add("$($policy.displayName)$suffix")
                         }
                     }
                 }
@@ -8071,8 +8177,11 @@ do {
                 if ($asrPolicies) {
                     foreach ($policy in $asrPolicies) {
                         $assignments = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
-                        if ($assignments.value | Where-Object { $_.target.'@odata.type' -eq '#microsoft.graph.groupAssignmentTarget' -and $_.target.groupId -eq $groupId }) {
-                            [void]$groupAssignments[$groupName].AttackSurfaceProfiles.Add($policy.displayName)
+                        $hasAssignment = $assignments.value | Where-Object { $_.target.'@odata.type' -eq '#microsoft.graph.groupAssignmentTarget' -and $allGroupIds -contains $_.target.groupId }
+                        if ($hasAssignment) {
+                            $isInherited = $hasAssignment | Where-Object { $_.target.groupId -ne $groupId }
+                            $suffix = if ($isInherited) { " [INHERITED]" } else { "" }
+                            [void]$groupAssignments[$groupName].AttackSurfaceProfiles.Add("$($policy.displayName)$suffix")
                         }
                     }
                 }
@@ -8084,8 +8193,11 @@ do {
                 if ($accountProtectionPolicies) {
                     foreach ($policy in $accountProtectionPolicies) {
                         $assignments = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
-                        if ($assignments.value | Where-Object { $_.target.'@odata.type' -eq '#microsoft.graph.groupAssignmentTarget' -and $_.target.groupId -eq $groupId }) {
-                            [void]$groupAssignments[$groupName].AccountProtectionProfiles.Add($policy.displayName)
+                        $hasAssignment = $assignments.value | Where-Object { $_.target.'@odata.type' -eq '#microsoft.graph.groupAssignmentTarget' -and $allGroupIds -contains $_.target.groupId }
+                        if ($hasAssignment) {
+                            $isInherited = $hasAssignment | Where-Object { $_.target.groupId -ne $groupId }
+                            $suffix = if ($isInherited) { " [INHERITED]" } else { "" }
+                            [void]$groupAssignments[$groupName].AccountProtectionProfiles.Add("$($policy.displayName)$suffix")
                         }
                     }
                 }
@@ -8118,12 +8230,13 @@ do {
                 "Endpoint Security - Account Protection" = "AccountProtectionProfiles"
             }
 
-            # Collect all unique base policy names (strip [EXCLUDED] suffix for deduplication)
+            # Collect all unique base policy names (strip tag suffixes for deduplication)
             $uniqueBasePolicies = [System.Collections.ArrayList]@()
             foreach ($groupName in $groupAssignments.Keys) {
                 foreach ($categoryKey in $categories.Values) {
                     foreach ($policy in $groupAssignments[$groupName][$categoryKey]) {
-                        $baseName = $policy -replace ' \[EXCLUDED\]$', ''
+                        $baseName = $policy -replace ' \[(EXCLUDED|INHERITED)\]', ''
+                        $baseName = $baseName.Trim()
                         if ($uniqueBasePolicies -notcontains $baseName) {
                             $null = $uniqueBasePolicies.Add($baseName)
                         }
@@ -8144,8 +8257,10 @@ do {
                 foreach ($baseName in $uniqueBasePolicies) {
                     $isInCategory = $false
                     foreach ($g in $groupNames) {
-                        if ($groupAssignments[$g][$categoryKey] -contains $baseName -or
-                            $groupAssignments[$g][$categoryKey] -contains "$baseName [EXCLUDED]") {
+                        $matchFound = $groupAssignments[$g][$categoryKey] | Where-Object {
+                            ($_ -replace ' \[(EXCLUDED|INHERITED)\]', '').Trim() -eq $baseName
+                        }
+                        if ($matchFound) {
                             $isInCategory = $true
                             break
                         }
@@ -8194,12 +8309,26 @@ do {
 
                     foreach ($g in $groupNames) {
                         $assignments = $groupAssignments[$g][$categoryKey]
-                        $cell = ""
-                        if ($assignments -contains "$baseName [EXCLUDED]") {
-                            $cell = "E"
+                        # Find all matching entries for this base name
+                        $matchingEntries = $assignments | Where-Object {
+                            ($_ -replace ' \[(EXCLUDED|INHERITED)\]', '').Trim() -eq $baseName
                         }
-                        elseif ($assignments -contains $baseName) {
-                            $cell = "X"
+                        $cell = ""
+                        if ($matchingEntries) {
+                            $hasExcluded = $matchingEntries | Where-Object { $_ -match '\[EXCLUDED\]' }
+                            $hasInherited = $matchingEntries | Where-Object { $_ -match '\[INHERITED\]' }
+                            if ($hasExcluded -and $hasInherited) {
+                                $cell = "IE"
+                            }
+                            elseif ($hasExcluded) {
+                                $cell = "E"
+                            }
+                            elseif ($hasInherited) {
+                                $cell = "I"
+                            }
+                            else {
+                                $cell = "X"
+                            }
                         }
                         $row += $cell.PadRight($groupColWidths[$g] + 2)
                     }
@@ -8209,7 +8338,7 @@ do {
             }
 
             # Legend
-            Write-Host "Legend: X = Included, E = Excluded" -ForegroundColor Gray
+            Write-Host "Legend: X = Included, E = Excluded, I = Inherited, IE = Inherited+Excluded" -ForegroundColor Gray
             Write-Host ""
 
             # Summary section
@@ -8231,8 +8360,10 @@ do {
                     # Check if this policy belongs to this category
                     $isInCategory = $false
                     foreach ($g in $groupNames) {
-                        if ($groupAssignments[$g][$categoryKey] -contains $baseName -or
-                            $groupAssignments[$g][$categoryKey] -contains "$baseName [EXCLUDED]") {
+                        $matchFound = $groupAssignments[$g][$categoryKey] | Where-Object {
+                            ($_ -replace ' \[(EXCLUDED|INHERITED)\]', '').Trim() -eq $baseName
+                        }
+                        if ($matchFound) {
                             $isInCategory = $true
                             break
                         }
@@ -8244,12 +8375,25 @@ do {
                         PolicyName = $baseName
                     }
                     foreach ($g in $groupNames) {
-                        $val = ""
-                        if ($groupAssignments[$g][$categoryKey] -contains $baseName) {
-                            $val = "Included"
+                        $matchingEntries = $groupAssignments[$g][$categoryKey] | Where-Object {
+                            ($_ -replace ' \[(EXCLUDED|INHERITED)\]', '').Trim() -eq $baseName
                         }
-                        elseif ($groupAssignments[$g][$categoryKey] -contains "$baseName [EXCLUDED]") {
-                            $val = "Excluded"
+                        $val = ""
+                        if ($matchingEntries) {
+                            $hasExcluded = $matchingEntries | Where-Object { $_ -match '\[EXCLUDED\]' }
+                            $hasInherited = $matchingEntries | Where-Object { $_ -match '\[INHERITED\]' }
+                            if ($hasExcluded -and $hasInherited) {
+                                $val = "Inherited+Excluded"
+                            }
+                            elseif ($hasExcluded) {
+                                $val = "Excluded"
+                            }
+                            elseif ($hasInherited) {
+                                $val = "Inherited"
+                            }
+                            else {
+                                $val = "Included"
+                            }
                         }
                         $props[$g] = $val
                     }
