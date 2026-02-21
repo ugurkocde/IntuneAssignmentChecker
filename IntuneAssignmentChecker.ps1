@@ -124,6 +124,9 @@ param(
     [Parameter(Mandatory = $false, HelpMessage = "Certificate Thumbprint for authentication")]
     [string]$CertificateThumbprint,
 
+    [Parameter(Mandatory = $false, HelpMessage = "Client Secret for authentication")]
+    [string]$ClientSecret,
+
     [Parameter(Mandatory = $false, HelpMessage = "Environment (Global, USGov, USGovDoD)")]
     [ValidateSet("Global", "USGov", "USGovDoD")]
     [string]$Environment = "Global"
@@ -217,6 +220,9 @@ elseif ($ShowFailedAssignments) { $parameterMode = $true; $selectedOption = '11'
 .PARAMETER CertificateThumbprint
     Certificate Thumbprint for authentication.
 
+.PARAMETER ClientSecret
+    Client Secret for app registration authentication.
+
 .PARAMETER Environment
     Environment (Global, USGov, USGovDoD).
 
@@ -257,6 +263,7 @@ $appid = if ($AppId) { $AppId } else { '<YourAppIdHere>' } # App ID of the App R
 $tenantid = if ($TenantId) { $TenantId } else { '<YourTenantIdHere>' } # Tenant ID of your EntraID
 $certThumbprint = if ($CertificateThumbprint) { $CertificateThumbprint } else { '<YourCertificateThumbprintHere>' } # Thumbprint of the certificate associated with the App Registration
 # $certName = '<YourCertificateNameHere>' # Name of the certificate associated with the App Registration
+$clientSecret = if ($ClientSecret) { $ClientSecret } else { '' } # Client Secret for app registration authentication
 
 ####################################################################################################
 
@@ -494,23 +501,49 @@ try {
     else {
         Write-Host "No existing Microsoft Graph connection found. Attempting connection..." -ForegroundColor Yellow
 
-        # Check if any of the variables are not set or contain placeholder values
-        if (-not $appid -or $appid -eq '<YourAppIdHere>' -or
-            -not $tenantid -or $tenantid -eq '<YourTenantIdHere>' -or
-            -not $certThumbprint -or $certThumbprint -eq '<YourCertificateThumbprintHere>') {
-            Write-Host "App ID, Tenant ID, or Certificate Thumbprint is missing or not set correctly." -ForegroundColor Red
+        # Determine which authentication method to use
+        $hasAppId = $appid -and $appid -ne '<YourAppIdHere>'
+        $hasTenantId = $tenantid -and $tenantid -ne '<YourTenantIdHere>'
+        $hasClientSecret = $clientSecret -and $clientSecret -ne ''
+        $hasCertThumbprint = $certThumbprint -and $certThumbprint -ne '<YourCertificateThumbprintHere>'
+
+        if ($hasAppId -and $hasTenantId -and $hasClientSecret) {
+            # Client Secret authentication
+            Write-Host "Connecting using Client Secret authentication..." -ForegroundColor Yellow
+            if ($parameterMode) {
+                Set-Environment -EnvironmentName $Environment
+            }
+            else {
+                Set-Environment
+            }
+            $secureSecret = ConvertTo-SecureString $clientSecret -AsPlainText -Force
+            # PSCredential wraps the App ID as the username and the secret as the password
+            $credential = New-Object System.Management.Automation.PSCredential($appid, $secureSecret)
+            $null = Connect-MgGraph -TenantId $tenantid -ClientSecretCredential $credential -Environment $script:GraphEnvironment -NoWelcome -ErrorAction Stop
+        }
+        elseif ($hasAppId -and $hasTenantId -and $hasCertThumbprint) {
+            # Certificate-based authentication
+            Write-Host "Connecting using Certificate authentication..." -ForegroundColor Yellow
+            if ($parameterMode) {
+                Set-Environment -EnvironmentName $Environment
+            }
+            else {
+                Set-Environment
+            }
+            $null = Connect-MgGraph -ClientId $appid -TenantId $tenantid -Environment $script:GraphEnvironment -CertificateThumbprint $certThumbprint -NoWelcome -ErrorAction Stop
+        }
+        else {
+            # Interactive authentication fallback
+            Write-Host "App ID, Tenant ID, or authentication credential (Certificate/Client Secret) is missing or not set correctly." -ForegroundColor Red
             $manualConnection = Read-Host "Would you like to attempt a manual interactive connection? (y/n)"
             if ($manualConnection -eq 'y') {
-                # Manual connection using interactive login
                 Write-Host "Attempting manual interactive connection (you need privileges to consent permissions)..." -ForegroundColor Yellow
                 $permissionsList = ($requiredPermissions | ForEach-Object { $_.Permission }) -join ', '
-                # In parameter mode, use the Environment parameter (which defaults to Global)
-                # In interactive mode, always prompt for environment selection
                 if ($parameterMode) {
                     Set-Environment -EnvironmentName $Environment
                 }
                 else {
-                    Set-Environment  # Prompt for environment selection in interactive mode
+                    Set-Environment
                 }
                 $null = Connect-MgGraph -Scopes $permissionsList -Environment $script:GraphEnvironment -NoWelcome -ErrorAction Stop
             }
@@ -518,17 +551,6 @@ try {
                 Write-Host "Script execution cancelled by user." -ForegroundColor Red
                 exit
             }
-        }
-        else {
-            # In parameter mode, use the Environment parameter (which defaults to Global)
-            # In interactive mode, always prompt for environment selection
-            if ($parameterMode) {
-                Set-Environment -EnvironmentName $Environment
-            }
-            else {
-                Set-Environment  # Prompt for environment selection in interactive mode
-            }
-            $null = Connect-MgGraph -ClientId $appid -TenantId $tenantid -Environment $script:GraphEnvironment -CertificateThumbprint $certThumbprint -NoWelcome -ErrorAction Stop
         }
         Write-Host "Successfully connected to Microsoft Graph" -ForegroundColor Green
     }
@@ -555,45 +577,55 @@ try {
         }
     }
 
-    Write-Host "Checking required permissions:" -ForegroundColor Cyan
-    $missingPermissions = @()
-    foreach ($permissionInfo in $requiredPermissions) {
-        $permission = $permissionInfo.Permission
-        $reason = $permissionInfo.Reason
-
-        # Check if either the exact permission or a "ReadWrite" version of it is granted
-        $hasPermission = $currentPermissions -contains $permission -or $currentPermissions -contains $permission.Replace(".Read", ".ReadWrite")
-
-        if ($hasPermission) {
-            Write-Host "  [✓] $permission" -ForegroundColor Green
-            Write-Host "      Reason: $reason" -ForegroundColor Gray
-        }
-        else {
-            Write-Host "  [✗] $permission" -ForegroundColor Red
-            Write-Host "      Reason: $reason" -ForegroundColor Gray
-            $missingPermissions += $permission
-        }
-    }
-
-    if ($missingPermissions.Count -eq 0) {
-        Write-Host "All required permissions are present." -ForegroundColor Green
+    # For app-only auth (client secret or certificate), Scopes is null because permissions
+    # are configured on the app registration, not returned via Get-MgContext. Skip the
+    # scope check in that case and rely on the app registration having the correct permissions.
+    if ($null -eq $currentPermissions -or $currentPermissions.Count -eq 0) {
+        Write-Host "App-only authentication detected. Permissions are managed via the app registration." -ForegroundColor Yellow
+        Write-Host "Ensure the required permissions are granted in the Azure Portal." -ForegroundColor Yellow
         Write-Host ""
     }
     else {
-        Write-Host "WARNING: The following permissions are missing:" -ForegroundColor Red
-        $missingPermissions | ForEach-Object {
-            $missingPermission = $_
-            $reason = ($requiredPermissions | Where-Object { $_.Permission -eq $missingPermission }).Reason
-            Write-Host "  - $missingPermission" -ForegroundColor Yellow
-            Write-Host "    Reason: $reason" -ForegroundColor Gray
-        }
-        Write-Host "The script will continue, but it may not function correctly without these permissions." -ForegroundColor Red
-        Write-Host "Please ensure these permissions are granted to the app registration for full functionality." -ForegroundColor Yellow
+        Write-Host "Checking required permissions:" -ForegroundColor Cyan
+        $missingPermissions = @()
+        foreach ($permissionInfo in $requiredPermissions) {
+            $permission = $permissionInfo.Permission
+            $reason = $permissionInfo.Reason
 
-        $continueChoice = Read-Host "Do you want to continue anyway? (y/n)"
-        if ($continueChoice -ne 'y') {
-            Write-Host "Script execution cancelled by user." -ForegroundColor Red
-            exit
+            # Check if either the exact permission or a "ReadWrite" version of it is granted
+            $hasPermission = $currentPermissions -contains $permission -or $currentPermissions -contains $permission.Replace(".Read", ".ReadWrite")
+
+            if ($hasPermission) {
+                Write-Host "  [✓] $permission" -ForegroundColor Green
+                Write-Host "      Reason: $reason" -ForegroundColor Gray
+            }
+            else {
+                Write-Host "  [✗] $permission" -ForegroundColor Red
+                Write-Host "      Reason: $reason" -ForegroundColor Gray
+                $missingPermissions += $permission
+            }
+        }
+
+        if ($missingPermissions.Count -eq 0) {
+            Write-Host "All required permissions are present." -ForegroundColor Green
+            Write-Host ""
+        }
+        else {
+            Write-Host "WARNING: The following permissions are missing:" -ForegroundColor Red
+            $missingPermissions | ForEach-Object {
+                $missingPermission = $_
+                $reason = ($requiredPermissions | Where-Object { $_.Permission -eq $missingPermission }).Reason
+                Write-Host "  - $missingPermission" -ForegroundColor Yellow
+                Write-Host "    Reason: $reason" -ForegroundColor Gray
+            }
+            Write-Host "The script will continue, but it may not function correctly without these permissions." -ForegroundColor Red
+            Write-Host "Please ensure these permissions are granted to the app registration for full functionality." -ForegroundColor Yellow
+
+            $continueChoice = Read-Host "Do you want to continue anyway? (y/n)"
+            if ($continueChoice -ne 'y') {
+                Write-Host "Script execution cancelled by user." -ForegroundColor Red
+                exit
+            }
         }
     }
 }
@@ -603,6 +635,11 @@ catch {
     # Additional error handling for certificate issues
     if ($_.Exception.Message -like "*Certificate with thumbprint*was not found*") {
         Write-Host "The specified certificate was not found or has expired. Please check your certificate configuration." -ForegroundColor Yellow
+    }
+
+    # Additional error handling for client secret issues
+    if ($_.Exception.Message -like "*AADSTS7000215*" -or $_.Exception.Message -like "*Invalid client secret*") {
+        Write-Host "The provided client secret is invalid or has expired. Please check your client secret configuration." -ForegroundColor Yellow
     }
 
     exit

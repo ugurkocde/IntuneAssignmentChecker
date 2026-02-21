@@ -71,7 +71,7 @@ Install-Module Microsoft.Graph.Authentication -Scope CurrentUser
 
 - 🔍 Check assignments for users, groups, and devices
 - 📱 View all 'All User' and 'All Device' assignments
-- 🔐 Support for certificate-based authentication
+- 🔐 Support for certificate-based and client secret authentication
 - 🔄 Built-in auto-update functionality
 - 📊 Detailed reporting of Configuration Profiles, Compliance Policies, and Applications
 - 📈 Interactive HTML reports with charts and filterable tables
@@ -168,7 +168,30 @@ Follow these steps if you want to use certificate authentication with an app reg
    $certThumbprint = '<YourThumbprint>' # Certificate Thumbprint
    ```
 
-### Option 2: Interactive Authentication (Simpler setup)
+### Option 2: Client Secret Authentication
+
+If you prefer a simpler setup than certificates but still need non-interactive authentication, you can use a client secret:
+
+1. Create an Entra ID App Registration (same steps as Option 1, steps 1-2)
+
+2. Create a client secret:
+
+   - In Azure Portal, go to your app registration
+   - Click "Certificates & secrets"
+   - Select "Client secrets"
+   - Click "New client secret"
+   - Add a description and select an expiry period
+   - Click "Add"
+   - **Copy the secret value immediately** -- it will not be shown again
+
+3. Run the script with the client secret:
+   ```powershell
+   .\IntuneAssignmentChecker_v3.ps1 -AppId "your-app-id" -TenantId "your-tenant-id" -ClientSecret "your-client-secret"
+   ```
+
+> **Security Note**: Never hard-code client secrets in scripts or commit them to source control. Use secure methods such as Azure Key Vault, environment variables, or secure parameter input to manage secrets.
+
+### Option 3: Interactive Authentication (Simpler setup)
 
 If you prefer not to set up an app registration, you can use interactive authentication:
 
@@ -181,12 +204,19 @@ This will prompt you to sign in with your credentials when running the script. T
 - **Choose Certificate Authentication if you**:
 
   - Need to run the script unattended
-  - Want to automate the process
+  - Want the most secure non-interactive option
   - Need consistent permissions regardless of user
-  - Are comfortable with more complex setup
+  - Are comfortable with certificate management
+
+- **Choose Client Secret Authentication if you**:
+
+  - Need to run the script unattended
+  - Want a simpler setup than certificates
+  - Are able to securely manage secret rotation before expiry
+  - Prefer not to deal with certificate creation and installation
 
 - **Choose Interactive Authentication if you**:
-  - Want a simpler setup
+  - Want the simplest setup
   - Don't need automation
   - Are comfortable using your user credentials
   - Only need to run the script occasionally
@@ -253,6 +283,9 @@ You can run the script with parameters to automate tasks without user interactio
 
 # Use with certificate authentication
 .\IntuneAssignmentChecker_v3.ps1 -CheckUser -UserPrincipalNames "user@contoso.com" -AppId "your-app-id" -TenantId "your-tenant-id" -CertificateThumbprint "your-cert-thumbprint"
+
+# Use with client secret authentication
+.\IntuneAssignmentChecker_v3.ps1 -CheckUser -UserPrincipalNames "user@contoso.com" -AppId "your-app-id" -TenantId "your-tenant-id" -ClientSecret "your-client-secret"
 ```
 
 Available parameters:
@@ -279,6 +312,7 @@ Available parameters:
 | `-AppId`                          | Application ID for authentication                          |
 | `-TenantId`                       | Tenant ID for authentication                               |
 | `-CertificateThumbprint`          | Certificate Thumbprint for authentication                  |
+| `-ClientSecret`                   | Client Secret for authentication                           |
 | `-Environment`                    | Environment (Global, USGov, USGovDoD) - defaults to Global |
 
 ### 📋 Interactive Menu Options
@@ -363,6 +397,7 @@ param(
     [string]$AppId,
     [string]$TenantId,
     [string]$CertificateThumbprint,
+    [string]$ClientSecret,
     [string]$ExportPath = "C:\\Temp\\IntuneAssignmentReport.html"
 )
 
@@ -371,14 +406,25 @@ if (-not (Get-Command IntuneAssignmentChecker -ErrorAction SilentlyContinue)) {
     Install-PSResource IntuneAssignmentChecker -Force -AcceptLicense
 }
 
-IntuneAssignmentChecker -GenerateHTMLReport `
-    -AppId $AppId `
-    -TenantId $TenantId `
-    -CertificateThumbprint $CertificateThumbprint `
-    -ExportPath $ExportPath
+# Use certificate or client secret authentication
+$authParams = @{
+    GenerateHTMLReport = $true
+    AppId              = $AppId
+    TenantId           = $TenantId
+    ExportPath         = $ExportPath
+}
+
+if ($CertificateThumbprint) {
+    $authParams['CertificateThumbprint'] = $CertificateThumbprint
+}
+elseif ($ClientSecret) {
+    $authParams['ClientSecret'] = $ClientSecret
+}
+
+IntuneAssignmentChecker @authParams
 ```
 
-This runbook assumes certificate authentication as outlined earlier. You can
+This runbook supports both certificate and client secret authentication. You can
 extend it to upload the report to storage or send it via email once the file is
 generated.
 
