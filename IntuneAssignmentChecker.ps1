@@ -7383,7 +7383,7 @@ do {
             }
 
             # Before caching starts, initialize the group assignments hashtable
-            $groupAssignments = @{}
+            $groupAssignments = [ordered]@{}
 
             # Process each group input
             $resolvedGroups = @{}
@@ -7406,15 +7406,20 @@ do {
 
                         # Initialize collections for this group (Add HealthScripts here)
                         $groupAssignments[$groupName] = @{
-                            DeviceConfigs      = [System.Collections.ArrayList]::new()
-                            SettingsCatalog    = [System.Collections.ArrayList]::new()
-                            AdminTemplates     = [System.Collections.ArrayList]::new()
-                            CompliancePolicies = [System.Collections.ArrayList]::new()
-                            RequiredApps       = [System.Collections.ArrayList]::new()
-                            AvailableApps      = [System.Collections.ArrayList]::new()
-                            AppsUninstall      = [System.Collections.ArrayList]::new()
-                            PlatformScripts    = [System.Collections.ArrayList]::new()
-                            HealthScripts      = [System.Collections.ArrayList]::new()
+                            DeviceConfigs              = [System.Collections.ArrayList]::new()
+                            SettingsCatalog            = [System.Collections.ArrayList]::new()
+                            AdminTemplates             = [System.Collections.ArrayList]::new()
+                            CompliancePolicies         = [System.Collections.ArrayList]::new()
+                            RequiredApps               = [System.Collections.ArrayList]::new()
+                            AvailableApps              = [System.Collections.ArrayList]::new()
+                            UninstallApps              = [System.Collections.ArrayList]::new()
+                            PlatformScripts            = [System.Collections.ArrayList]::new()
+                            HealthScripts              = [System.Collections.ArrayList]::new()
+                            AntivirusProfiles          = [System.Collections.ArrayList]::new()
+                            DiskEncryptionProfiles     = [System.Collections.ArrayList]::new()
+                            FirewallProfiles           = [System.Collections.ArrayList]::new()
+                            EndpointDetectionProfiles  = [System.Collections.ArrayList]::new()
+                            AttackSurfaceProfiles      = [System.Collections.ArrayList]::new()
                         }
 
                         Write-Host "Found group by ID: $groupName" -ForegroundColor Green
@@ -7447,15 +7452,20 @@ do {
 
                     # Initialize collections for this group (Add HealthScripts here)
                     $groupAssignments[$groupName] = @{
-                        DeviceConfigs      = [System.Collections.ArrayList]::new()
-                        SettingsCatalog    = [System.Collections.ArrayList]::new()
-                        AdminTemplates     = [System.Collections.ArrayList]::new()
-                        CompliancePolicies = [System.Collections.ArrayList]::new()
-                        RequiredApps       = [System.Collections.ArrayList]::new()
-                        AvailableApps      = [System.Collections.ArrayList]::new()
-                        AppsUninstall      = [System.Collections.ArrayList]::new()
-                        PlatformScripts    = [System.Collections.ArrayList]::new()
-                        HealthScripts      = [System.Collections.ArrayList]::new()
+                        DeviceConfigs              = [System.Collections.ArrayList]::new()
+                        SettingsCatalog            = [System.Collections.ArrayList]::new()
+                        AdminTemplates             = [System.Collections.ArrayList]::new()
+                        CompliancePolicies         = [System.Collections.ArrayList]::new()
+                        RequiredApps               = [System.Collections.ArrayList]::new()
+                        AvailableApps              = [System.Collections.ArrayList]::new()
+                        UninstallApps              = [System.Collections.ArrayList]::new()
+                        PlatformScripts            = [System.Collections.ArrayList]::new()
+                        HealthScripts              = [System.Collections.ArrayList]::new()
+                        AntivirusProfiles          = [System.Collections.ArrayList]::new()
+                        DiskEncryptionProfiles     = [System.Collections.ArrayList]::new()
+                        FirewallProfiles           = [System.Collections.ArrayList]::new()
+                        EndpointDetectionProfiles  = [System.Collections.ArrayList]::new()
+                        AttackSurfaceProfiles      = [System.Collections.ArrayList]::new()
                     }
 
                     Write-Host "Found group by name: $groupName (ID: $groupId)" -ForegroundColor Green
@@ -7719,15 +7729,15 @@ do {
             Write-Host ""
 
             # Update categories to include "Proactive Remediation Scripts"
-            $categories = @{
+            $categories = [ordered]@{
+                "Device Configurations"               = "DeviceConfigs"
                 "Settings Catalog"                    = "SettingsCatalog"
                 "Administrative Templates"            = "AdminTemplates"
                 "Compliance Policies"                 = "CompliancePolicies"
-                "Available Apps"                      = "AvailableApps"
                 "Required Apps"                       = "RequiredApps"
-                "Platform Scripts"                    = "PlatformScripts"
-                "Device Configurations"               = "DeviceConfigs"
+                "Available Apps"                      = "AvailableApps"
                 "Uninstall Apps"                      = "UninstallApps"
+                "Platform Scripts"                    = "PlatformScripts"
                 "Proactive Remediation Scripts"       = "HealthScripts"
                 "Endpoint Security - Antivirus"       = "AntivirusProfiles"
                 "Endpoint Security - Disk Encryption" = "DiskEncryptionProfiles"
@@ -7736,61 +7746,99 @@ do {
                 "Endpoint Security - ASR"             = "AttackSurfaceProfiles"
             }
 
-            # First pass to collect all unique policies
-            $uniquePolicies = [System.Collections.ArrayList]@()
+            # Collect all unique base policy names (strip [EXCLUDED] suffix for deduplication)
+            $uniqueBasePolicies = [System.Collections.ArrayList]@()
             foreach ($groupName in $groupAssignments.Keys) {
                 foreach ($categoryKey in $categories.Values) {
                     foreach ($policy in $groupAssignments[$groupName][$categoryKey]) {
-                        if ($uniquePolicies -notcontains $policy) {
-                            $null = $uniquePolicies.Add($policy)
+                        $baseName = $policy -replace ' \[EXCLUDED\]$', ''
+                        if ($uniqueBasePolicies -notcontains $baseName) {
+                            $null = $uniqueBasePolicies.Add($baseName)
                         }
                     }
                 }
             }
 
-            Write-Host "Found $($uniquePolicies.Count) unique policies/apps/scripts across all groups`n" -ForegroundColor Yellow
+            Write-Host "Found $($uniqueBasePolicies.Count) unique policies/apps/scripts across all groups`n" -ForegroundColor Yellow
 
-            # Display comparison for each category
+            $groupNames = @($groupAssignments.Keys)
+
+            # Display comparison for each category in table format
             foreach ($category in $categories.Keys) {
                 $categoryKey = $categories[$category]
 
-                Write-Host "=== $category ===" -ForegroundColor Cyan
-                $foundAssignments = $false
-
-                foreach ($policy in $uniquePolicies) {
-                    $assignedGroups = @()
-                    foreach ($groupName in $groupAssignments.Keys) {
-                        if ($groupAssignments[$groupName][$categoryKey] -contains $policy) {
-                            $assignedGroups += $groupName
+                # Collect base policy names that belong to this category
+                $categoryPolicies = [System.Collections.ArrayList]@()
+                foreach ($baseName in $uniqueBasePolicies) {
+                    $isInCategory = $false
+                    foreach ($g in $groupNames) {
+                        if ($groupAssignments[$g][$categoryKey] -contains $baseName -or
+                            $groupAssignments[$g][$categoryKey] -contains "$baseName [EXCLUDED]") {
+                            $isInCategory = $true
+                            break
                         }
                     }
-
-                    if ($assignedGroups.Count -gt 0) {
-                        $foundAssignments = $true
-                        Write-Host "📋 Policy: " -NoNewline -ForegroundColor White
-                        Write-Host "$policy" -ForegroundColor Yellow
-
-                        if ($assignedGroups.Count -gt 1) {
-                            Write-Host "  🔗 Shared Assignment!" -ForegroundColor Magenta
-                        }
-
-                        Write-Host "  ✅ Assigned to: " -NoNewline -ForegroundColor Green
-                        Write-Host "$($assignedGroups -join ', ')" -ForegroundColor White
-
-                        $notAssignedGroups = $groupAssignments.Keys | Where-Object { $assignedGroups -notcontains $_ }
-                        if ($notAssignedGroups) {
-                            Write-Host "  ❌ Not assigned to: " -NoNewline -ForegroundColor Red
-                            Write-Host "$($notAssignedGroups -join ', ')" -ForegroundColor White
-                        }
-                        Write-Host ""
+                    if ($isInCategory) {
+                        $null = $categoryPolicies.Add($baseName)
                     }
                 }
 
-                if (-not $foundAssignments) {
+                Write-Host "=== $category ===" -ForegroundColor Cyan
+
+                if ($categoryPolicies.Count -eq 0) {
                     Write-Host "No assignments found in this category" -ForegroundColor Gray
                     Write-Host ""
+                    continue
                 }
+
+                # Calculate column widths
+                $maxPolicyLen = ($categoryPolicies | ForEach-Object { $_.Length } | Measure-Object -Maximum).Maximum
+                $maxPolicyLen = [Math]::Max($maxPolicyLen, 6)   # min width for "Policy" header
+                $maxPolicyLen = [Math]::Min($maxPolicyLen, 50)  # cap at 50 chars
+
+                $groupColWidths = @{}
+                foreach ($g in $groupNames) {
+                    $groupColWidths[$g] = [Math]::Max($g.Length, 10)
+                }
+
+                # Header row
+                $header = ("Policy".PadRight($maxPolicyLen + 2))
+                foreach ($g in $groupNames) {
+                    $header += ($g.PadRight($groupColWidths[$g] + 2))
+                }
+                Write-Host $header -ForegroundColor White
+
+                # Separator row
+                $sep = ("-" * ($maxPolicyLen + 2))
+                foreach ($g in $groupNames) {
+                    $sep += ("-" * ($groupColWidths[$g] + 2))
+                }
+                Write-Host $sep -ForegroundColor Gray
+
+                # Data rows
+                foreach ($baseName in $categoryPolicies) {
+                    $displayName = if ($baseName.Length -gt 50) { $baseName.Substring(0, 47) + "..." } else { $baseName }
+                    $row = $displayName.PadRight($maxPolicyLen + 2)
+
+                    foreach ($g in $groupNames) {
+                        $assignments = $groupAssignments[$g][$categoryKey]
+                        $cell = ""
+                        if ($assignments -contains "$baseName [EXCLUDED]") {
+                            $cell = "E"
+                        }
+                        elseif ($assignments -contains $baseName) {
+                            $cell = "X"
+                        }
+                        $row += $cell.PadRight($groupColWidths[$g] + 2)
+                    }
+                    Write-Host $row -ForegroundColor Yellow
+                }
+                Write-Host ""
             }
+
+            # Legend
+            Write-Host "Legend: X = Included, E = Excluded" -ForegroundColor Gray
+            Write-Host ""
 
             # Summary section
             Write-Host "=== Summary ===" -ForegroundColor Cyan
@@ -7803,27 +7851,37 @@ do {
             }
             Write-Host ""
 
-            # Create comparison results
+            # Create comparison results with one column per group
             $comparisonResults = [System.Collections.ArrayList]@()
             foreach ($category in $categories.Keys) {
                 $categoryKey = $categories[$category]
-                foreach ($policy in $uniquePolicies) {
-                    $assignedGroups = @()
-                    foreach ($groupName in $groupAssignments.Keys) {
-                        if ($groupAssignments[$groupName][$categoryKey] -contains $policy) {
-                            $assignedGroups += $groupName
+                foreach ($baseName in $uniqueBasePolicies) {
+                    # Check if this policy belongs to this category
+                    $isInCategory = $false
+                    foreach ($g in $groupNames) {
+                        if ($groupAssignments[$g][$categoryKey] -contains $baseName -or
+                            $groupAssignments[$g][$categoryKey] -contains "$baseName [EXCLUDED]") {
+                            $isInCategory = $true
+                            break
                         }
                     }
+                    if (-not $isInCategory) { continue }
 
-                    if ($assignedGroups.Count -gt 0) {
-                        [void]$comparisonResults.Add([PSCustomObject]@{
-                                Category           = $category
-                                PolicyName         = $policy
-                                AssignedTo         = $assignedGroups -join '; '
-                                NotAssignedTo      = ($groupAssignments.Keys | Where-Object { $assignedGroups -notcontains $_ }) -join '; '
-                                IsSharedAssignment = ($assignedGroups.Count -gt 1)
-                            })
+                    $props = [ordered]@{
+                        Category   = $category
+                        PolicyName = $baseName
                     }
+                    foreach ($g in $groupNames) {
+                        $val = ""
+                        if ($groupAssignments[$g][$categoryKey] -contains $baseName) {
+                            $val = "Included"
+                        }
+                        elseif ($groupAssignments[$g][$categoryKey] -contains "$baseName [EXCLUDED]") {
+                            $val = "Excluded"
+                        }
+                        $props[$g] = $val
+                    }
+                    [void]$comparisonResults.Add([PSCustomObject]$props)
                 }
             }
 
