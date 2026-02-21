@@ -95,6 +95,57 @@ function Get-AssignmentInfo {
     }
 }
 
+$script:IntentTemplateSubtypeToFamily = @{
+    'antivirus'                = 'endpointSecurityAntivirus'
+    'diskEncryption'           = 'endpointSecurityDiskEncryption'
+    'firewall'                 = 'endpointSecurityFirewall'
+    'endpointDetectionReponse' = 'endpointSecurityEndpointDetectionAndResponse'
+    'attackSurfaceReduction'   = 'endpointSecurityAttackSurfaceReduction'
+    'accountProtection'        = 'endpointSecurityAccountProtection'
+}
+$script:TemplateIdToFamilyCache = $null
+
+function Get-IntentTemplateFamilyLookup {
+    if ($null -ne $script:TemplateIdToFamilyCache) {
+        return $script:TemplateIdToFamilyCache
+    }
+
+    $script:TemplateIdToFamilyCache = @{}
+    try {
+        $templates = Get-IntuneEntities -EntityType "deviceManagement/templates"
+        foreach ($template in $templates) {
+            $subtype = $template.templateSubtype
+            if ($subtype -and $script:IntentTemplateSubtypeToFamily.ContainsKey($subtype)) {
+                $script:TemplateIdToFamilyCache[$template.id] = $script:IntentTemplateSubtypeToFamily[$subtype]
+            }
+        }
+    }
+    catch {
+        Write-Warning "Unable to fetch deviceManagement/templates for intent enrichment: $($_.Exception.Message)"
+    }
+
+    return $script:TemplateIdToFamilyCache
+}
+
+function Add-IntentTemplateFamilyInfo {
+    param (
+        [Parameter(Mandatory = $true)]
+        [System.Collections.ArrayList]$IntentPolicies
+    )
+
+    $lookup = Get-IntentTemplateFamilyLookup
+
+    foreach ($intent in $IntentPolicies) {
+        if ($intent.templateId -and $lookup.ContainsKey($intent.templateId)) {
+            if (-not $intent.templateReference) {
+                $intent | Add-Member -NotePropertyName 'templateReference' -NotePropertyValue @{
+                    templateFamily = $lookup[$intent.templateId]
+                }
+            }
+        }
+    }
+}
+
 function Export-HTMLReport {
     param (
         [Parameter(Mandatory = $true)]
@@ -499,6 +550,7 @@ function Export-HTMLReport {
         FirewallProfiles          = @()
         EndpointDetectionProfiles = @()
         AttackSurfaceProfiles     = @()
+        AccountProtectionProfiles = @()
         CloudPCProvisioningPolicies = @()
         CloudPCUserSettings       = @()
     }
@@ -708,7 +760,8 @@ function Export-HTMLReport {
         @{ Name = "Disk Encryption"; Key = "DiskEncryptionProfiles"; TemplateFamily = "endpointSecurityDiskEncryption"; UserFriendlyType = "Disk Encryption Profile" },
         @{ Name = "Firewall"; Key = "FirewallProfiles"; TemplateFamily = "endpointSecurityFirewall"; UserFriendlyType = "Firewall Profile" },
         @{ Name = "Endpoint Detection and Response"; Key = "EndpointDetectionProfiles"; TemplateFamily = "endpointSecurityEndpointDetectionAndResponse"; UserFriendlyType = "EDR Profile" },
-        @{ Name = "Attack Surface Reduction"; Key = "AttackSurfaceProfiles"; TemplateFamily = "endpointSecurityAttackSurfaceReductionRules"; UserFriendlyType = "ASR Profile" }
+        @{ Name = "Attack Surface Reduction"; Key = "AttackSurfaceProfiles"; TemplateFamily = "endpointSecurityAttackSurfaceReduction"; UserFriendlyType = "ASR Profile" },
+        @{ Name = "Account Protection"; Key = "AccountProtectionProfiles"; TemplateFamily = "endpointSecurityAccountProtection"; UserFriendlyType = "Account Protection Profile" }
     )
 
     foreach ($esCategory in $endpointSecurityCategories) {
@@ -736,6 +789,7 @@ function Export-HTMLReport {
 
         # 2. Check deviceManagement/intents (Templates)
         $allIntentPolicies = Get-IntuneEntities -EntityType "deviceManagement/intents"
+        Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentPolicies
         $intentPolicies = $allIntentPolicies | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq $esCategory.TemplateFamily }
         if ($intentPolicies) {
             foreach ($policy in $intentPolicies) {
@@ -831,7 +885,8 @@ function Export-HTMLReport {
         @{ Key = 'DiskEncryptionProfiles'; Name = 'Endpoint Security - Disk Encryption' },
         @{ Key = 'FirewallProfiles'; Name = 'Endpoint Security - Firewall' },
         @{ Key = 'EndpointDetectionProfiles'; Name = 'Endpoint Security - EDR' },
-        @{ Key = 'AttackSurfaceProfiles'; Name = 'Endpoint Security - ASR' }
+        @{ Key = 'AttackSurfaceProfiles'; Name = 'Endpoint Security - ASR' },
+        @{ Key = 'AccountProtectionProfiles'; Name = 'Endpoint Security - Account Protection' }
     )
 
     # Recalculate summary stats for all defined categories in $policies
@@ -1067,7 +1122,7 @@ function Export-HTMLReport {
     var policyTypesChart = new Chart(ctx2, {
         type: 'bar',
         data: {
-            labels: ['Device Configs', 'Settings Catalog', 'Admin Templates', 'Compliance', 'App Protection', 'Autopilot Profiles', 'ESP Profiles', 'Windows 365 Provisioning', 'Windows 365 User Settings', 'Scripts', 'Antivirus', 'Disk Encryption', 'Firewall', 'EDR', 'ASR'],
+            labels: ['Device Configs', 'Settings Catalog', 'Admin Templates', 'Compliance', 'App Protection', 'Autopilot Profiles', 'ESP Profiles', 'Windows 365 Provisioning', 'Windows 365 User Settings', 'Scripts', 'Antivirus', 'Disk Encryption', 'Firewall', 'EDR', 'ASR', 'Account Protection'],
             datasets: [{
                 label: 'Number of Policies',
                 data: [
@@ -1085,11 +1140,12 @@ function Export-HTMLReport {
                     $($policies.DiskEncryptionProfiles.Count),
                     $($policies.FirewallProfiles.Count),
                     $($policies.EndpointDetectionProfiles.Count),
-                    $($policies.AttackSurfaceProfiles.Count)
+                    $($policies.AttackSurfaceProfiles.Count),
+                    $($policies.AccountProtectionProfiles.Count)
                 ],
                 backgroundColor: [
                     '#4e73df', '#1cc88a', '#36b9cc', '#f6c23e', '#e74a3b', '#6f42c1', '#20c997',
-                    '#17a2b8', '#fd7e14', '#858796', '#5a5c69', '#f8f9fc', '#dddfeb', '#d1d3e2', '#b4b6c2'
+                    '#17a2b8', '#fd7e14', '#858796', '#5a5c69', '#f8f9fc', '#dddfeb', '#d1d3e2', '#b4b6c2', '#6610f2'
                 ]
             }]
         },

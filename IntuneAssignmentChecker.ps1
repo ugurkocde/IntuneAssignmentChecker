@@ -362,7 +362,7 @@ $script:IntentTemplateSubtypeToFamily = @{
     'diskEncryption'           = 'endpointSecurityDiskEncryption'
     'firewall'                 = 'endpointSecurityFirewall'
     'endpointDetectionReponse' = 'endpointSecurityEndpointDetectionAndResponse'
-    'attackSurfaceReduction'   = 'endpointSecurityAttackSurfaceReductionRules'
+    'attackSurfaceReduction'   = 'endpointSecurityAttackSurfaceReduction'
     'accountProtection'        = 'endpointSecurityAccountProtection'
 }
 $script:TemplateIdToFamilyCache = $null
@@ -1741,6 +1741,7 @@ do {
                     FirewallProfiles            = @()
                     EndpointDetectionProfiles   = @()
                     AttackSurfaceProfiles       = @()
+                    AccountProtectionProfiles   = @()
                     DeploymentProfiles          = @()
                     ESPProfiles                 = @()
                     CloudPCProvisioningPolicies = @()
@@ -2179,7 +2180,7 @@ do {
 
                 # 1. Check configurationPolicies
                 $configPoliciesForASR = Get-IntuneEntities -EntityType "configurationPolicies"
-                $matchingConfigPoliciesASR = $configPoliciesForASR | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReductionRules' }
+                $matchingConfigPoliciesASR = $configPoliciesForASR | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReduction' }
 
                 if ($matchingConfigPoliciesASR) {
                     foreach ($policy in $matchingConfigPoliciesASR) {
@@ -2197,7 +2198,7 @@ do {
                 # 2. Check deviceManagement/intents
                 $allIntentsForASR = Get-IntuneEntities -EntityType "deviceManagement/intents"
                 Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentsForASR
-                $matchingIntentsASR = $allIntentsForASR | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReductionRules' }
+                $matchingIntentsASR = $allIntentsForASR | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReduction' }
 
                 if ($matchingIntentsASR) {
                     foreach ($policy in $matchingIntentsASR) {
@@ -2225,6 +2226,60 @@ do {
                     }
                 }
                 $relevantPolicies.AttackSurfaceProfiles = $asrPoliciesFound
+
+                # Get Endpoint Security - Account Protection Policies
+                Write-Host "Fetching Account Protection Policies..." -ForegroundColor Yellow
+                $accountProtectionPoliciesFound = [System.Collections.ArrayList]::new()
+                $processedAccountProtectionIds = [System.Collections.Generic.HashSet[string]]::new()
+
+                # 1. Check configurationPolicies
+                $configPoliciesForAccountProtection = Get-IntuneEntities -EntityType "configurationPolicies"
+                $matchingConfigPoliciesAccountProtection = $configPoliciesForAccountProtection | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAccountProtection' }
+
+                if ($matchingConfigPoliciesAccountProtection) {
+                    foreach ($policy in $matchingConfigPoliciesAccountProtection) {
+                        if ($processedAccountProtectionIds.Add($policy.id)) {
+                            $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
+                            $reason = Resolve-AssignmentReason -Assignments $assignments -GroupMembershipIds $groupMemberships.id -IncludeReasons @("All Users")
+                            if ($reason) {
+                                $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
+                                [void]$accountProtectionPoliciesFound.Add($policy)
+                            }
+                        }
+                    }
+                }
+
+                # 2. Check deviceManagement/intents
+                $allIntentsForAccountProtection = Get-IntuneEntities -EntityType "deviceManagement/intents"
+                Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentsForAccountProtection
+                $matchingIntentsAccountProtection = $allIntentsForAccountProtection | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAccountProtection' }
+
+                if ($matchingIntentsAccountProtection) {
+                    foreach ($policy in $matchingIntentsAccountProtection) {
+                        if ($processedAccountProtectionIds.Add($policy.id)) {
+                            $assignmentsResponse = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
+                            $assignments = $assignmentsResponse.value
+                            $assignmentDetailsList = foreach ($assignment in $assignments) {
+                                [PSCustomObject]@{
+                                    Reason  = switch ($assignment.target.'@odata.type') {
+                                        '#microsoft.graph.allLicensedUsersAssignmentTarget' { "All Users" }
+                                        '#microsoft.graph.allDevicesAssignmentTarget' { "All Devices" }
+                                        '#microsoft.graph.groupAssignmentTarget' { "Group Assignment" }
+                                        '#microsoft.graph.exclusionGroupAssignmentTarget' { "Group Exclusion" }
+                                        default { "Unknown" }
+                                    }
+                                    GroupId = if ($assignment.target.'@odata.type' -match "groupAssignmentTarget") { $assignment.target.groupId } else { $null }
+                                }
+                            }
+                            $reason = Resolve-AssignmentReason -Assignments $assignmentDetailsList -GroupMembershipIds $groupMemberships.id -IncludeReasons @("All Users")
+                            if ($reason) {
+                                $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
+                                [void]$accountProtectionPoliciesFound.Add($policy)
+                            }
+                        }
+                    }
+                }
+                $relevantPolicies.AccountProtectionProfiles = $accountProtectionPoliciesFound
 
                 # Get Windows 365 Cloud PC Provisioning Policies
                 Write-Host "Fetching Windows 365 Cloud PC Provisioning Policies..." -ForegroundColor Yellow
@@ -2931,6 +2986,46 @@ do {
                     Write-Host $separator
                 }
 
+                # Display Endpoint Security - Account Protection Profiles
+                Write-Host "`n------- Endpoint Security - Account Protection Profiles -------" -ForegroundColor Cyan
+                if ($relevantPolicies.AccountProtectionProfiles.Count -eq 0) {
+                    Write-Host "No Account Protection Profiles found" -ForegroundColor Gray
+                }
+                else {
+                    # Create table header
+                    $headerFormat = "{0,-50} {1,-40} {2,-30}" -f "Profile Name", "Profile ID", "Assignment"
+                    $separator = "-" * 120
+                    Write-Host $separator
+                    Write-Host $headerFormat -ForegroundColor Yellow
+                    Write-Host $separator
+
+                    foreach ($policyProfile in $relevantPolicies.AccountProtectionProfiles) {
+                        $profileName = if (-not [string]::IsNullOrWhiteSpace($policyProfile.displayName)) { $policyProfile.displayName } elseif (-not [string]::IsNullOrWhiteSpace($policyProfile.name)) { $policyProfile.name } else { "Unnamed Profile" }
+                        if ($profileName.Length -gt 47) {
+                            $profileName = $profileName.Substring(0, 44) + "..."
+                        }
+
+                        $profileId = $policyProfile.id
+                        if ($profileId.Length -gt 37) {
+                            $profileId = $profileId.Substring(0, 34) + "..."
+                        }
+
+                        $assignment = $policyProfile.AssignmentReason
+                        if ($assignment.Length -gt 27) {
+                            $assignment = $assignment.Substring(0, 24) + "..."
+                        }
+
+                        $rowFormat = "{0,-50} {1,-40} {2,-30}" -f $profileName, $profileId, $assignment
+                        if ($assignment -eq "Excluded") {
+                            Write-Host $rowFormat -ForegroundColor Red
+                        }
+                        else {
+                            Write-Host $rowFormat -ForegroundColor White
+                        }
+                    }
+                    Write-Host $separator
+                }
+
                 # Display Windows 365 Cloud PC Provisioning Policies
                 Write-Host "`n------- Windows 365 Cloud PC Provisioning Policies -------" -ForegroundColor Cyan
                 if ($relevantPolicies.CloudPCProvisioningPolicies.Count -eq 0) {
@@ -3035,6 +3130,7 @@ do {
                     Add-ExportData -ExportData $exportData -Category "Endpoint Security - Firewall" -Items $relevantPolicies.FirewallProfiles -AssignmentReason { param($item) $item.AssignmentReason }
                     Add-ExportData -ExportData $exportData -Category "Endpoint Security - EDR" -Items $relevantPolicies.EndpointDetectionProfiles -AssignmentReason { param($item) $item.AssignmentReason }
                     Add-ExportData -ExportData $exportData -Category "Endpoint Security - ASR" -Items $relevantPolicies.AttackSurfaceProfiles -AssignmentReason { param($item) $item.AssignmentReason }
+                    Add-ExportData -ExportData $exportData -Category "Endpoint Security - Account Protection" -Items $relevantPolicies.AccountProtectionProfiles -AssignmentReason { param($item) $item.AssignmentReason }
                     Add-ExportData -ExportData $exportData -Category "Required Apps" -Items $relevantPolicies.AppsRequired -AssignmentReason { param($item) $item.AssignmentReason }
                     Add-ExportData -ExportData $exportData -Category "Available Apps" -Items $relevantPolicies.AppsAvailable -AssignmentReason { param($item) $item.AssignmentReason }
                     Add-ExportData -ExportData $exportData -Category "Uninstall Apps" -Items $relevantPolicies.AppsUninstall -AssignmentReason { param($item) $item.AssignmentReason }
@@ -3120,6 +3216,7 @@ do {
                     FirewallProfiles            = @()
                     EndpointDetectionProfiles   = @()
                     AttackSurfaceProfiles       = @()
+                    AccountProtectionProfiles   = @()
                     DeploymentProfiles          = @()
                     ESPProfiles                 = @()
                     CloudPCProvisioningPolicies = @()
@@ -3275,7 +3372,8 @@ do {
                     @{ Name = "Disk Encryption"; Key = "DiskEncryptionProfiles"; TemplateFamily = "endpointSecurityDiskEncryption"; UserFriendlyType = "Disk Encryption Profile" },
                     @{ Name = "Firewall"; Key = "FirewallProfiles"; TemplateFamily = "endpointSecurityFirewall"; UserFriendlyType = "Firewall Profile" },
                     @{ Name = "Endpoint Detection and Response"; Key = "EndpointDetectionProfiles"; TemplateFamily = "endpointSecurityEndpointDetectionAndResponse"; UserFriendlyType = "EDR Profile" },
-                    @{ Name = "Attack Surface Reduction"; Key = "AttackSurfaceProfiles"; TemplateFamily = "endpointSecurityAttackSurfaceReductionRules"; UserFriendlyType = "ASR Profile" }
+                    @{ Name = "Attack Surface Reduction"; Key = "AttackSurfaceProfiles"; TemplateFamily = "endpointSecurityAttackSurfaceReduction"; UserFriendlyType = "ASR Profile" },
+                    @{ Name = "Account Protection"; Key = "AccountProtectionProfiles"; TemplateFamily = "endpointSecurityAccountProtection"; UserFriendlyType = "Account Protection Profile" }
                 )
 
                 foreach ($esCategory in $endpointSecurityCategories) {
@@ -3714,6 +3812,9 @@ do {
                 # Display Endpoint Security - Attack Surface Reduction Profiles
                 Format-PolicyTable -Title "Endpoint Security - ASR Profiles" -Policies $relevantPolicies.AttackSurfaceProfiles -GetName { param($policyProfile) if (-not [string]::IsNullOrWhiteSpace($policyProfile.displayName)) { $policyProfile.displayName } elseif (-not [string]::IsNullOrWhiteSpace($policyProfile.name)) { $policyProfile.name } else { "Unnamed Profile" } }
 
+                # Display Endpoint Security - Account Protection Profiles
+                Format-PolicyTable -Title "Endpoint Security - Account Protection Profiles" -Policies $relevantPolicies.AccountProtectionProfiles -GetName { param($policyProfile) if (-not [string]::IsNullOrWhiteSpace($policyProfile.displayName)) { $policyProfile.displayName } elseif (-not [string]::IsNullOrWhiteSpace($policyProfile.name)) { $policyProfile.name } else { "Unnamed Profile" } }
+
                 # Add to export data
                 Add-ExportData -ExportData $exportData -Category "Device" -Items @([PSCustomObject]@{
                         displayName      = $deviceName
@@ -3738,6 +3839,7 @@ do {
                     Add-ExportData -ExportData $exportData -Category "Endpoint Security - Firewall" -Items $relevantPolicies.FirewallProfiles -AssignmentReason { param($item) $item.AssignmentReason }
                     Add-ExportData -ExportData $exportData -Category "Endpoint Security - EDR" -Items $relevantPolicies.EndpointDetectionProfiles -AssignmentReason { param($item) $item.AssignmentReason }
                     Add-ExportData -ExportData $exportData -Category "Endpoint Security - ASR" -Items $relevantPolicies.AttackSurfaceProfiles -AssignmentReason { param($item) $item.AssignmentReason }
+                    Add-ExportData -ExportData $exportData -Category "Endpoint Security - Account Protection" -Items $relevantPolicies.AccountProtectionProfiles -AssignmentReason { param($item) $item.AssignmentReason }
                     Add-ExportData -ExportData $exportData -Category "Required Apps" -Items $relevantPolicies.AppsRequired -AssignmentReason { param($item) $item.AssignmentReason }
                     Add-ExportData -ExportData $exportData -Category "Available Apps" -Items $relevantPolicies.AppsAvailable -AssignmentReason { param($item) $item.AssignmentReason }
                     Add-ExportData -ExportData $exportData -Category "Uninstall Apps" -Items $relevantPolicies.AppsUninstall -AssignmentReason { param($item) $item.AssignmentReason }
@@ -3815,6 +3917,7 @@ do {
                     FirewallProfiles            = @()
                     EndpointDetectionProfiles   = @()
                     AttackSurfaceProfiles       = @()
+                    AccountProtectionProfiles   = @()
                     DeploymentProfiles          = @()
                     ESPProfiles                 = @()
                     CloudPCProvisioningPolicies = @()
@@ -4293,7 +4396,7 @@ do {
 
                 # 1. Check configurationPolicies
                 $configPoliciesForASRDevice = Get-IntuneEntities -EntityType "configurationPolicies"
-                $matchingConfigPoliciesASRDevice = $configPoliciesForASRDevice | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReductionRules' }
+                $matchingConfigPoliciesASRDevice = $configPoliciesForASRDevice | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReduction' }
 
                 if ($matchingConfigPoliciesASRDevice) {
                     foreach ($policy in $matchingConfigPoliciesASRDevice) {
@@ -4311,7 +4414,7 @@ do {
                 # 2. Check deviceManagement/intents
                 $allIntentsForASRDevice = Get-IntuneEntities -EntityType "deviceManagement/intents"
                 Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentsForASRDevice
-                $matchingIntentsASRDevice = $allIntentsForASRDevice | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReductionRules' }
+                $matchingIntentsASRDevice = $allIntentsForASRDevice | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReduction' }
 
                 if ($matchingIntentsASRDevice) {
                     foreach ($policy in $matchingIntentsASRDevice) {
@@ -4338,6 +4441,59 @@ do {
                     }
                 }
                 $relevantPolicies.AttackSurfaceProfiles = $asrPoliciesFoundDevice
+
+                # Get Endpoint Security - Account Protection Policies
+                Write-Host "Fetching Account Protection Policies" -ForegroundColor Yellow
+                $accountProtectionPoliciesFoundDevice = [System.Collections.ArrayList]::new()
+                $processedAccountProtectionIdsDevice = [System.Collections.Generic.HashSet[string]]::new()
+
+                # 1. Check configurationPolicies
+                $configPoliciesForAccountProtectionDevice = Get-IntuneEntities -EntityType "configurationPolicies"
+                $matchingConfigPoliciesAccountProtectionDevice = $configPoliciesForAccountProtectionDevice | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAccountProtection' }
+
+                if ($matchingConfigPoliciesAccountProtectionDevice) {
+                    foreach ($policy in $matchingConfigPoliciesAccountProtectionDevice) {
+                        if ($processedAccountProtectionIdsDevice.Add($policy.id)) {
+                            $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
+                            $reason = Resolve-AssignmentReason -Assignments $assignments -GroupMembershipIds $groupMemberships.id -IncludeReasons @("All Devices")
+                            if ($reason -and (Test-PlatformCompatibility -DeviceOS $deviceOS -Policy $policy)) {
+                                $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
+                                [void]$accountProtectionPoliciesFoundDevice.Add($policy)
+                            }
+                        }
+                    }
+                }
+
+                # 2. Check deviceManagement/intents
+                $allIntentsForAccountProtectionDevice = Get-IntuneEntities -EntityType "deviceManagement/intents"
+                Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentsForAccountProtectionDevice
+                $matchingIntentsAccountProtectionDevice = $allIntentsForAccountProtectionDevice | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAccountProtection' }
+
+                if ($matchingIntentsAccountProtectionDevice) {
+                    foreach ($policy in $matchingIntentsAccountProtectionDevice) {
+                        if ($processedAccountProtectionIdsDevice.Add($policy.id)) {
+                            $assignmentsResponse = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
+                            $assignments = $assignmentsResponse.value
+                            $assignmentDetailsList = foreach ($assignment in $assignments) {
+                                [PSCustomObject]@{
+                                    Reason  = switch ($assignment.target.'@odata.type') {
+                                        '#microsoft.graph.allDevicesAssignmentTarget'     { "All Devices" }
+                                        '#microsoft.graph.groupAssignmentTarget'          { "Group Assignment" }
+                                        '#microsoft.graph.exclusionGroupAssignmentTarget' { "Group Exclusion" }
+                                        default { "Unknown" }
+                                    }
+                                    GroupId = if ($assignment.target.'@odata.type' -match "groupAssignmentTarget") { $assignment.target.groupId } else { $null }
+                                }
+                            }
+                            $reason = Resolve-AssignmentReason -Assignments $assignmentDetailsList -GroupMembershipIds $groupMemberships.id -IncludeReasons @("All Devices")
+                            if ($reason -and (Test-PlatformCompatibility -DeviceOS $deviceOS -Policy $policy)) {
+                                $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
+                                [void]$accountProtectionPoliciesFoundDevice.Add($policy)
+                            }
+                        }
+                    }
+                }
+                $relevantPolicies.AccountProtectionProfiles = $accountProtectionPoliciesFoundDevice
 
                 # Get Applications
                 Write-Host "Fetching Applications..." -ForegroundColor Yellow
@@ -4579,6 +4735,9 @@ do {
                 # Display Endpoint Security - Attack Surface Reduction Profiles
                 Format-PolicyTable -Title "Endpoint Security - ASR Profiles" -Policies $relevantPolicies.AttackSurfaceProfiles -GetName { param($policyProfile) if (-not [string]::IsNullOrWhiteSpace($policyProfile.displayName)) { $policyProfile.displayName } elseif (-not [string]::IsNullOrWhiteSpace($policyProfile.name)) { $policyProfile.name } else { "Unnamed Profile" } }
 
+                # Display Endpoint Security - Account Protection Profiles
+                Format-PolicyTable -Title "Endpoint Security - Account Protection Profiles" -Policies $relevantPolicies.AccountProtectionProfiles -GetName { param($policyProfile) if (-not [string]::IsNullOrWhiteSpace($policyProfile.displayName)) { $policyProfile.displayName } elseif (-not [string]::IsNullOrWhiteSpace($policyProfile.name)) { $policyProfile.name } else { "Unnamed Profile" } }
+
                 # Add to export data
                 Add-ExportData -ExportData $exportData -Category "Device" -Items @([PSCustomObject]@{
                         displayName      = $deviceName
@@ -4601,6 +4760,7 @@ do {
                     Add-ExportData -ExportData $exportData -Category "Endpoint Security - Firewall" -Items $relevantPolicies.FirewallProfiles -AssignmentReason { param($item) $item.AssignmentReason }
                     Add-ExportData -ExportData $exportData -Category "Endpoint Security - EDR" -Items $relevantPolicies.EndpointDetectionProfiles -AssignmentReason { param($item) $item.AssignmentReason }
                     Add-ExportData -ExportData $exportData -Category "Endpoint Security - ASR" -Items $relevantPolicies.AttackSurfaceProfiles -AssignmentReason { param($item) $item.AssignmentReason }
+                    Add-ExportData -ExportData $exportData -Category "Endpoint Security - Account Protection" -Items $relevantPolicies.AccountProtectionProfiles -AssignmentReason { param($item) $item.AssignmentReason }
                     Add-ExportData -ExportData $exportData -Category "Windows 365 Cloud PC Provisioning Policy" -Items $relevantPolicies.CloudPCProvisioningPolicies -AssignmentReason { param($item) $item.AssignmentReason }
                     Add-ExportData -ExportData $exportData -Category "Windows 365 Cloud PC User Setting" -Items $relevantPolicies.CloudPCUserSettings -AssignmentReason { param($item) $item.AssignmentReason }
                     Add-ExportData -ExportData $exportData -Category "Required Apps" -Items $relevantPolicies.AppsRequired -AssignmentReason { param($item) $item.AssignmentReason }
@@ -4631,6 +4791,7 @@ do {
                 FirewallProfiles            = @()
                 EndpointDetectionProfiles   = @()
                 AttackSurfaceProfiles       = @()
+                AccountProtectionProfiles   = @()
                 DeploymentProfiles          = @()
                 ESPProfiles                 = @()
                 CloudPCProvisioningPolicies = @()
@@ -5140,7 +5301,7 @@ do {
 
             # 1. Check configurationPolicies
             $configPoliciesForASRAll = Get-IntuneEntities -EntityType "configurationPolicies"
-            $matchingConfigPoliciesASRAll = $configPoliciesForASRAll | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReductionRules' }
+            $matchingConfigPoliciesASRAll = $configPoliciesForASRAll | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReduction' }
 
             if ($matchingConfigPoliciesASRAll) {
                 foreach ($policy in $matchingConfigPoliciesASRAll) {
@@ -5162,7 +5323,7 @@ do {
             # 2. Check deviceManagement/intents
             $allIntentsForASRAll = Get-IntuneEntities -EntityType "deviceManagement/intents"
             Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentsForASRAll
-            $matchingIntentsASRAll = $allIntentsForASRAll | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReductionRules' }
+            $matchingIntentsASRAll = $allIntentsForASRAll | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReduction' }
 
             if ($matchingIntentsASRAll) {
                 foreach ($policy in $matchingIntentsASRAll) {
@@ -5185,6 +5346,58 @@ do {
             }
             $allPolicies.AttackSurfaceProfiles = $asrPoliciesFoundAll
 
+            # Get Endpoint Security - Account Protection Policies
+            Write-Host "Fetching Account Protection Policies..." -ForegroundColor Yellow
+            $accountProtectionPoliciesFoundAll = [System.Collections.ArrayList]::new()
+            $processedAccountProtectionIdsAll = [System.Collections.Generic.HashSet[string]]::new()
+
+            # 1. Check configurationPolicies
+            $configPoliciesForAccountProtectionAll = Get-IntuneEntities -EntityType "configurationPolicies"
+            $matchingConfigPoliciesAccountProtectionAll = $configPoliciesForAccountProtectionAll | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAccountProtection' }
+
+            if ($matchingConfigPoliciesAccountProtectionAll) {
+                foreach ($policy in $matchingConfigPoliciesAccountProtectionAll) {
+                    if ($processedAccountProtectionIdsAll.Add($policy.id)) {
+                        $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
+                        $assignmentSummary = $assignments | ForEach-Object {
+                            if ($_.Reason -eq "Group Assignment" -or $_.Reason -eq "Group Exclusion") {
+                                $groupInfo = Get-GroupInfo -GroupId $_.GroupId
+                                "$($_.Reason) - $($groupInfo.DisplayName)"
+                            }
+                            else { $_.Reason }
+                        }
+                        $policy | Add-Member -NotePropertyName 'AssignmentSummary' -NotePropertyValue ($assignmentSummary -join "; ") -Force
+                        [void]$accountProtectionPoliciesFoundAll.Add($policy)
+                    }
+                }
+            }
+
+            # 2. Check deviceManagement/intents
+            $allIntentsForAccountProtectionAll = Get-IntuneEntities -EntityType "deviceManagement/intents"
+            Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentsForAccountProtectionAll
+            $matchingIntentsAccountProtectionAll = $allIntentsForAccountProtectionAll | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAccountProtection' }
+
+            if ($matchingIntentsAccountProtectionAll) {
+                foreach ($policy in $matchingIntentsAccountProtectionAll) {
+                    if ($processedAccountProtectionIdsAll.Add($policy.id)) {
+                        $assignmentsResponse = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
+                        $assignmentSummary = $assignmentsResponse.value | ForEach-Object {
+                            $reasonText = switch ($_.target.'@odata.type') {
+                                '#microsoft.graph.allLicensedUsersAssignmentTarget' { "All Users" }
+                                '#microsoft.graph.allDevicesAssignmentTarget'       { "All Devices" }
+                                '#microsoft.graph.groupAssignmentTarget'            { "Group: " + (Get-GroupInfo -GroupId $_.target.groupId).DisplayName }
+                                '#microsoft.graph.exclusionGroupAssignmentTarget'   { "Exclude Group: " + (Get-GroupInfo -GroupId $_.target.groupId).DisplayName }
+                                default { "Unknown" }
+                            }
+                            $reasonText
+                        }
+                        $policy | Add-Member -NotePropertyName 'AssignmentSummary' -NotePropertyValue ($assignmentSummary -join "; ") -Force
+                        [void]$accountProtectionPoliciesFoundAll.Add($policy)
+                    }
+                }
+            }
+            $allPolicies.AccountProtectionProfiles = $accountProtectionPoliciesFoundAll
+
             # Display all policies and their assignments
             Invoke-PolicyAssignments -Policies $allPolicies.DeviceConfigs -DisplayName "Device Configurations"
             Invoke-PolicyAssignments -Policies $allPolicies.SettingsCatalog -DisplayName "Settings Catalog Policies"
@@ -5203,6 +5416,7 @@ do {
             Invoke-PolicyAssignments -Policies $allPolicies.FirewallProfiles -DisplayName "Endpoint Security - Firewall Profiles"
             Invoke-PolicyAssignments -Policies $allPolicies.EndpointDetectionProfiles -DisplayName "Endpoint Security - EDR Profiles"
             Invoke-PolicyAssignments -Policies $allPolicies.AttackSurfaceProfiles -DisplayName "Endpoint Security - ASR Profiles"
+            Invoke-PolicyAssignments -Policies $allPolicies.AccountProtectionProfiles -DisplayName "Endpoint Security - Account Protection Profiles"
 
             # Add to export data
             Add-ExportData -ExportData $exportData -Category "Device Configuration" -Items $allPolicies.DeviceConfigs -AssignmentReason { param($item) $item.AssignmentSummary }
@@ -5222,6 +5436,7 @@ do {
             Add-ExportData -ExportData $exportData -Category "Endpoint Security - Firewall" -Items $allPolicies.FirewallProfiles -AssignmentReason { param($item) $item.AssignmentSummary }
             Add-ExportData -ExportData $exportData -Category "Endpoint Security - EDR" -Items $allPolicies.EndpointDetectionProfiles -AssignmentReason { param($item) $item.AssignmentSummary }
             Add-ExportData -ExportData $exportData -Category "Endpoint Security - ASR" -Items $allPolicies.AttackSurfaceProfiles -AssignmentReason { param($item) $item.AssignmentSummary }
+            Add-ExportData -ExportData $exportData -Category "Endpoint Security - Account Protection" -Items $allPolicies.AccountProtectionProfiles -AssignmentReason { param($item) $item.AssignmentSummary }
 
             # Export results if requested
             Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneAllPolicies.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath
@@ -5242,9 +5457,15 @@ do {
                 HealthScripts            = @()
                 RequiredApps             = @()
                 AvailableApps            = @()
-                UninstallApps            = @()
-                DeploymentProfiles       = @()
-                ESPProfiles              = @()
+                UninstallApps                = @()
+                AntivirusProfiles            = @()
+                DiskEncryptionProfiles       = @()
+                FirewallProfiles             = @()
+                EndpointDetectionProfiles    = @()
+                AttackSurfaceProfiles        = @()
+                AccountProtectionProfiles    = @()
+                DeploymentProfiles           = @()
+                ESPProfiles                  = @()
             }
 
             # Get Device Configurations
@@ -5561,7 +5782,7 @@ do {
 
             # 1. Check configurationPolicies
             $configPoliciesForASR_AllUsers = Get-IntuneEntities -EntityType "configurationPolicies"
-            $matchingConfigPoliciesASR_AllUsers = $configPoliciesForASR_AllUsers | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReductionRules' }
+            $matchingConfigPoliciesASR_AllUsers = $configPoliciesForASR_AllUsers | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReduction' }
 
             if ($matchingConfigPoliciesASR_AllUsers) {
                 foreach ($policy in $matchingConfigPoliciesASR_AllUsers) {
@@ -5578,7 +5799,7 @@ do {
             # 2. Check deviceManagement/intents
             $allIntentsForASR_AllUsers = Get-IntuneEntities -EntityType "deviceManagement/intents"
             Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentsForASR_AllUsers
-            $matchingIntentsASR_AllUsers = $allIntentsForASR_AllUsers | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReductionRules' }
+            $matchingIntentsASR_AllUsers = $allIntentsForASR_AllUsers | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReduction' }
 
             if ($matchingIntentsASR_AllUsers) {
                 foreach ($policy in $matchingIntentsASR_AllUsers) {
@@ -5592,6 +5813,45 @@ do {
                 }
             }
             $allUsersAssignments.AttackSurfaceProfiles = $asrPoliciesFound_AllUsers
+
+            # Get Endpoint Security - Account Protection Policies
+            Write-Host "Fetching Account Protection Policies assigned to All Users..." -ForegroundColor Yellow
+            $accountProtectionPoliciesFound_AllUsers = [System.Collections.ArrayList]::new()
+            $processedAccountProtectionIds_AllUsers = [System.Collections.Generic.HashSet[string]]::new()
+
+            # 1. Check configurationPolicies
+            $configPoliciesForAccountProtection_AllUsers = Get-IntuneEntities -EntityType "configurationPolicies"
+            $matchingConfigPoliciesAccountProtection_AllUsers = $configPoliciesForAccountProtection_AllUsers | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAccountProtection' }
+
+            if ($matchingConfigPoliciesAccountProtection_AllUsers) {
+                foreach ($policy in $matchingConfigPoliciesAccountProtection_AllUsers) {
+                    if ($processedAccountProtectionIds_AllUsers.Add($policy.id)) {
+                        $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
+                        if ($assignments | Where-Object { $_.Reason -eq "All Users" }) {
+                            $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Users" -Force
+                            [void]$accountProtectionPoliciesFound_AllUsers.Add($policy)
+                        }
+                    }
+                }
+            }
+
+            # 2. Check deviceManagement/intents
+            $allIntentsForAccountProtection_AllUsers = Get-IntuneEntities -EntityType "deviceManagement/intents"
+            Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentsForAccountProtection_AllUsers
+            $matchingIntentsAccountProtection_AllUsers = $allIntentsForAccountProtection_AllUsers | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAccountProtection' }
+
+            if ($matchingIntentsAccountProtection_AllUsers) {
+                foreach ($policy in $matchingIntentsAccountProtection_AllUsers) {
+                    if ($processedAccountProtectionIds_AllUsers.Add($policy.id)) {
+                        $assignmentsResponse = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
+                        if ($assignmentsResponse.value | Where-Object { $_.target.'@odata.type' -eq '#microsoft.graph.allLicensedUsersAssignmentTarget' }) {
+                            $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Users" -Force
+                            [void]$accountProtectionPoliciesFound_AllUsers.Add($policy)
+                        }
+                    }
+                }
+            }
+            $allUsersAssignments.AccountProtectionProfiles = $accountProtectionPoliciesFound_AllUsers
 
             # Get Autopilot Deployment Profiles
             Write-Host "Fetching Autopilot Deployment Profiles assigned to All Users..." -ForegroundColor Yellow
@@ -5835,6 +6095,19 @@ do {
                 }
             }
 
+            # Display Endpoint Security - Account Protection Profiles
+            Write-Host "`n------- Endpoint Security - Account Protection Profiles -------" -ForegroundColor Cyan
+            if ($allUsersAssignments.AccountProtectionProfiles.Count -eq 0) {
+                Write-Host "No Account Protection Profiles assigned to All Users" -ForegroundColor Gray
+            }
+            else {
+                foreach ($policyProfile in $allUsersAssignments.AccountProtectionProfiles) {
+                    $profileNameForDisplay = if ($policyProfile.displayName) { $policyProfile.displayName } else { $policyProfile.name }
+                    Write-Host "Account Protection Profile Name: $profileNameForDisplay, Profile ID: $($policyProfile.id)" -ForegroundColor White
+                    Add-ExportData -ExportData $exportData -Category "Endpoint Security - Account Protection" -Items @($policyProfile) -AssignmentReason "All Users"
+                }
+            }
+
             # Display Autopilot Deployment Profiles
             Write-Host "`n------- Autopilot Deployment Profiles -------" -ForegroundColor Cyan
             if ($allUsersAssignments.DeploymentProfiles.Count -eq 0) {
@@ -5886,8 +6159,9 @@ do {
                 AntivirusProfiles         = @()
                 DiskEncryptionProfiles    = @()
                 FirewallProfiles          = @()
-                EndpointDetectionProfiles = @()
-                AttackSurfaceProfiles     = @()
+                EndpointDetectionProfiles    = @()
+                AttackSurfaceProfiles        = @()
+                AccountProtectionProfiles    = @()
             }
 
             # Get Device Configurations
@@ -6213,7 +6487,7 @@ do {
 
             # 1. Check configurationPolicies for ASR
             $configPoliciesForASR_AllDevices = Get-IntuneEntities -EntityType "configurationPolicies"
-            $matchingConfigPoliciesASR_AllDevices = $configPoliciesForASR_AllDevices | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReductionRules' }
+            $matchingConfigPoliciesASR_AllDevices = $configPoliciesForASR_AllDevices | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReduction' }
             if ($matchingConfigPoliciesASR_AllDevices) {
                 foreach ($policy in $matchingConfigPoliciesASR_AllDevices) {
                     if ($processedASRIds_AllDevices.Add($policy.id)) {
@@ -6229,7 +6503,7 @@ do {
             # 2. Check deviceManagement/intents for ASR
             $allIntentsForASR_AllDevices = Get-IntuneEntities -EntityType "deviceManagement/intents"
             Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentsForASR_AllDevices
-            $matchingIntentsASR_AllDevices = $allIntentsForASR_AllDevices | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReductionRules' }
+            $matchingIntentsASR_AllDevices = $allIntentsForASR_AllDevices | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReduction' }
             if ($matchingIntentsASR_AllDevices) {
                 foreach ($policy in $matchingIntentsASR_AllDevices) {
                     if ($processedASRIds_AllDevices.Add($policy.id)) {
@@ -6242,6 +6516,43 @@ do {
                 }
             }
             $allDevicesAssignments.AttackSurfaceProfiles = $asrPoliciesFound_AllDevices
+
+            # Get Endpoint Security - Account Protection Policies (Dual Check)
+            Write-Host "Fetching Account Protection Policies assigned to All Devices..." -ForegroundColor Yellow
+            $accountProtectionPoliciesFound_AllDevices = [System.Collections.ArrayList]::new()
+            $processedAccountProtectionIds_AllDevices = [System.Collections.Generic.HashSet[string]]::new()
+
+            # 1. Check configurationPolicies for Account Protection
+            $configPoliciesForAccountProtection_AllDevices = Get-IntuneEntities -EntityType "configurationPolicies"
+            $matchingConfigPoliciesAccountProtection_AllDevices = $configPoliciesForAccountProtection_AllDevices | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAccountProtection' }
+            if ($matchingConfigPoliciesAccountProtection_AllDevices) {
+                foreach ($policy in $matchingConfigPoliciesAccountProtection_AllDevices) {
+                    if ($processedAccountProtectionIds_AllDevices.Add($policy.id)) {
+                        $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
+                        if ($assignments | Where-Object { $_.Reason -eq "All Devices" }) {
+                            $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Devices" -Force
+                            [void]$accountProtectionPoliciesFound_AllDevices.Add($policy)
+                        }
+                    }
+                }
+            }
+
+            # 2. Check deviceManagement/intents for Account Protection
+            $allIntentsForAccountProtection_AllDevices = Get-IntuneEntities -EntityType "deviceManagement/intents"
+            Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentsForAccountProtection_AllDevices
+            $matchingIntentsAccountProtection_AllDevices = $allIntentsForAccountProtection_AllDevices | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAccountProtection' }
+            if ($matchingIntentsAccountProtection_AllDevices) {
+                foreach ($policy in $matchingIntentsAccountProtection_AllDevices) {
+                    if ($processedAccountProtectionIds_AllDevices.Add($policy.id)) {
+                        $assignmentsResponse = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
+                        if ($assignmentsResponse.value | Where-Object { $_.target.'@odata.type' -eq '#microsoft.graph.allDevicesAssignmentTarget' }) {
+                            $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Devices" -Force
+                            [void]$accountProtectionPoliciesFound_AllDevices.Add($policy)
+                        }
+                    }
+                }
+            }
+            $allDevicesAssignments.AccountProtectionProfiles = $accountProtectionPoliciesFound_AllDevices
 
             # Display results
             Write-Host "`nPolicies Assigned to All Devices:" -ForegroundColor Green
@@ -6455,6 +6766,19 @@ do {
                 foreach ($policyProfile in $allDevicesAssignments.AttackSurfaceProfiles) {
                     Write-Host "ASR Profile Name: $($policyProfile.displayName), Profile ID: $($policyProfile.id)" -ForegroundColor White
                     Add-ExportData -ExportData $exportData -Category "Endpoint Security - ASR" -Items @($policyProfile) -AssignmentReason "All Devices"
+                }
+            }
+
+            # Display Endpoint Security - Account Protection Profiles
+            Write-Host "`n------- Endpoint Security - Account Protection Profiles -------" -ForegroundColor Cyan
+            if ($allDevicesAssignments.AccountProtectionProfiles.Count -eq 0) {
+                Write-Host "No Account Protection Profiles assigned to All Devices" -ForegroundColor Gray
+            }
+            else {
+                foreach ($policyProfile in $allDevicesAssignments.AccountProtectionProfiles) {
+                    $profileNameForDisplay = if (-not [string]::IsNullOrWhiteSpace($policyProfile.displayName)) { $policyProfile.displayName } elseif (-not [string]::IsNullOrWhiteSpace($policyProfile.name)) { $policyProfile.name } else { "Unnamed Account Protection Profile" }
+                    Write-Host "Account Protection Profile Name: $profileNameForDisplay, Profile ID: $($policyProfile.id)" -ForegroundColor White
+                    Add-ExportData -ExportData $exportData -Category "Endpoint Security - Account Protection" -Items @($policyProfile) -AssignmentReason "All Devices"
                 }
             }
 
@@ -6718,12 +7042,26 @@ do {
             Write-Host "Fetching ASR Policies..." -ForegroundColor Yellow
             $allIntentsForASRUnassigned = Get-IntuneEntities -EntityType "deviceManagement/intents"
             Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentsForASRUnassigned
-            $asrPolicies = $allIntentsForASRUnassigned | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReductionRules' }
+            $asrPolicies = $allIntentsForASRUnassigned | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReduction' }
             if ($asrPolicies) {
                 foreach ($policy in $asrPolicies) {
                     $assignments = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
                     if ($assignments.value.Count -eq 0) {
                         $unassignedPolicies.AttackSurfaceProfiles += $policy
+                    }
+                }
+            }
+
+            # Get Endpoint Security - Account Protection Policies
+            Write-Host "Fetching Account Protection Policies..." -ForegroundColor Yellow
+            $allIntentsForAccountProtectionUnassigned = Get-IntuneEntities -EntityType "deviceManagement/intents"
+            Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentsForAccountProtectionUnassigned
+            $accountProtectionPolicies = $allIntentsForAccountProtectionUnassigned | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAccountProtection' }
+            if ($accountProtectionPolicies) {
+                foreach ($policy in $accountProtectionPolicies) {
+                    $assignments = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
+                    if ($assignments.value.Count -eq 0) {
+                        $unassignedPolicies.AccountProtectionProfiles += $policy
                     }
                 }
             }
@@ -6915,6 +7253,18 @@ do {
                 }
             }
 
+            # Display Endpoint Security - Account Protection Profiles
+            Write-Host "`n------- Endpoint Security - Account Protection Profiles -------" -ForegroundColor Cyan
+            if ($unassignedPolicies.AccountProtectionProfiles.Count -eq 0) {
+                Write-Host "No unassigned Account Protection Profiles found" -ForegroundColor Gray
+            }
+            else {
+                foreach ($policyProfile in $unassignedPolicies.AccountProtectionProfiles) {
+                    Write-Host "Account Protection Profile Name: $($policyProfile.displayName), Profile ID: $($policyProfile.id)" -ForegroundColor White
+                    Add-ExportData -ExportData $exportData -Category "Endpoint Security - Account Protection" -Items @($policyProfile) -AssignmentReason "No Assignment"
+                }
+            }
+
             # Display Applications
             Write-Host "`n------- Applications -------" -ForegroundColor Cyan
             if ($unassignedPolicies.Apps.Count -eq 0) {
@@ -6956,14 +7306,20 @@ do {
 
             # Initialize collections for policies with empty group assignments
             $emptyGroupAssignments = @{
-                DeviceConfigs            = @()
-                SettingsCatalog          = @()
-                AdminTemplates           = @()
-                CompliancePolicies       = @()
-                AppProtectionPolicies    = @()
-                AppConfigurationPolicies = @()
-                PlatformScripts          = @()
-                HealthScripts            = @()
+                DeviceConfigs             = @()
+                SettingsCatalog           = @()
+                AdminTemplates            = @()
+                CompliancePolicies        = @()
+                AppProtectionPolicies     = @()
+                AppConfigurationPolicies  = @()
+                PlatformScripts           = @()
+                HealthScripts             = @()
+                AntivirusProfiles         = @()
+                DiskEncryptionProfiles    = @()
+                FirewallProfiles          = @()
+                EndpointDetectionProfiles = @()
+                AttackSurfaceProfiles     = @()
+                AccountProtectionProfiles = @()
             }
 
             # Get Device Configurations
@@ -7420,6 +7776,7 @@ do {
                             FirewallProfiles           = [System.Collections.ArrayList]::new()
                             EndpointDetectionProfiles  = [System.Collections.ArrayList]::new()
                             AttackSurfaceProfiles      = [System.Collections.ArrayList]::new()
+                            AccountProtectionProfiles  = [System.Collections.ArrayList]::new()
                         }
 
                         Write-Host "Found group by ID: $groupName" -ForegroundColor Green
@@ -7466,6 +7823,7 @@ do {
                         FirewallProfiles           = [System.Collections.ArrayList]::new()
                         EndpointDetectionProfiles  = [System.Collections.ArrayList]::new()
                         AttackSurfaceProfiles      = [System.Collections.ArrayList]::new()
+                        AccountProtectionProfiles  = [System.Collections.ArrayList]::new()
                     }
 
                     Write-Host "Found group by name: $groupName (ID: $groupId)" -ForegroundColor Green
@@ -7709,12 +8067,25 @@ do {
                 # Get Endpoint Security - Attack Surface Reduction Policies
                 $allIntentsForASRCompare = Get-IntuneEntities -EntityType "deviceManagement/intents"
                 Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentsForASRCompare
-                $asrPolicies = $allIntentsForASRCompare | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReductionRules' }
+                $asrPolicies = $allIntentsForASRCompare | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReduction' }
                 if ($asrPolicies) {
                     foreach ($policy in $asrPolicies) {
                         $assignments = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
                         if ($assignments.value | Where-Object { $_.target.'@odata.type' -eq '#microsoft.graph.groupAssignmentTarget' -and $_.target.groupId -eq $groupId }) {
                             [void]$groupAssignments[$groupName].AttackSurfaceProfiles.Add($policy.displayName)
+                        }
+                    }
+                }
+
+                # Get Endpoint Security - Account Protection Policies
+                $allIntentsForAccountProtectionCompare = Get-IntuneEntities -EntityType "deviceManagement/intents"
+                Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentsForAccountProtectionCompare
+                $accountProtectionPolicies = $allIntentsForAccountProtectionCompare | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAccountProtection' }
+                if ($accountProtectionPolicies) {
+                    foreach ($policy in $accountProtectionPolicies) {
+                        $assignments = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
+                        if ($assignments.value | Where-Object { $_.target.'@odata.type' -eq '#microsoft.graph.groupAssignmentTarget' -and $_.target.groupId -eq $groupId }) {
+                            [void]$groupAssignments[$groupName].AccountProtectionProfiles.Add($policy.displayName)
                         }
                     }
                 }
@@ -7744,6 +8115,7 @@ do {
                 "Endpoint Security - Firewall"        = "FirewallProfiles"
                 "Endpoint Security - EDR"             = "EndpointDetectionProfiles"
                 "Endpoint Security - ASR"             = "AttackSurfaceProfiles"
+                "Endpoint Security - Account Protection" = "AccountProtectionProfiles"
             }
 
             # Collect all unique base policy names (strip [EXCLUDED] suffix for deduplication)
