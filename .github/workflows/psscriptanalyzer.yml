@@ -71,8 +71,8 @@ jobs:
               if ($errors) {
                   Write-Host "❌ ERRORS" -ForegroundColor Red
                   Write-Host "========" -ForegroundColor Red
-                  foreach ($error in $errors) {
-                      Write-Host "Line $($error.Line): [$($error.RuleName)] $($error.Message)" -ForegroundColor Red
+                  foreach ($err in $errors) {
+                      Write-Host "Line $($err.Line): [$($err.RuleName)] $($err.Message)" -ForegroundColor Red
                   }
                   Write-Host ""
               }

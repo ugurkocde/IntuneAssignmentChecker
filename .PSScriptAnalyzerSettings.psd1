@@ -3,6 +3,7 @@
         'PSAvoidUsingWriteHost',
         'PSUseSingularNouns',
         'PSUseBOMForUnicodeEncodedFile',
-        'PSUseShouldProcessForStateChangingFunctions'
+        'PSUseShouldProcessForStateChangingFunctions',
+        'PSAvoidUsingConvertToSecureStringWithPlainText'
     )
 }
