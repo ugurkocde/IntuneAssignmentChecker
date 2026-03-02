@@ -438,14 +438,14 @@ function Export-HTMLReport {
         </div>
 
         <div class="search-box">
-            <div class="row align-items-end">
-                <div class="col-md-4">
+            <div class="row align-items-end mb-2">
+                <div class="col-md-6">
                     <div class="form-group">
                         <label for="groupSearch">Search by Group Name:</label>
                         <input type="text" class="form-control" id="groupSearch" placeholder="Enter group name...">
                     </div>
                 </div>
-                <div class="col-md-4">
+                <div class="col-md-6">
                     <div class="form-group">
                         <label for="assignmentTypeFilter" class="form-label">Filter by Assignment Type:</label>
                         <select class="form-select" id="assignmentTypeFilter">
@@ -458,12 +458,23 @@ function Export-HTMLReport {
                         </select>
                     </div>
                 </div>
-                <div class="col-md-4">
+            </div>
+            <div class="row align-items-end">
+                <div class="col-md-6">
                     <div class="form-group">
                         <label for="scopeTagFilter" class="form-label">Filter by Scope Tag:</label>
                         <select class="form-select" id="scopeTagFilter">
                             <option value="all">All Scope Tags</option>
                             <!-- Scope tag options will be inserted here -->
+                        </select>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="form-group">
+                        <label for="platformFilter" class="form-label">Filter by Platform:</label>
+                        <select class="form-select" id="platformFilter">
+                            <option value="all">All Platforms</option>
+                            <!-- Platform options will be inserted here -->
                         </select>
                     </div>
                 </div>
@@ -543,6 +554,23 @@ function Export-HTMLReport {
                         } else {
                             var escaped = filterValue.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
                             dataTable.column(colIdx).search('(?:^|,\\s*)' + escaped + '(?:\\s*,|$)', true, false).draw();
+                        }
+                    }
+                });
+            });
+
+            // Platform Filter
+            jQuery('#platformFilter').on('change', function() {
+                const filterValue = jQuery(this).val();
+                jQuery('.policy-table').each(function() {
+                    const dataTable = jQuery(this).DataTable();
+                    var colIdx = findColumnIndex(dataTable, 'Platform');
+                    if (colIdx >= 0) {
+                        if (filterValue === 'all') {
+                            dataTable.column(colIdx).search('').draw();
+                        } else {
+                            var escaped = filterValue.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                            dataTable.column(colIdx).search('^' + escaped + '$', true, false).draw();
                         }
                     }
                 });
@@ -924,6 +952,21 @@ function Export-HTMLReport {
         "<option value='$escaped'>$escaped</option>"
     }) -join "`n                            "
 
+    # Collect unique platforms across all policies
+    $allPlatforms = [System.Collections.Generic.HashSet[string]]::new()
+    foreach ($catKey in $policies.Keys) {
+        foreach ($p in $policies[$catKey]) {
+            if ($p.Platform) {
+                $trimmed = $p.Platform.Trim()
+                if ($trimmed) { [void]$allPlatforms.Add($trimmed) }
+            }
+        }
+    }
+    $platformOptions = ($allPlatforms | Sort-Object | ForEach-Object {
+        $escaped = $_ -replace '&', '&amp;' -replace "'", '&#39;' -replace '<', '&lt;' -replace '>', '&gt;'
+        "<option value='$escaped'>$escaped</option>"
+    }) -join "`n                            "
+
     # Generate summary statistics
     $summaryStats = @{
         TotalPolicies = 0
@@ -1277,7 +1320,8 @@ function Export-HTMLReport {
         -replace '<!-- Tab content will be inserted here -->', $tabContent `
         -replace '<!-- Summary stats will be inserted here -->', $summaryCards `
         -replace '<!-- Policy overview chart placeholder -->', $chartBlock `
-        -replace '<!-- Scope tag options will be inserted here -->', $scopeTagOptions
+        -replace '<!-- Scope tag options will be inserted here -->', $scopeTagOptions `
+        -replace '<!-- Platform options will be inserted here -->', $platformOptions
 
     # Output file
     $htmlContent | Out-File -FilePath $FilePath -Encoding UTF8

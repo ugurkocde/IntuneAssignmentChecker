@@ -2,13 +2,16 @@
 #Requires -Modules Microsoft.Graph.Authentication
 
 <#PSScriptInfo
-.VERSION 3.8.0
+.VERSION 3.8.1
 .GUID c6e25ec6-5787-45ef-95af-8abeb8a17daf
 .AUTHOR ugurk
 .PROJECTURI https://github.com/ugurkocde/IntuneAssignmentChecker
 .DESCRIPTION
 This script enables IT administrators to efficiently analyze and audit Intune assignments. It checks assignments for specific users, groups, or devices, displays all policies and their assignments, identifies unassigned policies, detects empty groups in assignments, and searches for specific settings across policies.
 .RELEASENOTES
+Version 3.8.1:
+- Add Platform filter dropdown to HTML report (Fixes #103)
+
 Version 3.8.0:
 - Handle multiple Entra ID devices with the same display name with interactive selection (Fixes #94)
 - Support device lookup by Object ID (GUID) to bypass display name ambiguity
@@ -281,7 +284,7 @@ $clientSecret = if ($ClientSecret) { $ClientSecret } else { '' } # Client Secret
 ####################################################################################################
 
 # Version of the local script
-$localVersion = "3.8.0"
+$localVersion = "3.8.1"
 
 Write-Host "🔍 INTUNE ASSIGNMENT CHECKER" -ForegroundColor Cyan
 Write-Host "Made by Ugur Koc with" -NoNewline; Write-Host " ❤️  and ☕" -NoNewline
