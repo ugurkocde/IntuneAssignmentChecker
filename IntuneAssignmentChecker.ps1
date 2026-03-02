@@ -2,13 +2,20 @@
 #Requires -Modules Microsoft.Graph.Authentication
 
 <#PSScriptInfo
-.VERSION 3.7.1
+.VERSION 3.8.0
 .GUID c6e25ec6-5787-45ef-95af-8abeb8a17daf
 .AUTHOR ugurk
 .PROJECTURI https://github.com/ugurkocde/IntuneAssignmentChecker
 .DESCRIPTION
 This script enables IT administrators to efficiently analyze and audit Intune assignments. It checks assignments for specific users, groups, or devices, displays all policies and their assignments, identifies unassigned policies, detects empty groups in assignments, and searches for specific settings across policies.
 .RELEASENOTES
+Version 3.8.0:
+- Handle multiple Entra ID devices with the same display name with interactive selection (Fixes #94)
+- Support device lookup by Object ID (GUID) to bypass display name ambiguity
+- Add Scope Tag filter dropdown to HTML report (Fixes #85, #96)
+- Add Platform column to "All Policies & Apps" tab in HTML report (Fixes #96)
+- Fix Assignment Type filter targeting wrong column in HTML report
+
 Version 3.7.1:
 - Fixed macOS policies not being returned in group checks (Fixes #92)
 - Added CloudPC.Read.All scope for Windows 365 provisioning policies (Fixes #89)
@@ -274,7 +281,7 @@ $clientSecret = if ($ClientSecret) { $ClientSecret } else { '' } # Client Secret
 ####################################################################################################
 
 # Version of the local script
-$localVersion = "3.7.1"
+$localVersion = "3.8.0"
 
 Write-Host "🔍 INTUNE ASSIGNMENT CHECKER" -ForegroundColor Cyan
 Write-Host "Made by Ugur Koc with" -NoNewline; Write-Host " ❤️  and ☕" -NoNewline
@@ -1150,15 +1157,42 @@ function Get-DeviceInfo {
         [string]$DeviceName
     )
 
-    $deviceUri = "$GraphEndpoint/v1.0/devices?`$filter=displayName eq '$DeviceName'"
-    $deviceResponse = Invoke-MgGraphRequest -Uri $deviceUri -Method Get
+    $selectProps = "id,displayName,operatingSystem,operatingSystemVersion,managementType,deviceOwnership,trustType,isCompliant,isManaged,approximateLastSignInDateTime,manufacturer,model,enrollmentProfileName"
+    $escapedName = $DeviceName -replace "'", "''"
+    $deviceUri = "$GraphEndpoint/beta/devices?`$filter=displayName eq '$escapedName'&`$select=$selectProps"
+    try {
+        $deviceResponse = Invoke-MgGraphRequest -Uri $deviceUri -Method Get
+    }
+    catch {
+        return @{
+            Id              = $null
+            DisplayName     = $DeviceName
+            OperatingSystem = $null
+            Success         = $false
+            MultipleFound   = $false
+            AllDevices      = $null
+        }
+    }
 
-    if ($deviceResponse.value) {
+    if ($deviceResponse.value.Count -gt 1) {
+        return @{
+            Id              = $null
+            DisplayName     = $DeviceName
+            OperatingSystem = $null
+            Success         = $false
+            MultipleFound   = $true
+            AllDevices      = $deviceResponse.value
+        }
+    }
+
+    if ($deviceResponse.value.Count -eq 1) {
         return @{
             Id              = $deviceResponse.value[0].id
             DisplayName     = $deviceResponse.value[0].displayName
             OperatingSystem = $deviceResponse.value[0].operatingSystem
             Success         = $true
+            MultipleFound   = $false
+            AllDevices      = $null
         }
     }
 
@@ -1167,6 +1201,8 @@ function Get-DeviceInfo {
         DisplayName     = $DeviceName
         OperatingSystem = $null
         Success         = $false
+        MultipleFound   = $false
+        AllDevices      = $null
     }
 }
 
@@ -3987,8 +4023,76 @@ do {
             foreach ($deviceName in $deviceNames) {
                 Write-Host "`nProcessing device: $deviceName" -ForegroundColor Yellow
 
-                # Get Device Info
-                $deviceInfo = Get-DeviceInfo -DeviceName $deviceName
+                # Check if input is a GUID (Object ID)
+                $deviceInfo = $null
+                if ($deviceName -match '^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$') {
+                    try {
+                        $selectProps = "id,displayName,operatingSystem,operatingSystemVersion,managementType,deviceOwnership,trustType,isCompliant,isManaged,approximateLastSignInDateTime,manufacturer,model,enrollmentProfileName"
+                        $directDevice = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/devices/$($deviceName)?`$select=$selectProps" -Method Get
+                        $deviceInfo = @{
+                            Id              = $directDevice.id
+                            DisplayName     = $directDevice.displayName
+                            OperatingSystem = $directDevice.operatingSystem
+                            Success         = $true
+                            MultipleFound   = $false
+                            AllDevices      = $null
+                        }
+                    }
+                    catch {
+                        Write-Host "No device found with Object ID: $deviceName" -ForegroundColor Red
+                        continue
+                    }
+                }
+                else {
+                    # Get Device Info by display name
+                    $deviceInfo = Get-DeviceInfo -DeviceName $deviceName
+                }
+
+                # Handle multiple devices found
+                if ($deviceInfo.MultipleFound) {
+                    if ($parameterMode) {
+                        Write-Host "Multiple devices found with name '$deviceName'. Please use the Object ID instead:" -ForegroundColor Red
+                        foreach ($d in $deviceInfo.AllDevices) {
+                            $lastSignIn = if ($d.approximateLastSignInDateTime) { ([datetime]$d.approximateLastSignInDateTime).ToString("yyyy-MM-dd") } else { "N/A" }
+                            Write-Host "  - $($d.displayName) | OS: $($d.operatingSystem) $($d.operatingSystemVersion) | Trust: $($d.trustType) | Ownership: $($d.deviceOwnership) | Last sign-in: $lastSignIn | ID: $($d.id)" -ForegroundColor Yellow
+                        }
+                        continue
+                    }
+
+                    Write-Host "`nMultiple devices found with name '$deviceName':" -ForegroundColor Yellow
+                    Write-Host ""
+                    for ($i = 0; $i -lt $deviceInfo.AllDevices.Count; $i++) {
+                        $d = $deviceInfo.AllDevices[$i]
+                        $lastSignIn = if ($d.approximateLastSignInDateTime) { ([datetime]$d.approximateLastSignInDateTime).ToString("yyyy-MM-dd") } else { "N/A" }
+                        $managedStatus = if ($d.isManaged) { "Managed" } else { "Not managed" }
+                        $compliantStatus = if ($d.isCompliant) { "Compliant" } else { "Not compliant" }
+                        Write-Host "  [$($i + 1)] $($d.displayName)" -ForegroundColor Cyan
+                        Write-Host "      OS: $($d.operatingSystem) $($d.operatingSystemVersion) | Trust: $($d.trustType) | Ownership: $($d.deviceOwnership)" -ForegroundColor Gray
+                        Write-Host "      $managedStatus | $compliantStatus | Last sign-in: $lastSignIn" -ForegroundColor Gray
+                        Write-Host "      Object ID: $($d.id)" -ForegroundColor Gray
+                    }
+                    Write-Host "  [0] Skip this device" -ForegroundColor Gray
+                    Write-Host ""
+                    Write-Host "Select a device (1-$($deviceInfo.AllDevices.Count)) or 0 to skip: " -ForegroundColor Cyan -NoNewline
+                    $selection = Read-Host
+
+                    if ($selection -match '^\d+$' -and [int]$selection -ge 1 -and [int]$selection -le $deviceInfo.AllDevices.Count) {
+                        $selectedDevice = $deviceInfo.AllDevices[[int]$selection - 1]
+                        $deviceInfo = @{
+                            Id              = $selectedDevice.id
+                            DisplayName     = $selectedDevice.displayName
+                            OperatingSystem = $selectedDevice.operatingSystem
+                            Success         = $true
+                            MultipleFound   = $false
+                            AllDevices      = $null
+                        }
+                    }
+                    else {
+                        Write-Host "Skipping device: $deviceName" -ForegroundColor Yellow
+                        continue
+                    }
+                }
+
                 if (-not $deviceInfo.Success) {
                     Write-Host "Device not found: $deviceName" -ForegroundColor Red
                     Write-Host "Please verify the device name is correct." -ForegroundColor Yellow

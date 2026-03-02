@@ -439,13 +439,13 @@ function Export-HTMLReport {
 
         <div class="search-box">
             <div class="row align-items-end">
-                <div class="col-md-6">
+                <div class="col-md-4">
                     <div class="form-group">
                         <label for="groupSearch">Search by Group Name:</label>
                         <input type="text" class="form-control" id="groupSearch" placeholder="Enter group name...">
                     </div>
                 </div>
-                <div class="col-md-6">
+                <div class="col-md-4">
                     <div class="form-group">
                         <label for="assignmentTypeFilter" class="form-label">Filter by Assignment Type:</label>
                         <select class="form-select" id="assignmentTypeFilter">
@@ -455,6 +455,15 @@ function Export-HTMLReport {
                             <option value="Group">Group</option>
                             <option value="None">None</option>
                             <option value="Exclude">Exclude</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="col-md-4">
+                    <div class="form-group">
+                        <label for="scopeTagFilter" class="form-label">Filter by Scope Tag:</label>
+                        <select class="form-select" id="scopeTagFilter">
+                            <option value="all">All Scope Tags</option>
+                            <!-- Scope tag options will be inserted here -->
                         </select>
                     </div>
                 </div>
@@ -499,15 +508,42 @@ function Export-HTMLReport {
                 ]
             });
 
+            // Helper: find column index by header text
+            function findColumnIndex(dataTable, headerText) {
+                return dataTable.columns().header().toArray().findIndex(function(h) {
+                    return h.textContent.trim() === headerText;
+                });
+            }
+
             // Assignment Type Filter
             jQuery('#assignmentTypeFilter').on('change', function() {
                 const filterValue = jQuery(this).val();
                 jQuery('.policy-table').each(function() {
                     const dataTable = jQuery(this).DataTable();
-                    if (filterValue === 'all') {
-                        dataTable.search('').columns().search('').draw();
-                    } else {
-                        dataTable.column(1).search(filterValue, false, false).draw();
+                    var colIdx = findColumnIndex(dataTable, 'Assignment Type');
+                    if (colIdx >= 0) {
+                        if (filterValue === 'all') {
+                            dataTable.column(colIdx).search('').draw();
+                        } else {
+                            dataTable.column(colIdx).search(filterValue, false, false).draw();
+                        }
+                    }
+                });
+            });
+
+            // Scope Tag Filter
+            jQuery('#scopeTagFilter').on('change', function() {
+                const filterValue = jQuery(this).val();
+                jQuery('.policy-table').each(function() {
+                    const dataTable = jQuery(this).DataTable();
+                    var colIdx = findColumnIndex(dataTable, 'Scope Tags');
+                    if (colIdx >= 0) {
+                        if (filterValue === 'all') {
+                            dataTable.column(colIdx).search('').draw();
+                        } else {
+                            var escaped = filterValue.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                            dataTable.column(colIdx).search('(?:^|,\\s*)' + escaped + '(?:\\s*,|$)', true, false).draw();
+                        }
                     }
                 });
             });
@@ -871,6 +907,23 @@ function Export-HTMLReport {
         }
     }
 
+    # Collect unique scope tags across all policies
+    $allScopeTags = [System.Collections.Generic.HashSet[string]]::new()
+    foreach ($catKey in $policies.Keys) {
+        foreach ($p in $policies[$catKey]) {
+            if ($p.ScopeTags) {
+                foreach ($tag in ($p.ScopeTags -split ',')) {
+                    $trimmed = $tag.Trim()
+                    if ($trimmed) { [void]$allScopeTags.Add($trimmed) }
+                }
+            }
+        }
+    }
+    $scopeTagOptions = ($allScopeTags | Sort-Object | ForEach-Object {
+        $escaped = $_ -replace '&', '&amp;' -replace "'", '&#39;' -replace '<', '&lt;' -replace '>', '&gt;'
+        "<option value='$escaped'>$escaped</option>"
+    }) -join "`n                            "
+
     # Generate summary statistics
     $summaryStats = @{
         TotalPolicies = 0
@@ -942,6 +995,7 @@ function Export-HTMLReport {
 "@
 
         if ($category.Key -eq 'all') {
+            $appCategoryKeys = @('RequiredApps', 'AvailableApps', 'UninstallApps')
             $allTableRows = foreach ($cat in $categories | Where-Object { $_.Key -ne 'all' }) {
                 if ($policies.ContainsKey($cat.Key)) {
                     $categoryPolicies = $policies[$cat.Key]
@@ -954,8 +1008,10 @@ function Export-HTMLReport {
                                 'Exclude' { 'badge-exclude' }
                                 default { 'badge-none' }
                             }
+                            $platformValue = if ($cat.Key -in $appCategoryKeys) { $p.Platform } else { "" }
                             "<tr>
                                 <td>$($p.Name)</td>
+                                <td>$platformValue</td>
                                 <td>$($p.ScopeTags)</td>
                                 <td><span class='badge $badgeClass'>$($p.AssignmentType)</span></td>
                                 <td>$($p.AssignedTo)</td>
@@ -974,6 +1030,7 @@ function Export-HTMLReport {
             <thead>
                 <tr>
                     <th>Name</th>
+                    <th>Platform</th>
                     <th>Scope Tags</th>
                     <th>Assignment Type</th>
                     <th>Assigned To</th>
@@ -1219,7 +1276,8 @@ function Export-HTMLReport {
         -replace '<!-- Tab headers will be inserted here -->', $tabHeaders `
         -replace '<!-- Tab content will be inserted here -->', $tabContent `
         -replace '<!-- Summary stats will be inserted here -->', $summaryCards `
-        -replace '<!-- Policy overview chart placeholder -->', $chartBlock
+        -replace '<!-- Policy overview chart placeholder -->', $chartBlock `
+        -replace '<!-- Scope tag options will be inserted here -->', $scopeTagOptions
 
     # Output file
     $htmlContent | Out-File -FilePath $FilePath -Encoding UTF8
