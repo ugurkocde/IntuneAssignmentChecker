@@ -629,6 +629,7 @@ function Export-HTMLReport {
             Name           = $config.displayName
             ID             = $config.id
             Type           = "Device Configuration"
+            Platform       = Get-PolicyPlatform -Policy $config
             ScopeTags      = Get-ScopeTagNames -ScopeTagIds $config.roleScopeTagIds -ScopeTagLookup $script:ScopeTagLookup
             AssignmentType = $assignmentInfo.Type
             AssignedTo     = $assignmentInfo.Target
@@ -648,6 +649,7 @@ function Export-HTMLReport {
             Name           = if (-not [string]::IsNullOrWhiteSpace($policy.displayName)) { $policy.displayName } else { $policy.name }
             ID             = $policy.id
             Type           = "Settings Catalog"
+            Platform       = Get-PolicyPlatform -Policy $policy
             ScopeTags      = Get-ScopeTagNames -ScopeTagIds $policy.roleScopeTagIds -ScopeTagLookup $script:ScopeTagLookup
             AssignmentType = $assignmentInfo.Type
             AssignedTo     = $assignmentInfo.Target
@@ -663,6 +665,7 @@ function Export-HTMLReport {
             Name           = $template.displayName
             ID             = $template.id
             Type           = "Administrative Template"
+            Platform       = Get-PolicyPlatform -Policy $template
             ScopeTags      = Get-ScopeTagNames -ScopeTagIds $template.roleScopeTagIds -ScopeTagLookup $script:ScopeTagLookup
             AssignmentType = $assignmentInfo.Type
             AssignedTo     = $assignmentInfo.Target
@@ -678,6 +681,7 @@ function Export-HTMLReport {
             Name           = $policy.displayName
             ID             = $policy.id
             Type           = "Compliance Policy"
+            Platform       = Get-PolicyPlatform -Policy $policy
             ScopeTags      = Get-ScopeTagNames -ScopeTagIds $policy.roleScopeTagIds -ScopeTagLookup $script:ScopeTagLookup
             AssignmentType = $assignmentInfo.Type
             AssignedTo     = $assignmentInfo.Target
@@ -711,6 +715,7 @@ function Export-HTMLReport {
                     Name           = $policy.displayName
                     ID             = $policy.id
                     Type           = "App Protection Policy ($($policyType.Split('.')[-1].Replace('ManagedAppProtection','')))"
+                    Platform       = Get-PolicyPlatform -Policy $policy
                     ScopeTags      = Get-ScopeTagNames -ScopeTagIds $policy.roleScopeTagIds -ScopeTagLookup $script:ScopeTagLookup
                     AssignmentType = $assignmentInfo.Type
                     AssignedTo     = $assignmentInfo.Target
@@ -732,6 +737,7 @@ function Export-HTMLReport {
             Name           = $script.displayName
             ID             = $script.id
             Type           = "PowerShell Script"
+            Platform       = "Windows"
             ScopeTags      = Get-ScopeTagNames -ScopeTagIds $script.roleScopeTagIds -ScopeTagLookup $script:ScopeTagLookup
             AssignmentType = $assignmentInfo.Type
             AssignedTo     = $assignmentInfo.Target
@@ -748,6 +754,7 @@ function Export-HTMLReport {
             Name           = $script.displayName
             ID             = $script.id
             Type           = "Proactive Remediation Script"
+            Platform       = "Windows"
             ScopeTags      = Get-ScopeTagNames -ScopeTagIds $script.roleScopeTagIds -ScopeTagLookup $script:ScopeTagLookup
             AssignmentType = $assignmentInfo.Type
             AssignedTo     = $assignmentInfo.Target
@@ -764,6 +771,7 @@ function Export-HTMLReport {
             Name           = $profile.displayName
             ID             = $profile.id
             Type           = "Autopilot Deployment Profile"
+            Platform       = "Windows"
             ScopeTags      = Get-ScopeTagNames -ScopeTagIds $profile.roleScopeTagIds -ScopeTagLookup $script:ScopeTagLookup
             AssignmentType = $assignmentInfo.Type
             AssignedTo     = $assignmentInfo.Target
@@ -781,6 +789,7 @@ function Export-HTMLReport {
             Name           = $esp.displayName
             ID             = $esp.id
             Type           = "Enrollment Status Page"
+            Platform       = "Windows"
             ScopeTags      = Get-ScopeTagNames -ScopeTagIds $esp.roleScopeTagIds -ScopeTagLookup $script:ScopeTagLookup
             AssignmentType = $assignmentInfo.Type
             AssignedTo     = $assignmentInfo.Target
@@ -798,6 +807,7 @@ function Export-HTMLReport {
                 Name           = if (-not [string]::IsNullOrWhiteSpace($policy.displayName)) { $policy.displayName } else { $policy.name }
                 ID             = $policy.id
                 Type           = "Windows 365 Cloud PC Provisioning Policy"
+                Platform       = "Windows"
                 ScopeTags      = Get-ScopeTagNames -ScopeTagIds $policy.roleScopeTagIds -ScopeTagLookup $script:ScopeTagLookup
                 AssignmentType = $assignmentInfo.Type
                 AssignedTo     = $assignmentInfo.Target
@@ -819,6 +829,7 @@ function Export-HTMLReport {
                 Name           = if (-not [string]::IsNullOrWhiteSpace($setting.displayName)) { $setting.displayName } else { $setting.name }
                 ID             = $setting.id
                 Type           = "Windows 365 Cloud PC User Setting"
+                Platform       = "Windows"
                 ScopeTags      = Get-ScopeTagNames -ScopeTagIds $setting.roleScopeTagIds -ScopeTagLookup $script:ScopeTagLookup
                 AssignmentType = $assignmentInfo.Type
                 AssignedTo     = $assignmentInfo.Target
@@ -855,6 +866,7 @@ function Export-HTMLReport {
                         Name           = if (-not [string]::IsNullOrWhiteSpace($policy.displayName)) { $policy.displayName } else { $policy.name }
                         ID             = $policy.id
                         Type           = $esCategory.UserFriendlyType
+                        Platform       = Get-PolicyPlatform -Policy $policy
                         ScopeTags      = Get-ScopeTagNames -ScopeTagIds $policy.roleScopeTagIds -ScopeTagLookup $script:ScopeTagLookup
                         AssignmentType = $assignmentInfo.Type
                         AssignedTo     = $assignmentInfo.Target
@@ -877,6 +889,7 @@ function Export-HTMLReport {
                             Name           = if (-not [string]::IsNullOrWhiteSpace($policy.displayName)) { $policy.displayName } else { $policy.name }
                             ID             = $policy.id
                             Type           = $esCategory.UserFriendlyType
+                            Platform       = Get-PolicyPlatform -Policy $policy
                             ScopeTags      = Get-ScopeTagNames -ScopeTagIds $policy.roleScopeTagIds -ScopeTagLookup $script:ScopeTagLookup
                             AssignmentType = $assignmentInfo.Type
                             AssignedTo     = $assignmentInfo.Target
@@ -1038,7 +1051,6 @@ function Export-HTMLReport {
 "@
 
         if ($category.Key -eq 'all') {
-            $appCategoryKeys = @('RequiredApps', 'AvailableApps', 'UninstallApps')
             $allTableRows = foreach ($cat in $categories | Where-Object { $_.Key -ne 'all' }) {
                 if ($policies.ContainsKey($cat.Key)) {
                     $categoryPolicies = $policies[$cat.Key]
@@ -1051,10 +1063,9 @@ function Export-HTMLReport {
                                 'Exclude' { 'badge-exclude' }
                                 default { 'badge-none' }
                             }
-                            $platformValue = if ($cat.Key -in $appCategoryKeys) { $p.Platform } else { "" }
                             "<tr>
                                 <td>$($p.Name)</td>
-                                <td>$platformValue</td>
+                                <td>$($p.Platform)</td>
                                 <td>$($p.ScopeTags)</td>
                                 <td><span class='badge $badgeClass'>$($p.AssignmentType)</span></td>
                                 <td>$($p.AssignedTo)</td>
@@ -1088,7 +1099,6 @@ function Export-HTMLReport {
 "@
         }
         else {
-            $isAppCategory = $category.Key -in @('RequiredApps', 'AvailableApps', 'UninstallApps')
             $tableRows = "" # Initialize to empty string
             if ($policies.ContainsKey($category.Key)) {
                 $currentCategoryPolicies = $policies[$category.Key]
@@ -1101,39 +1111,21 @@ function Export-HTMLReport {
                             'Exclude' { 'badge-exclude' }
                             default { 'badge-none' }
                         }
-                        if ($isAppCategory) {
-                            "<tr>
-                                <td>$($p.Name)</td>
-                                <td>$($p.Platform)</td>
-                                <td>$($p.ScopeTags)</td>
-                                <td><span class='badge $badgeClass'>$($p.AssignmentType)</span></td>
-                                <td>$($p.AssignedTo)</td>
-                            </tr>"
-                        }
-                        else {
-                            "<tr>
-                                <td>$($p.Name)</td>
-                                <td>$($p.ScopeTags)</td>
-                                <td><span class='badge $badgeClass'>$($p.AssignmentType)</span></td>
-                                <td>$($p.AssignedTo)</td>
-                            </tr>"
-                        }
+                        "<tr>
+                            <td>$($p.Name)</td>
+                            <td>$($p.Platform)</td>
+                            <td>$($p.ScopeTags)</td>
+                            <td><span class='badge $badgeClass'>$($p.AssignmentType)</span></td>
+                            <td>$($p.AssignedTo)</td>
+                        </tr>"
                     }
                 }
             }
-            $categoryHeaders = if ($isAppCategory) {
-                "<th>Name</th>
+            $categoryHeaders = "<th>Name</th>
                     <th>Platform</th>
                     <th>Scope Tags</th>
                     <th>Assignment Type</th>
                     <th>Assigned To</th>"
-            }
-            else {
-                "<th>Name</th>
-                    <th>Scope Tags</th>
-                    <th>Assignment Type</th>
-                    <th>Assigned To</th>"
-            }
             $tabContent += @"
 <div class='tab-pane fade$(if($isActive -and $category.Key -ne 'all'){ ' show active' } else { '' })'
      id='$categoryId'
