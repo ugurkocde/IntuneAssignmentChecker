@@ -2,14 +2,14 @@
 #Requires -Modules Microsoft.Graph.Authentication
 
 <#PSScriptInfo
-.VERSION 3.7.0
+.VERSION 3.7.1
 .GUID c6e25ec6-5787-45ef-95af-8abeb8a17daf
 .AUTHOR ugurk
 .PROJECTURI https://github.com/ugurkocde/IntuneAssignmentChecker
 .DESCRIPTION
 This script enables IT administrators to efficiently analyze and audit Intune assignments. It checks assignments for specific users, groups, or devices, displays all policies and their assignments, identifies unassigned policies, detects empty groups in assignments, and searches for specific settings across policies.
 .RELEASENOTES
-Version 3.5.0:
+Version 3.7.1:
 - Fixed macOS policies not being returned in group checks (Fixes #92)
 - Added CloudPC.Read.All scope for Windows 365 provisioning policies (Fixes #89)
 - Fixed Cloud PC provisioning policies URI format and suppressed W365 warnings for unlicensed tenants (Fixes #88)
@@ -132,7 +132,10 @@ param(
     [string]$Environment = "Global",
 
     [Parameter(Mandatory = $false, HelpMessage = "Include assignments inherited from parent groups")]
-    [switch]$IncludeNestedGroups
+    [switch]$IncludeNestedGroups,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Filter results by scope tag name")]
+    [string]$ScopeTagFilter
 )
 
 # Check if any command-line parameters were provided
@@ -271,12 +274,12 @@ $clientSecret = if ($ClientSecret) { $ClientSecret } else { '' } # Client Secret
 ####################################################################################################
 
 # Version of the local script
-$localVersion = "3.5.0"
+$localVersion = "3.7.1"
 
 Write-Host "🔍 INTUNE ASSIGNMENT CHECKER" -ForegroundColor Cyan
 Write-Host "Made by Ugur Koc with" -NoNewline; Write-Host " ❤️  and ☕" -NoNewline
 Write-Host " | Version" -NoNewline; Write-Host " $localVersion" -ForegroundColor Yellow -NoNewline
-Write-Host " | Last updated: " -NoNewline; Write-Host "2025-10-22" -ForegroundColor Magenta
+Write-Host " | Last updated: " -NoNewline; Write-Host "2026-03-02" -ForegroundColor Magenta
 Write-Host ""
 Write-Host "📢 Feedback & Issues: " -NoNewline -ForegroundColor Cyan
 Write-Host "https://github.com/ugurkocde/IntuneAssignmentChecker/issues" -ForegroundColor White
@@ -492,6 +495,10 @@ try {
         @{
             Permission = "CloudPC.Read.All"
             Reason     = "Required to read Windows 365 Cloud PC provisioning policies and settings (optional if W365 not licensed)"
+        },
+        @{
+            Permission = "DeviceManagementRBAC.Read.All"
+            Reason     = "Required to read role scope tags for scope tag display and filtering"
         }
     )
 
@@ -1000,6 +1007,51 @@ function Get-PolicyPlatform {
             }
         }
     }
+}
+
+function Get-ScopeTagLookup {
+    $lookup = @{ "0" = "Default" }
+    try {
+        $uri = "$script:GraphEndpoint/beta/deviceManagement/roleScopeTags?`$select=id,displayName"
+        do {
+            $response = Invoke-MgGraphRequest -Uri $uri -Method Get
+            foreach ($tag in $response.value) {
+                $lookup["$($tag.id)"] = $tag.displayName
+            }
+            $uri = $response.'@odata.nextLink'
+        } while ($uri)
+    }
+    catch {
+        Write-Warning "Could not fetch scope tags: $($_.Exception.Message)"
+    }
+    return $lookup
+}
+
+function Get-ScopeTagNames {
+    param (
+        [object[]]$ScopeTagIds,
+        [hashtable]$ScopeTagLookup
+    )
+    if (-not $ScopeTagIds -or $ScopeTagIds.Count -eq 0) { return "Default" }
+    $names = foreach ($id in $ScopeTagIds) {
+        $key = "$id"
+        if ($ScopeTagLookup.ContainsKey($key)) { $ScopeTagLookup[$key] }
+        else { "Tag:$key" }
+    }
+    return ($names -join ", ")
+}
+
+function Filter-ByScopeTag {
+    param (
+        [object[]]$Items,
+        [string]$FilterTag,
+        [hashtable]$ScopeTagLookup
+    )
+    if ([string]::IsNullOrWhiteSpace($FilterTag)) { return $Items }
+    return @($Items | Where-Object {
+        $names = Get-ScopeTagNames -ScopeTagIds $_.roleScopeTagIds -ScopeTagLookup $ScopeTagLookup
+        ($names -split ', ') -contains $FilterTag
+    })
 }
 
 function Test-PlatformCompatibility {
@@ -1570,6 +1622,7 @@ function Add-ExportData {
         $null = $ExportData.Add([PSCustomObject]@{
                 Category         = $Category
                 Item             = "$itemName (ID: $($item.id))"
+                ScopeTags        = Get-ScopeTagNames -ScopeTagIds $item.roleScopeTagIds -ScopeTagLookup $script:ScopeTagLookup
                 AssignmentReason = $reason
             })
     }
@@ -1588,6 +1641,7 @@ function Add-AppExportData {
         $null = $ExportData.Add([PSCustomObject]@{
                 Category         = $Category
                 Item             = "$appName (ID: $($app.id))"
+                ScopeTags        = Get-ScopeTagNames -ScopeTagIds $app.roleScopeTagIds -ScopeTagLookup $script:ScopeTagLookup
                 AssignmentReason = "$AssignmentReason - $($app.AssignmentIntent)"
             })
     }
@@ -1692,6 +1746,9 @@ function Switch-Tenant {
             Write-Host "`nSuccessfully connected to new tenant!" -ForegroundColor Green
             Write-Host "Tenant: $script:CurrentTenantName" -ForegroundColor White
             Write-Host "User: $script:CurrentUserUPN" -ForegroundColor White
+
+            # Refresh scope tag lookup for the new tenant
+            $script:ScopeTagLookup = Get-ScopeTagLookup
         }
     }
     catch {
@@ -1732,7 +1789,8 @@ function Export-ResultsIfRequested {
     }
 }
 
-# Move this code to the beginning of the script, right after the param block
+# Initialize scope tag lookup (available to main script and dot-sourced modules)
+$script:ScopeTagLookup = Get-ScopeTagLookup
 
 # Main script logic
 do {
@@ -2404,6 +2462,13 @@ do {
                 }
                 catch {
                     Write-Verbose "Skipping - Windows 365 may not be licensed for this tenant"
+                }
+
+                # Apply scope tag filter if specified
+                if ($ScopeTagFilter) {
+                    foreach ($key in @($relevantPolicies.Keys)) {
+                        $relevantPolicies[$key] = @(Filter-ByScopeTag -Items $relevantPolicies[$key] -FilterTag $ScopeTagFilter -ScopeTagLookup $script:ScopeTagLookup)
+                    }
                 }
 
                 # Display results
@@ -3675,6 +3740,13 @@ do {
                     Write-Verbose "Skipping - Windows 365 may not be licensed for this tenant"
                 }
 
+                # Apply scope tag filter if specified
+                if ($ScopeTagFilter) {
+                    foreach ($key in @($relevantPolicies.Keys)) {
+                        $relevantPolicies[$key] = @(Filter-ByScopeTag -Items $relevantPolicies[$key] -FilterTag $ScopeTagFilter -ScopeTagLookup $script:ScopeTagLookup)
+                    }
+                }
+
                 # Function to format and display policy table (specific to Option 2)
                 function Format-PolicyTable {
                     param (
@@ -3682,7 +3754,7 @@ do {
                         [object[]]$Policies,
                         [scriptblock]$GetName
                     )
-                    $localTableSeparator = "-" * 120 # Use a local variable for separator
+                    $localTableSeparator = "-" * 140
 
                     # Create prominent section header
                     $headerSeparator = "-" * ($Title.Length + 16)
@@ -3698,7 +3770,7 @@ do {
                     }
 
                     # Create table header
-                    $headerFormat = "{0,-45} {1,-20} {2,-35} {3,-40}" -f "Policy Name", "Platform", "ID", "Assignment"
+                    $headerFormat = "{0,-40} {1,-15} {2,-20} {3,-30} {4,-35}" -f "Policy Name", "Platform", "Scope Tags", "ID", "Assignment"
 
                     Write-Host $headerFormat -ForegroundColor Yellow
                     Write-Host $localTableSeparator -ForegroundColor Gray
@@ -3707,18 +3779,21 @@ do {
                     foreach ($policy in $Policies) {
                         $name = & $GetName $policy
 
-                        if ($name.Length -gt 42) { $name = $name.Substring(0, 39) + "..." }
+                        if ($name.Length -gt 37) { $name = $name.Substring(0, 34) + "..." }
 
                         $platform = Get-PolicyPlatform -Policy $policy
-                        if ($platform.Length -gt 17) { $platform = $platform.Substring(0, 14) + "..." }
+                        if ($platform.Length -gt 12) { $platform = $platform.Substring(0, 9) + "..." }
+
+                        $scopeTags = Get-ScopeTagNames -ScopeTagIds $policy.roleScopeTagIds -ScopeTagLookup $script:ScopeTagLookup
+                        if ($scopeTags.Length -gt 17) { $scopeTags = $scopeTags.Substring(0, 14) + "..." }
 
                         $id = $policy.id
-                        if ($id.Length -gt 32) { $id = $id.Substring(0, 29) + "..." }
+                        if ($id.Length -gt 27) { $id = $id.Substring(0, 24) + "..." }
 
                         $assignment = if ($policy.AssignmentReason) { $policy.AssignmentReason } else { "N/A" }
-                        if ($assignment.Length -gt 37) { $assignment = $assignment.Substring(0, 34) + "..." }
+                        if ($assignment.Length -gt 32) { $assignment = $assignment.Substring(0, 29) + "..." }
 
-                        $rowFormat = "{0,-45} {1,-20} {2,-35} {3,-40}" -f $name, $platform, $id, $assignment
+                        $rowFormat = "{0,-40} {1,-15} {2,-20} {3,-30} {4,-35}" -f $name, $platform, $scopeTags, $id, $assignment
                         if ($assignment -match "Inherited Exclusion") {
                             Write-Host $rowFormat -ForegroundColor Magenta
                         }
@@ -4605,6 +4680,13 @@ do {
                     }
                 }
 
+                # Apply scope tag filter if specified
+                if ($ScopeTagFilter) {
+                    foreach ($key in @($relevantPolicies.Keys)) {
+                        $relevantPolicies[$key] = @(Filter-ByScopeTag -Items $relevantPolicies[$key] -FilterTag $ScopeTagFilter -ScopeTagLookup $script:ScopeTagLookup)
+                    }
+                }
+
                 # Display results
                 Write-Host "`nAssignments for Device: $deviceName" -ForegroundColor Green
 
@@ -4615,7 +4697,7 @@ do {
                         [object[]]$Policies,
                         [scriptblock]$GetName
                     )
-                    $tableSeparator = "-" * 120 # Define at the start for use in empty case
+                    $tableSeparator = "-" * 130
 
                     # Create prominent section header
                     $headerSeparator = "-" * ($Title.Length + 16)
@@ -4625,40 +4707,39 @@ do {
 
                     if ($Policies.Count -eq 0) {
                         Write-Host "No $Title found for this device." -ForegroundColor Gray
-                        Write-Host $tableSeparator -ForegroundColor Gray # Print bottom line for empty table
+                        Write-Host $tableSeparator -ForegroundColor Gray
                         Write-Host ""
                         return
                     }
 
-                    # Create table header with custom formatting (this is for when policies exist)
-                    $headerFormat = "{0,-50} {1,-40} {2,-30}" -f "Policy Name", "ID", "Assignment"
+                    # Create table header
+                    $headerFormat = "{0,-45} {1,-20} {2,-35} {3,-30}" -f "Policy Name", "Scope Tags", "ID", "Assignment"
 
                     Write-Host $headerFormat -ForegroundColor Yellow
-                    Write-Host $tableSeparator -ForegroundColor Gray # This is the line under the headers
+                    Write-Host $tableSeparator -ForegroundColor Gray
 
                     # Display each policy in table format
                     foreach ($policy in $Policies) {
                         $name = & $GetName $policy
 
-                        # Truncate long names and add ellipsis
-                        if ($name.Length -gt 47) {
-                            $name = $name.Substring(0, 44) + "..."
+                        if ($name.Length -gt 42) {
+                            $name = $name.Substring(0, 39) + "..."
                         }
 
-                        # Format ID
+                        $scopeTags = Get-ScopeTagNames -ScopeTagIds $policy.roleScopeTagIds -ScopeTagLookup $script:ScopeTagLookup
+                        if ($scopeTags.Length -gt 17) { $scopeTags = $scopeTags.Substring(0, 14) + "..." }
+
                         $id = $policy.id
-                        if ($id.Length -gt 37) {
-                            $id = $id.Substring(0, 34) + "..."
+                        if ($id.Length -gt 32) {
+                            $id = $id.Substring(0, 29) + "..."
                         }
 
-                        # Format assignment reason
                         $assignment = if ($policy.AssignmentReason) { $policy.AssignmentReason } else { "No Assignment" }
                         if ($assignment.Length -gt 27) {
                             $assignment = $assignment.Substring(0, 24) + "..."
                         }
 
-                        # Output formatted row
-                        $rowFormat = "{0,-50} {1,-40} {2,-30}" -f $name, $id, $assignment
+                        $rowFormat = "{0,-45} {1,-20} {2,-35} {3,-30}" -f $name, $scopeTags, $id, $assignment
                         if ($assignment -eq "Excluded" -or $assignment -like "*Exclusion*") {
                             Write-Host $rowFormat -ForegroundColor Red
                         }
@@ -4667,7 +4748,7 @@ do {
                         }
                     }
 
-                    Write-Host $tableSeparator -ForegroundColor Gray # This is the closing line of the table
+                    Write-Host $tableSeparator -ForegroundColor Gray
                 }
 
                 # Display Device Configurations
@@ -5437,6 +5518,13 @@ do {
             }
             $allPolicies.AccountProtectionProfiles = $accountProtectionPoliciesFoundAll
 
+            # Apply scope tag filter if specified
+            if ($ScopeTagFilter) {
+                foreach ($key in @($allPolicies.Keys)) {
+                    $allPolicies[$key] = @(Filter-ByScopeTag -Items $allPolicies[$key] -FilterTag $ScopeTagFilter -ScopeTagLookup $script:ScopeTagLookup)
+                }
+            }
+
             # Display all policies and their assignments
             Invoke-PolicyAssignments -Policies $allPolicies.DeviceConfigs -DisplayName "Device Configurations"
             Invoke-PolicyAssignments -Policies $allPolicies.SettingsCatalog -DisplayName "Settings Catalog Policies"
@@ -5912,6 +6000,13 @@ do {
                 if ($assignments | Where-Object { $_.Reason -eq "All Users" }) {
                     $esp | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Users" -Force
                     $allUsersAssignments.ESPProfiles += $esp
+                }
+            }
+
+            # Apply scope tag filter if specified
+            if ($ScopeTagFilter) {
+                foreach ($key in @($allUsersAssignments.Keys)) {
+                    $allUsersAssignments[$key] = @(Filter-ByScopeTag -Items $allUsersAssignments[$key] -FilterTag $ScopeTagFilter -ScopeTagLookup $script:ScopeTagLookup)
                 }
             }
 
@@ -6593,6 +6688,13 @@ do {
             }
             $allDevicesAssignments.AccountProtectionProfiles = $accountProtectionPoliciesFound_AllDevices
 
+            # Apply scope tag filter if specified
+            if ($ScopeTagFilter) {
+                foreach ($key in @($allDevicesAssignments.Keys)) {
+                    $allDevicesAssignments[$key] = @(Filter-ByScopeTag -Items $allDevicesAssignments[$key] -FilterTag $ScopeTagFilter -ScopeTagLookup $script:ScopeTagLookup)
+                }
+            }
+
             # Display results
             Write-Host "`nPolicies Assigned to All Devices:" -ForegroundColor Green
 
@@ -7116,6 +7218,13 @@ do {
             }
             $unassignedApps = $unassignedApps | Where-Object { -not $_.isFeatured -and -not $_.isBuiltIn }
             $unassignedPolicies.Apps = $unassignedApps
+
+            # Apply scope tag filter if specified
+            if ($ScopeTagFilter) {
+                foreach ($key in @($unassignedPolicies.Keys)) {
+                    $unassignedPolicies[$key] = @(Filter-ByScopeTag -Items $unassignedPolicies[$key] -FilterTag $ScopeTagFilter -ScopeTagLookup $script:ScopeTagLookup)
+                }
+            }
 
             # Display results
             Write-Host "`nPolicies and Apps Without Assignments:" -ForegroundColor Green
