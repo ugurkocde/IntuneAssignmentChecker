@@ -1,10 +1,17 @@
 $context = Get-MgContext
+if ($null -eq $context) {
+    throw "Not connected to Microsoft Graph. Please run Connect-MgGraph before generating the HTML report."
+}
 $environment = $context.Environment
 
 $GraphEndpoint = switch ($environment) {
-    "Global" { "https://graph.microsoft.com" }
-    "USGov" { "https://graph.microsoft.us" }
-    "USGovDoD" { "https://dod-graph.microsoft.us" }
+    "Global"    { "https://graph.microsoft.com" }
+    "USGov"     { "https://graph.microsoft.us" }
+    "USGovDoD"  { "https://dod-graph.microsoft.us" }
+    default {
+        Write-Warning "Unknown Graph environment '$environment'. Defaulting to Global endpoint."
+        "https://graph.microsoft.com"
+    }
 }
 # Function to get assignment information
 function Get-AssignmentInfo {
@@ -125,6 +132,12 @@ function Get-IntentTemplateFamilyLookup {
     }
 
     return $script:TemplateIdToFamilyCache
+}
+
+function ConvertTo-HtmlEncoded {
+    param ([string]$Text)
+    if ([string]::IsNullOrEmpty($Text)) { return $Text }
+    $Text -replace '&', '&amp;' -replace '<', '&lt;' -replace '>', '&gt;' -replace '"', '&quot;' -replace "'", '&#39;'
 }
 
 function Add-IntentTemplateFamilyInfo {
@@ -491,13 +504,13 @@ function Export-HTMLReport {
     </div>
 
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://cdn.datatables.net/1.11.5/js/jquery.dataTables.min.js"></script>
-    <script src="https://cdn.datatables.net/1.11.5/js/dataTables.bootstrap5.min.js"></script>
-    <script src="https://cdn.datatables.net/buttons/2.2.2/js/dataTables.buttons.min.js"></script>
-    <script src="https://cdn.datatables.net/buttons/2.2.2/js/buttons.bootstrap5.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.7/js/jquery.dataTables.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.7/js/dataTables.bootstrap5.min.js"></script>
+    <script src="https://cdn.datatables.net/buttons/2.4.2/js/dataTables.buttons.min.js"></script>
+    <script src="https://cdn.datatables.net/buttons/2.4.2/js/buttons.bootstrap5.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.1.3/jszip.min.js"></script>
-    <script src="https://cdn.datatables.net/buttons/2.2.2/js/buttons.html5.min.js"></script>
+    <script src="https://cdn.datatables.net/buttons/2.4.2/js/buttons.html5.min.js"></script>
     <script>
         jQuery(document).ready(function() {
             // Initialize DataTables
@@ -850,13 +863,17 @@ function Export-HTMLReport {
         @{ Name = "Account Protection"; Key = "AccountProtectionProfiles"; TemplateFamily = "endpointSecurityAccountProtection"; UserFriendlyType = "Account Protection Profile" }
     )
 
+    # Fetch once outside the loop to avoid 6x redundant API calls per collection
+    $allConfigPoliciesForES = Get-IntuneEntities -EntityType "configurationPolicies"
+    $allIntentPoliciesForES = Get-IntuneEntities -EntityType "deviceManagement/intents"
+    Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentPoliciesForES
+
     foreach ($esCategory in $endpointSecurityCategories) {
         Write-Host "Fetching Endpoint Security - $($esCategory.Name) Policies..." -ForegroundColor Yellow
         $processedIds = [System.Collections.Generic.HashSet[string]]::new()
 
         # 1. Check configurationPolicies (Settings Catalog)
-        $allConfigPolicies = Get-IntuneEntities -EntityType "configurationPolicies"
-        $configPolicies = $allConfigPolicies | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq $esCategory.TemplateFamily }
+        $configPolicies = $allConfigPoliciesForES | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq $esCategory.TemplateFamily }
         if ($configPolicies) {
             foreach ($policy in $configPolicies) {
                 if ($processedIds.Add($policy.id)) {
@@ -876,9 +893,7 @@ function Export-HTMLReport {
         }
 
         # 2. Check deviceManagement/intents (Templates)
-        $allIntentPolicies = Get-IntuneEntities -EntityType "deviceManagement/intents"
-        Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentPolicies
-        $intentPolicies = $allIntentPolicies | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq $esCategory.TemplateFamily }
+        $intentPolicies = $allIntentPoliciesForES | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq $esCategory.TemplateFamily }
         if ($intentPolicies) {
             foreach ($policy in $intentPolicies) {
                 if ($processedIds.Add($policy.id)) {
@@ -905,12 +920,18 @@ function Export-HTMLReport {
 
     # Get Apps
     Write-Host "Fetching Applications..." -ForegroundColor Yellow
-    $appUri = "$GraphEndpoint/beta/deviceAppManagement/mobileApps?`$filter=isAssigned eq true"
-    $appResponse = Invoke-MgGraphRequest -Uri $appUri -Method Get
-    $allApps = $appResponse.value
-    while ($appResponse.'@odata.nextLink') {
-        $appResponse = Invoke-MgGraphRequest -Uri $appResponse.'@odata.nextLink' -Method Get
-        $allApps += $appResponse.value
+    $allApps = @()
+    try {
+        $appUri = "$GraphEndpoint/beta/deviceAppManagement/mobileApps?`$filter=isAssigned eq true"
+        $appResponse = Invoke-MgGraphRequest -Uri $appUri -Method Get
+        $allApps = $appResponse.value
+        while ($appResponse.'@odata.nextLink') {
+            $appResponse = Invoke-MgGraphRequest -Uri $appResponse.'@odata.nextLink' -Method Get
+            $allApps += $appResponse.value
+        }
+    }
+    catch {
+        Write-Warning "Error fetching applications: $($_.Exception.Message)"
     }
 
     foreach ($app in $allApps) {
@@ -921,7 +942,14 @@ function Export-HTMLReport {
 
         $appId = $app.id
         $assignmentsUri = "$GraphEndpoint/beta/deviceAppManagement/mobileApps('$appId')/assignments"
-        $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
+        $assignmentResponse = $null
+        try {
+            $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
+        }
+        catch {
+            Write-Warning "Error fetching assignments for app '$($app.displayName)': $($_.Exception.Message)"
+            continue
+        }
 
         foreach ($assignment in $assignmentResponse.value) {
             # Get-AssignmentInfo expects an array of assignment objects.
@@ -1064,11 +1092,11 @@ function Export-HTMLReport {
                                 default { 'badge-none' }
                             }
                             "<tr>
-                                <td>$($p.Name)</td>
-                                <td>$($p.Platform)</td>
-                                <td>$($p.ScopeTags)</td>
+                                <td>$(ConvertTo-HtmlEncoded $p.Name)</td>
+                                <td>$(ConvertTo-HtmlEncoded $p.Platform)</td>
+                                <td>$(ConvertTo-HtmlEncoded $p.ScopeTags)</td>
                                 <td><span class='badge $badgeClass'>$($p.AssignmentType)</span></td>
-                                <td>$($p.AssignedTo)</td>
+                                <td>$(ConvertTo-HtmlEncoded $p.AssignedTo)</td>
                             </tr>"
                         }
                     }
@@ -1112,11 +1140,11 @@ function Export-HTMLReport {
                             default { 'badge-none' }
                         }
                         "<tr>
-                            <td>$($p.Name)</td>
-                            <td>$($p.Platform)</td>
-                            <td>$($p.ScopeTags)</td>
+                            <td>$(ConvertTo-HtmlEncoded $p.Name)</td>
+                            <td>$(ConvertTo-HtmlEncoded $p.Platform)</td>
+                            <td>$(ConvertTo-HtmlEncoded $p.ScopeTags)</td>
                             <td><span class='badge $badgeClass'>$($p.AssignmentType)</span></td>
-                            <td>$($p.AssignedTo)</td>
+                            <td>$(ConvertTo-HtmlEncoded $p.AssignedTo)</td>
                         </tr>"
                     }
                 }
