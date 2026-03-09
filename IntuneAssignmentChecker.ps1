@@ -7062,16 +7062,26 @@ do {
         '7' {
             Write-Host "Generating HTML Report..." -ForegroundColor Green
 
-            # Download html-export.ps1 from GitHub
+            # Prefer the bundled html-export.ps1 and fall back to GitHub only if it is missing
             $htmlExportUrl = "https://raw.githubusercontent.com/ugurkocde/IntuneAssignmentChecker/main/html-export.ps1"
-            # Use cross-platform temp path
+            $localHtmlExportPath = Join-Path $PSScriptRoot 'html-export.ps1'
+            # Use cross-platform temp path only when a download is required
             $tempDir = if ($env:TEMP) { $env:TEMP } elseif ($env:TMPDIR) { $env:TMPDIR } else { [System.IO.Path]::GetTempPath() }
-            $scriptPath = Join-Path $tempDir 'html-export.ps1'
+            $scriptPath = $null
+            $cleanupScript = $false
 
             try {
-                Write-Host "Downloading html-export.ps1 from GitHub..." -ForegroundColor Yellow
-                Invoke-WebRequest -Uri $htmlExportUrl -OutFile $scriptPath -UseBasicParsing
-                Write-Host "Download complete." -ForegroundColor Green
+                if (Test-Path $localHtmlExportPath) {
+                    $scriptPath = $localHtmlExportPath
+                    Write-Host "Using local html-export.ps1 from the repository..." -ForegroundColor Yellow
+                }
+                else {
+                    $scriptPath = Join-Path $tempDir 'html-export.ps1'
+                    $cleanupScript = $true
+                    Write-Host "Downloading html-export.ps1 from GitHub..." -ForegroundColor Yellow
+                    Invoke-WebRequest -Uri $htmlExportUrl -OutFile $scriptPath -UseBasicParsing
+                    Write-Host "Download complete." -ForegroundColor Green
+                }
 
                 . $scriptPath
 
@@ -7112,7 +7122,7 @@ do {
             }
             finally {
                 # Clean up the downloaded script
-                if ($scriptPath -and (Test-Path $scriptPath -ErrorAction SilentlyContinue)) {
+                if ($cleanupScript -and $scriptPath -and (Test-Path $scriptPath -ErrorAction SilentlyContinue)) {
                     Remove-Item $scriptPath -Force
                     Write-Host "Cleaned up temporary files." -ForegroundColor Gray
                 }
