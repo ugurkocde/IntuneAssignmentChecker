@@ -2,13 +2,24 @@
 #Requires -Modules Microsoft.Graph.Authentication
 
 <#PSScriptInfo
-.VERSION 3.8.3
+.VERSION 3.9.0
 .GUID c6e25ec6-5787-45ef-95af-8abeb8a17daf
 .AUTHOR ugurk
 .PROJECTURI https://github.com/ugurkocde/IntuneAssignmentChecker
 .DESCRIPTION
 This script enables IT administrators to efficiently analyze and audit Intune assignments. It checks assignments for specific users, groups, or devices, displays all policies and their assignments, identifies unassigned policies, detects empty groups in assignments, and searches for specific settings across policies.
 .RELEASENOTES
+Version 3.9.0:
+- Add HTMLReportPath parameter to specify a custom output path for the HTML report (Fixes #107)
+- Add GroupNames parameter for non-interactive group assignment checks
+- Fix version mismatch between PSScriptInfo and banner display
+- Fix option 11 (Failed Assignments) CSV export not working correctly
+- Collapse permission check output to a single line when all permissions pass
+- Hide empty category sections in User Check (option 1) for cleaner output
+- Add category summary line showing assignment counts in User Check
+- Add progress counter to User Check fetch operations
+- Skip interactive export prompt in parameter mode when ExportToCSV is not specified
+
 Version 3.8.3:
 - Fix null parameter binding error in Add-IntentTemplateFamilyInfo when Endpoint Security intent policies are inaccessible (Fixes #105)
 
@@ -86,6 +97,9 @@ param(
     [Parameter(Mandatory = $false, HelpMessage = "Check assignments for specific groups")]
     [switch]$CheckGroup,
 
+    [Parameter(Mandatory = $false, HelpMessage = "Group names or Object IDs to check, comma-separated")]
+    [string]$GroupNames,
+
     [Parameter(Mandatory = $false, HelpMessage = "Check assignments for specific devices")]
     [switch]$CheckDevice,
 
@@ -106,6 +120,9 @@ param(
 
     [Parameter(Mandatory = $false, HelpMessage = "Generate HTML report")]
     [switch]$GenerateHTMLReport,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Path for the exported HTML report file")]
+    [string]$HTMLReportPath,
 
     [Parameter(Mandatory = $false, HelpMessage = "Show policies and apps without assignments")]
     [switch]$ShowPoliciesWithoutAssignments,
@@ -167,6 +184,12 @@ elseif ($CheckEmptyGroups) { $parameterMode = $true; $selectedOption = '9' }
 elseif ($CompareGroups) { $parameterMode = $true; $selectedOption = '10' }
 elseif ($ShowFailedAssignments) { $parameterMode = $true; $selectedOption = '11' }
 
+# HTMLReportPath implies GenerateHTMLReport
+if (-not $parameterMode -and $HTMLReportPath) {
+    $parameterMode = $true
+    $selectedOption = '7'
+}
+
 <#
 .SYNOPSIS
     Checks Intune policy and app assignments for users, groups, and devices.
@@ -208,6 +231,9 @@ elseif ($ShowFailedAssignments) { $parameterMode = $true; $selectedOption = '11'
 
 .PARAMETER GenerateHTMLReport
     Generate HTML report.
+
+.PARAMETER HTMLReportPath
+    Path for the exported HTML report file. Can be a full file path or a directory (default filename will be appended).
 
 .PARAMETER ShowPoliciesWithoutAssignments
     Show policies and apps without assignments.
@@ -257,6 +283,10 @@ elseif ($ShowFailedAssignments) { $parameterMode = $true; $selectedOption = '11'
     .\IntuneAssignmentChecker_v3.ps1 -ShowAllPolicies -ExportToCSV -ExportPath "C:\Temp\AllPolicies.csv"
     Shows all policies and exports the results to CSV.
 
+.EXAMPLE
+    .\IntuneAssignmentChecker_v3.ps1 -GenerateHTMLReport -HTMLReportPath "C:\Temp\MyReport.html"
+    Generates an HTML report and saves it to the specified path.
+
 .AUTHOR
     Ugur Koc (@ugurkocde)
     GitHub: https://github.com/ugurkocde/IntuneAssignmentChecker
@@ -287,7 +317,7 @@ $clientSecret = if ($ClientSecret) { $ClientSecret } else { '' } # Client Secret
 ####################################################################################################
 
 # Version of the local script
-$localVersion = "3.8.3"
+$localVersion = "3.9.0"
 
 Write-Host "🔍 INTUNE ASSIGNMENT CHECKER" -ForegroundColor Cyan
 Write-Host "Made by Ugur Koc with" -NoNewline; Write-Host " ❤️  and ☕" -NoNewline
@@ -609,28 +639,21 @@ try {
         Write-Host ""
     }
     else {
-        Write-Host "Checking required permissions:" -ForegroundColor Cyan
+        Write-Host "Checking required permissions..." -ForegroundColor Cyan
         $missingPermissions = @()
         foreach ($permissionInfo in $requiredPermissions) {
             $permission = $permissionInfo.Permission
-            $reason = $permissionInfo.Reason
 
             # Check if either the exact permission or a "ReadWrite" version of it is granted
             $hasPermission = $currentPermissions -contains $permission -or $currentPermissions -contains $permission.Replace(".Read", ".ReadWrite")
 
-            if ($hasPermission) {
-                Write-Host "  [✓] $permission" -ForegroundColor Green
-                Write-Host "      Reason: $reason" -ForegroundColor Gray
-            }
-            else {
-                Write-Host "  [✗] $permission" -ForegroundColor Red
-                Write-Host "      Reason: $reason" -ForegroundColor Gray
+            if (-not $hasPermission) {
                 $missingPermissions += $permission
             }
         }
 
         if ($missingPermissions.Count -eq 0) {
-            Write-Host "All required permissions are present." -ForegroundColor Green
+            Write-Host "All $($requiredPermissions.Count) required permissions verified." -ForegroundColor Green
             Write-Host ""
         }
         else {
@@ -1822,7 +1845,7 @@ function Export-ResultsIfRequested {
             Export-PolicyData -ExportData $ExportData -FilePath $exportPath
         }
     }
-    else {
+    elseif (-not $parameterMode) {
         $export = Read-Host "`nWould you like to export the results to CSV? (y/n)"
         if ($export -eq 'y') {
             $exportPath = Show-SaveFileDialog -DefaultFileName $DefaultFileName
@@ -1900,6 +1923,9 @@ do {
 
                 Write-Host "Fetching Intune Profiles and Applications for the user ... (this takes a few seconds)" -ForegroundColor Yellow
 
+                $totalCategories = 17
+                $currentCategory = 0
+
                 # Initialize collections for relevant policies
                 $relevantPolicies = @{
                     DeviceConfigs               = @()
@@ -1926,7 +1952,8 @@ do {
                 }
 
                 # Get Device Configurations
-                Write-Host "Fetching Device Configurations..." -ForegroundColor Yellow
+                $currentCategory++
+                Write-Host "[$currentCategory/$totalCategories] Fetching Device Configurations..." -ForegroundColor Yellow
                 $deviceConfigs = Get-IntuneEntities -EntityType "deviceConfigurations"
                 foreach ($config in $deviceConfigs) {
                     $assignments = Get-IntuneAssignments -EntityType "deviceConfigurations" -EntityId $config.id
@@ -1938,7 +1965,8 @@ do {
                 }
 
                 # Get Settings Catalog Policies
-                Write-Host "Fetching Settings Catalog Policies..." -ForegroundColor Yellow
+                $currentCategory++
+                Write-Host "[$currentCategory/$totalCategories] Fetching Settings Catalog Policies..." -ForegroundColor Yellow
                 $settingsCatalog = Get-IntuneEntities -EntityType "configurationPolicies"
                 foreach ($policy in $settingsCatalog) {
                     $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
@@ -1950,7 +1978,8 @@ do {
                 }
 
                 # Get Administrative Templates
-                Write-Host "Fetching Administrative Templates..." -ForegroundColor Yellow
+                $currentCategory++
+                Write-Host "[$currentCategory/$totalCategories] Fetching Administrative Templates..." -ForegroundColor Yellow
                 $adminTemplates = Get-IntuneEntities -EntityType "groupPolicyConfigurations"
                 foreach ($template in $adminTemplates) {
                     $assignments = Get-IntuneAssignments -EntityType "groupPolicyConfigurations" -EntityId $template.id
@@ -1962,7 +1991,8 @@ do {
                 }
 
                 # Get Compliance Policies
-                Write-Host "Fetching Compliance Policies..." -ForegroundColor Yellow
+                $currentCategory++
+                Write-Host "[$currentCategory/$totalCategories] Fetching Compliance Policies..." -ForegroundColor Yellow
                 $compliancePolicies = Get-IntuneEntities -EntityType "deviceCompliancePolicies"
                 foreach ($policy in $compliancePolicies) {
                     $assignments = Get-IntuneAssignments -EntityType "deviceCompliancePolicies" -EntityId $policy.id
@@ -1974,7 +2004,8 @@ do {
                 }
 
                 # Get App Protection Policies
-                Write-Host "Fetching App Protection Policies..." -ForegroundColor Yellow
+                $currentCategory++
+                Write-Host "[$currentCategory/$totalCategories] Fetching App Protection Policies..." -ForegroundColor Yellow
                 $appProtectionPolicies = Get-IntuneEntities -EntityType "deviceAppManagement/managedAppPolicies"
                 foreach ($policy in $appProtectionPolicies) {
                     $policyType = $policy.'@odata.type'
@@ -2036,7 +2067,8 @@ do {
                 }
 
                 # Get App Configuration Policies
-                Write-Host "Fetching App Configuration Policies..." -ForegroundColor Yellow
+                $currentCategory++
+                Write-Host "[$currentCategory/$totalCategories] Fetching App Configuration Policies..." -ForegroundColor Yellow
                 $appConfigPolicies = Get-IntuneEntities -EntityType "deviceAppManagement/mobileAppConfigurations"
                 foreach ($policy in $appConfigPolicies) {
                     $assignments = Get-IntuneAssignments -EntityType "mobileAppConfigurations" -EntityId $policy.id
@@ -2048,7 +2080,8 @@ do {
                 }
 
                 # Fetch and process Applications
-                Write-Host "Fetching Applications..." -ForegroundColor Yellow
+                $currentCategory++
+                Write-Host "[$currentCategory/$totalCategories] Fetching Applications..." -ForegroundColor Yellow
                 $appUri = "$GraphEndpoint/beta/deviceAppManagement/mobileApps?`$filter=isAssigned eq true"
                 $appResponse = Invoke-MgGraphRequest -Uri $appUri -Method Get
                 $allApps = $appResponse.value
@@ -2111,7 +2144,8 @@ do {
                 Write-Host ""  # Move to the next line after the loop
 
                 # Get Platform Scripts
-                Write-Host "Fetching Platform Scripts..." -ForegroundColor Yellow
+                $currentCategory++
+                Write-Host "[$currentCategory/$totalCategories] Fetching Platform Scripts..." -ForegroundColor Yellow
                 $platformScripts = Get-IntuneEntities -EntityType "deviceManagementScripts"
                 foreach ($script in $platformScripts) {
                     $assignments = Get-IntuneAssignments -EntityType "deviceManagementScripts" -EntityId $script.id
@@ -2123,7 +2157,8 @@ do {
                 }
 
                 # Get Proactive Remediation Scripts
-                Write-Host "Fetching Proactive Remediation Scripts..." -ForegroundColor Yellow
+                $currentCategory++
+                Write-Host "[$currentCategory/$totalCategories] Fetching Proactive Remediation Scripts..." -ForegroundColor Yellow
                 $healthScripts = Get-IntuneEntities -EntityType "deviceHealthScripts"
                 foreach ($script in $healthScripts) {
                     $assignments = Get-IntuneAssignments -EntityType "deviceHealthScripts" -EntityId $script.id
@@ -2135,7 +2170,8 @@ do {
                 }
 
                 # Get Endpoint Security - Antivirus Policies
-                Write-Host "Fetching Antivirus Policies..." -ForegroundColor Yellow
+                $currentCategory++
+                Write-Host "[$currentCategory/$totalCategories] Fetching Antivirus Policies..." -ForegroundColor Yellow
                 $antivirusPoliciesFound = [System.Collections.ArrayList]::new()
                 $processedAntivirusIds = [System.Collections.Generic.HashSet[string]]::new()
 
@@ -2189,7 +2225,8 @@ do {
                 $relevantPolicies.AntivirusProfiles = $antivirusPoliciesFound
 
                 # Get Endpoint Security - Disk Encryption Policies
-                Write-Host "Fetching Disk Encryption Policies..." -ForegroundColor Yellow
+                $currentCategory++
+                Write-Host "[$currentCategory/$totalCategories] Fetching Disk Encryption Policies..." -ForegroundColor Yellow
                 $diskEncryptionPoliciesFound = [System.Collections.ArrayList]::new()
                 $processedDiskEncryptionIds = [System.Collections.Generic.HashSet[string]]::new()
 
@@ -2243,7 +2280,8 @@ do {
                 $relevantPolicies.DiskEncryptionProfiles = $diskEncryptionPoliciesFound
 
                 # Get Endpoint Security - Firewall Policies
-                Write-Host "Fetching Firewall Policies..." -ForegroundColor Yellow
+                $currentCategory++
+                Write-Host "[$currentCategory/$totalCategories] Fetching Firewall Policies..." -ForegroundColor Yellow
                 $firewallPoliciesFound = [System.Collections.ArrayList]::new()
                 $processedFirewallIds = [System.Collections.Generic.HashSet[string]]::new()
 
@@ -2297,7 +2335,8 @@ do {
                 $relevantPolicies.FirewallProfiles = $firewallPoliciesFound
 
                 # Get Endpoint Security - Endpoint Detection and Response Policies
-                Write-Host "Fetching Endpoint Detection and Response Policies..." -ForegroundColor Yellow
+                $currentCategory++
+                Write-Host "[$currentCategory/$totalCategories] Fetching Endpoint Detection and Response Policies..." -ForegroundColor Yellow
                 $edrPoliciesFound = [System.Collections.ArrayList]::new()
                 $processedEDRIds = [System.Collections.Generic.HashSet[string]]::new()
 
@@ -2351,7 +2390,8 @@ do {
                 $relevantPolicies.EndpointDetectionProfiles = $edrPoliciesFound
 
                 # Get Endpoint Security - Attack Surface Reduction Policies
-                Write-Host "Fetching Attack Surface Reduction Policies..." -ForegroundColor Yellow
+                $currentCategory++
+                Write-Host "[$currentCategory/$totalCategories] Fetching Attack Surface Reduction Policies..." -ForegroundColor Yellow
                 $asrPoliciesFound = [System.Collections.ArrayList]::new()
                 $processedASRIds = [System.Collections.Generic.HashSet[string]]::new()
 
@@ -2405,7 +2445,8 @@ do {
                 $relevantPolicies.AttackSurfaceProfiles = $asrPoliciesFound
 
                 # Get Endpoint Security - Account Protection Policies
-                Write-Host "Fetching Account Protection Policies..." -ForegroundColor Yellow
+                $currentCategory++
+                Write-Host "[$currentCategory/$totalCategories] Fetching Account Protection Policies..." -ForegroundColor Yellow
                 $accountProtectionPoliciesFound = [System.Collections.ArrayList]::new()
                 $processedAccountProtectionIds = [System.Collections.Generic.HashSet[string]]::new()
 
@@ -2459,7 +2500,8 @@ do {
                 $relevantPolicies.AccountProtectionProfiles = $accountProtectionPoliciesFound
 
                 # Get Windows 365 Cloud PC Provisioning Policies
-                Write-Host "Fetching Windows 365 Cloud PC Provisioning Policies..." -ForegroundColor Yellow
+                $currentCategory++
+                Write-Host "[$currentCategory/$totalCategories] Fetching Windows 365 Cloud PC Provisioning Policies..." -ForegroundColor Yellow
                 try {
                     $cloudPCProvisioningPolicies = Get-IntuneEntities -EntityType "virtualEndpoint/provisioningPolicies"
                     foreach ($policy in $cloudPCProvisioningPolicies) {
@@ -2484,7 +2526,8 @@ do {
                 }
 
                 # Get Windows 365 Cloud PC User Settings
-                Write-Host "Fetching Windows 365 Cloud PC User Settings..." -ForegroundColor Yellow
+                $currentCategory++
+                Write-Host "[$currentCategory/$totalCategories] Fetching Windows 365 Cloud PC User Settings..." -ForegroundColor Yellow
                 try {
                     $cloudPCUserSettings = Get-IntuneEntities -EntityType "virtualEndpoint/userSettings"
                     foreach ($setting in $cloudPCUserSettings) {
@@ -2518,12 +2561,15 @@ do {
                 # Display results
                 Write-Host "`nAssignments for User: $upn" -ForegroundColor Green
 
+                # Calculate category summary
+                $categoryNames = @('DeviceConfigs', 'SettingsCatalog', 'AdminTemplates', 'CompliancePolicies', 'AppProtectionPolicies', 'AppConfigurationPolicies', 'PlatformScripts', 'HealthScripts', 'AppsRequired', 'AppsAvailable', 'AppsUninstall', 'AntivirusProfiles', 'DiskEncryptionProfiles', 'FirewallProfiles', 'EndpointDetectionProfiles', 'AttackSurfaceProfiles', 'AccountProtectionProfiles', 'CloudPCProvisioningPolicies', 'CloudPCUserSettings')
+                $nonEmptyCount = ($categoryNames | Where-Object { $relevantPolicies[$_].Count -gt 0 }).Count
+                $totalDisplayCategories = $categoryNames.Count
+                Write-Host "`nFound assignments in $nonEmptyCount of $totalDisplayCategories categories." -ForegroundColor Cyan
+
                 # Display Device Configurations
-                Write-Host "`n------- Device Configurations -------" -ForegroundColor Cyan
-                if ($relevantPolicies.DeviceConfigs.Count -eq 0) {
-                    Write-Host "No Device Configurations found" -ForegroundColor Gray
-                }
-                else {
+                if ($relevantPolicies.DeviceConfigs.Count -gt 0) {
+                    Write-Host "`n------- Device Configurations -------" -ForegroundColor Cyan
                     # Create table header
                     $headerFormat = "{0,-45} {1,-20} {2,-35} {3,-20}" -f "Configuration Name", "Platform", "Configuration ID", "Assignment"
                     $separator = "-" * 120
@@ -2564,11 +2610,8 @@ do {
                 }
 
                 # Display Settings Catalog Policies
-                Write-Host "`n------- Settings Catalog Policies -------" -ForegroundColor Cyan
-                if ($relevantPolicies.SettingsCatalog.Count -eq 0) {
-                    Write-Host "No Settings Catalog Policies found" -ForegroundColor Gray
-                }
-                else {
+                if ($relevantPolicies.SettingsCatalog.Count -gt 0) {
+                    Write-Host "`n------- Settings Catalog Policies -------" -ForegroundColor Cyan
                     # Create table header
                     $headerFormat = "{0,-50} {1,-40} {2,-30}" -f "Policy Name", "Policy ID", "Assignment"
                     $separator = "-" * 120
@@ -2604,11 +2647,8 @@ do {
                 }
 
                 # Display Administrative Templates
-                Write-Host "`n------- Administrative Templates -------" -ForegroundColor Cyan
-                if ($relevantPolicies.AdminTemplates.Count -eq 0) {
-                    Write-Host "No Administrative Templates found" -ForegroundColor Gray
-                }
-                else {
+                if ($relevantPolicies.AdminTemplates.Count -gt 0) {
+                    Write-Host "`n------- Administrative Templates -------" -ForegroundColor Cyan
                     # Create table header
                     $headerFormat = "{0,-50} {1,-40} {2,-30}" -f "Template Name", "Template ID", "Assignment"
                     $separator = "-" * 120
@@ -2644,11 +2684,8 @@ do {
                 }
 
                 # Display Compliance Policies
-                Write-Host "`n------- Compliance Policies -------" -ForegroundColor Cyan
-                if ($relevantPolicies.CompliancePolicies.Count -eq 0) {
-                    Write-Host "No Compliance Policies found" -ForegroundColor Gray
-                }
-                else {
+                if ($relevantPolicies.CompliancePolicies.Count -gt 0) {
+                    Write-Host "`n------- Compliance Policies -------" -ForegroundColor Cyan
                     # Create table header
                     $headerFormat = "{0,-50} {1,-40} {2,-30}" -f "Policy Name", "Policy ID", "Assignment"
                     $separator = "-" * 120
@@ -2684,11 +2721,8 @@ do {
                 }
 
                 # Display App Protection Policies
-                Write-Host "`n------- App Protection Policies -------" -ForegroundColor Cyan
-                if ($relevantPolicies.AppProtectionPolicies.Count -eq 0) {
-                    Write-Host "No App Protection Policies found" -ForegroundColor Gray
-                }
-                else {
+                if ($relevantPolicies.AppProtectionPolicies.Count -gt 0) {
+                    Write-Host "`n------- App Protection Policies -------" -ForegroundColor Cyan
                     # Create table header
                     $headerFormat = "{0,-40} {1,-30} {2,-20} {3,-30}" -f "Policy Name", "Policy ID", "Type", "Assignment"
                     $separator = "-" * 120
@@ -2731,11 +2765,8 @@ do {
                 }
 
                 # Display App Configuration Policies
-                Write-Host "`n------- App Configuration Policies -------" -ForegroundColor Cyan
-                if ($relevantPolicies.AppConfigurationPolicies.Count -eq 0) {
-                    Write-Host "No App Configuration Policies found" -ForegroundColor Gray
-                }
-                else {
+                if ($relevantPolicies.AppConfigurationPolicies.Count -gt 0) {
+                    Write-Host "`n------- App Configuration Policies -------" -ForegroundColor Cyan
                     # Create table header
                     $headerFormat = "{0,-50} {1,-40} {2,-30}" -f "Policy Name", "Policy ID", "Assignment"
                     $separator = "-" * 120
@@ -2771,11 +2802,8 @@ do {
                 }
 
                 # Display Platform Scripts
-                Write-Host "`n------- Platform Scripts -------" -ForegroundColor Cyan
-                if ($relevantPolicies.PlatformScripts.Count -eq 0) {
-                    Write-Host "No Platform Scripts found" -ForegroundColor Gray
-                }
-                else {
+                if ($relevantPolicies.PlatformScripts.Count -gt 0) {
+                    Write-Host "`n------- Platform Scripts -------" -ForegroundColor Cyan
                     # Create table header
                     $headerFormat = "{0,-50} {1,-40} {2,-30}" -f "Script Name", "Script ID", "Assignment"
                     $separator = "-" * 120
@@ -2811,11 +2839,8 @@ do {
                 }
 
                 # Display Proactive Remediation Scripts
-                Write-Host "`n------- Proactive Remediation Scripts -------" -ForegroundColor Cyan
-                if ($relevantPolicies.HealthScripts.Count -eq 0) {
-                    Write-Host "No Proactive Remediation Scripts found" -ForegroundColor Gray
-                }
-                else {
+                if ($relevantPolicies.HealthScripts.Count -gt 0) {
+                    Write-Host "`n------- Proactive Remediation Scripts -------" -ForegroundColor Cyan
                     # Create table header
                     $headerFormat = "{0,-50} {1,-40} {2,-30}" -f "Script Name", "Script ID", "Assignment"
                     $separator = "-" * 120
@@ -2851,11 +2876,8 @@ do {
                 }
 
                 # Display Required Apps
-                Write-Host "`n------- Required Apps -------" -ForegroundColor Cyan
-                if ($relevantPolicies.AppsRequired.Count -eq 0) {
-                    Write-Host "No Required Apps found" -ForegroundColor Gray
-                }
-                else {
+                if ($relevantPolicies.AppsRequired.Count -gt 0) {
+                    Write-Host "`n------- Required Apps -------" -ForegroundColor Cyan
                     # Create table header
                     $headerFormat = "{0,-50} {1,-40} {2,-30}" -f "App Name", "App ID", "Assignment"
                     $separator = "-" * 120
@@ -2891,11 +2913,8 @@ do {
                 }
 
                 # Display Available Apps
-                Write-Host "`n------- Available Apps -------" -ForegroundColor Cyan
-                if ($relevantPolicies.AppsAvailable.Count -eq 0) {
-                    Write-Host "No Available Apps found" -ForegroundColor Gray
-                }
-                else {
+                if ($relevantPolicies.AppsAvailable.Count -gt 0) {
+                    Write-Host "`n------- Available Apps -------" -ForegroundColor Cyan
                     # Create table header
                     $headerFormat = "{0,-50} {1,-40} {2,-30}" -f "App Name", "App ID", "Assignment"
                     $separator = "-" * 120
@@ -2931,11 +2950,8 @@ do {
                 }
 
                 # Display Uninstall Apps
-                Write-Host "`n------- Uninstall Apps -------" -ForegroundColor Cyan
-                if ($relevantPolicies.AppsUninstall.Count -eq 0) {
-                    Write-Host "No Uninstall Apps found" -ForegroundColor Gray
-                }
-                else {
+                if ($relevantPolicies.AppsUninstall.Count -gt 0) {
+                    Write-Host "`n------- Uninstall Apps -------" -ForegroundColor Cyan
                     # Create table header
                     $headerFormat = "{0,-50} {1,-40} {2,-30}" -f "App Name", "App ID", "Assignment"
                     $separator = "-" * 120
@@ -2971,11 +2987,8 @@ do {
                 }
 
                 # Display Endpoint Security - Antivirus Profiles
-                Write-Host "`n------- Endpoint Security - Antivirus Profiles -------" -ForegroundColor Cyan
-                if ($relevantPolicies.AntivirusProfiles.Count -eq 0) {
-                    Write-Host "No Antivirus Profiles found" -ForegroundColor Gray
-                }
-                else {
+                if ($relevantPolicies.AntivirusProfiles.Count -gt 0) {
+                    Write-Host "`n------- Endpoint Security - Antivirus Profiles -------" -ForegroundColor Cyan
                     # Create table header
                     $headerFormat = "{0,-50} {1,-40} {2,-30}" -f "Profile Name", "Profile ID", "Assignment"
                     $separator = "-" * 120
@@ -3011,11 +3024,8 @@ do {
                 }
 
                 # Display Endpoint Security - Disk Encryption Profiles
-                Write-Host "`n------- Endpoint Security - Disk Encryption Profiles -------" -ForegroundColor Cyan
-                if ($relevantPolicies.DiskEncryptionProfiles.Count -eq 0) {
-                    Write-Host "No Disk Encryption Profiles found" -ForegroundColor Gray
-                }
-                else {
+                if ($relevantPolicies.DiskEncryptionProfiles.Count -gt 0) {
+                    Write-Host "`n------- Endpoint Security - Disk Encryption Profiles -------" -ForegroundColor Cyan
                     # Create table header
                     $headerFormat = "{0,-50} {1,-40} {2,-30}" -f "Profile Name", "Profile ID", "Assignment"
                     $separator = "-" * 120
@@ -3051,11 +3061,8 @@ do {
                 }
 
                 # Display Endpoint Security - Firewall Profiles
-                Write-Host "`n------- Endpoint Security - Firewall Profiles -------" -ForegroundColor Cyan
-                if ($relevantPolicies.FirewallProfiles.Count -eq 0) {
-                    Write-Host "No Firewall Profiles found" -ForegroundColor Gray
-                }
-                else {
+                if ($relevantPolicies.FirewallProfiles.Count -gt 0) {
+                    Write-Host "`n------- Endpoint Security - Firewall Profiles -------" -ForegroundColor Cyan
                     # Create table header
                     $headerFormat = "{0,-50} {1,-40} {2,-30}" -f "Profile Name", "Profile ID", "Assignment"
                     $separator = "-" * 120
@@ -3091,11 +3098,8 @@ do {
                 }
 
                 # Display Endpoint Security - Endpoint Detection and Response Profiles
-                Write-Host "`n------- Endpoint Security - Endpoint Detection and Response Profiles -------" -ForegroundColor Cyan
-                if ($relevantPolicies.EndpointDetectionProfiles.Count -eq 0) {
-                    Write-Host "No Endpoint Detection and Response Profiles found" -ForegroundColor Gray
-                }
-                else {
+                if ($relevantPolicies.EndpointDetectionProfiles.Count -gt 0) {
+                    Write-Host "`n------- Endpoint Security - Endpoint Detection and Response Profiles -------" -ForegroundColor Cyan
                     # Create table header
                     $headerFormat = "{0,-50} {1,-40} {2,-30}" -f "Profile Name", "Profile ID", "Assignment"
                     $separator = "-" * 120
@@ -3131,11 +3135,8 @@ do {
                 }
 
                 # Display Endpoint Security - Attack Surface Reduction Profiles
-                Write-Host "`n------- Endpoint Security - Attack Surface Reduction Profiles -------" -ForegroundColor Cyan
-                if ($relevantPolicies.AttackSurfaceProfiles.Count -eq 0) {
-                    Write-Host "No Attack Surface Reduction Profiles found" -ForegroundColor Gray
-                }
-                else {
+                if ($relevantPolicies.AttackSurfaceProfiles.Count -gt 0) {
+                    Write-Host "`n------- Endpoint Security - Attack Surface Reduction Profiles -------" -ForegroundColor Cyan
                     # Create table header
                     $headerFormat = "{0,-50} {1,-40} {2,-30}" -f "Profile Name", "Profile ID", "Assignment"
                     $separator = "-" * 120
@@ -3171,11 +3172,8 @@ do {
                 }
 
                 # Display Endpoint Security - Account Protection Profiles
-                Write-Host "`n------- Endpoint Security - Account Protection Profiles -------" -ForegroundColor Cyan
-                if ($relevantPolicies.AccountProtectionProfiles.Count -eq 0) {
-                    Write-Host "No Account Protection Profiles found" -ForegroundColor Gray
-                }
-                else {
+                if ($relevantPolicies.AccountProtectionProfiles.Count -gt 0) {
+                    Write-Host "`n------- Endpoint Security - Account Protection Profiles -------" -ForegroundColor Cyan
                     # Create table header
                     $headerFormat = "{0,-50} {1,-40} {2,-30}" -f "Profile Name", "Profile ID", "Assignment"
                     $separator = "-" * 120
@@ -3211,11 +3209,8 @@ do {
                 }
 
                 # Display Windows 365 Cloud PC Provisioning Policies
-                Write-Host "`n------- Windows 365 Cloud PC Provisioning Policies -------" -ForegroundColor Cyan
-                if ($relevantPolicies.CloudPCProvisioningPolicies.Count -eq 0) {
-                    Write-Host "No Windows 365 Cloud PC Provisioning Policies found" -ForegroundColor Gray
-                }
-                else {
+                if ($relevantPolicies.CloudPCProvisioningPolicies.Count -gt 0) {
+                    Write-Host "`n------- Windows 365 Cloud PC Provisioning Policies -------" -ForegroundColor Cyan
                     # Create table header
                     $headerFormat = "{0,-50} {1,-40} {2,-30}" -f "Policy Name", "Policy ID", "Assignment"
                     $separator = "-" * 120
@@ -3251,11 +3246,8 @@ do {
                 }
 
                 # Display Windows 365 Cloud PC User Settings
-                Write-Host "`n------- Windows 365 Cloud PC User Settings -------" -ForegroundColor Cyan
-                if ($relevantPolicies.CloudPCUserSettings.Count -eq 0) {
-                    Write-Host "No Windows 365 Cloud PC User Settings found" -ForegroundColor Gray
-                }
-                else {
+                if ($relevantPolicies.CloudPCUserSettings.Count -gt 0) {
+                    Write-Host "`n------- Windows 365 Cloud PC User Settings -------" -ForegroundColor Cyan
                     # Create table header
                     $headerFormat = "{0,-50} {1,-40} {2,-30}" -f "Setting Name", "Setting ID", "Assignment"
                     $separator = "-" * 120
@@ -3327,14 +3319,20 @@ do {
         '2' {
             Write-Host "Group selection chosen" -ForegroundColor Green
 
-            # Prompt for Group names or IDs
-            Write-Host "Please enter Group names or Object IDs, separated by commas (,): " -ForegroundColor Cyan
-            Write-Host "Example: 'Marketing Team, 12345678-1234-1234-1234-123456789012'" -ForegroundColor Gray
-            $groupInput = Read-Host
+            # Get Group names from parameter or prompt
+            if ($parameterMode -and $GroupNames) {
+                $groupInput = $GroupNames
+            }
+            else {
+                # Prompt for Group names or IDs
+                Write-Host "Please enter Group names or Object IDs, separated by commas (,): " -ForegroundColor Cyan
+                Write-Host "Example: 'Marketing Team, 12345678-1234-1234-1234-123456789012'" -ForegroundColor Gray
+                $groupInput = Read-Host
+            }
 
             if ([string]::IsNullOrWhiteSpace($groupInput)) {
                 Write-Host "No group information provided. Please try again." -ForegroundColor Red
-                continue
+                if ($parameterMode) { exit 1 } else { continue }
             }
 
             $groupInputs = $groupInput -split ',' | ForEach-Object { $_.Trim() }
@@ -7080,34 +7078,64 @@ do {
 
                 . $scriptPath
 
-                # Determine cross-platform default report path (avoid System32 on Windows)
-                $defaultReportPath = $HOME
-                if ($IsWindows -or $env:OS -match "Windows") {
-                    $documentsPath = [Environment]::GetFolderPath('MyDocuments')
-                    if ($documentsPath -and (Test-Path $documentsPath)) {
-                        $defaultReportPath = $documentsPath
+                $defaultFileName = "IntuneAssignmentReport.html"
+
+                if ($HTMLReportPath) {
+                    # Resolve to absolute path to avoid writing to CWD (e.g. System32 on Windows)
+                    $HTMLReportPath = [System.IO.Path]::GetFullPath($HTMLReportPath)
+
+                    if (Test-Path $HTMLReportPath -PathType Container) {
+                        # Existing directory - append default filename
+                        $filePath = Join-Path $HTMLReportPath $defaultFileName
+                    }
+                    elseif ($HTMLReportPath -match '\.(html?)$') {
+                        # Has an HTML file extension - use as-is, create parent dir if needed
+                        $parentDir = Split-Path $HTMLReportPath -Parent
+                        if ($parentDir -and -not (Test-Path $parentDir)) {
+                            New-Item -ItemType Directory -Path $parentDir -Force | Out-Null
+                        }
+                        $filePath = $HTMLReportPath
+                    }
+                    else {
+                        # No HTML extension, treat as directory path - create it and append default filename
+                        if (-not (Test-Path $HTMLReportPath)) {
+                            New-Item -ItemType Directory -Path $HTMLReportPath -Force | Out-Null
+                        }
+                        $filePath = Join-Path $HTMLReportPath $defaultFileName
                     }
                 }
-                elseif (Test-Path "$HOME/Documents") {
-                    $defaultReportPath = "$HOME/Documents"
+                else {
+                    # Default behavior: save to Documents folder
+                    $defaultReportPath = $HOME
+                    if ($IsWindows -or $env:OS -match "Windows") {
+                        $documentsPath = [Environment]::GetFolderPath('MyDocuments')
+                        if ($documentsPath -and (Test-Path $documentsPath)) {
+                            $defaultReportPath = $documentsPath
+                        }
+                    }
+                    elseif (Test-Path "$HOME/Documents") {
+                        $defaultReportPath = "$HOME/Documents"
+                    }
+                    $filePath = Join-Path $defaultReportPath $defaultFileName
                 }
 
-                $filePath = Join-Path $defaultReportPath "IntuneAssignmentReport.html"
                 Write-Host "Report will be saved to: $filePath" -ForegroundColor Cyan
                 Export-HTMLReport -FilePath $filePath
 
-                # Ask if user wants to open the report
-                $openReport = Read-Host "Would you like to open the report now? (y/n)"
-                if ($openReport -eq 'y') {
-                    # Platform-specific file opening
-                    if ($IsWindows -or $env:OS -match "Windows") {
-                        Start-Process $filePath
-                    }
-                    elseif ($IsMacOS) {
-                        & open $filePath
-                    }
-                    elseif ($IsLinux) {
-                        & xdg-open $filePath 2>$null
+                if (-not $parameterMode) {
+                    # Ask if user wants to open the report
+                    $openReport = Read-Host "Would you like to open the report now? (y/n)"
+                    if ($openReport -eq 'y') {
+                        # Platform-specific file opening
+                        if ($IsWindows -or $env:OS -match "Windows") {
+                            Start-Process $filePath
+                        }
+                        elseif ($IsMacOS) {
+                            & open $filePath
+                        }
+                        elseif ($IsLinux) {
+                            & xdg-open $filePath 2>$null
+                        }
                     }
                 }
 
@@ -8687,7 +8715,7 @@ do {
                 }
 
                 # Export if requested
-                Export-ResultsIfRequested -ExportData $exportData -ExportPath $ExportPath -ForceExport:$false
+                Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneFailedAssignments.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath
             }
         }
 
