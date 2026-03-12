@@ -13,6 +13,10 @@ on:
       - '.github/workflows/psscriptanalyzer.yml'
   workflow_dispatch:
 
+permissions:
+  contents: read
+  pull-requests: write
+
 jobs:
   analyze:
     name: PSScriptAnalyzer
