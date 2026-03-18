@@ -129,9 +129,11 @@ function Get-IntentTemplateFamilyLookup {
 
 function Add-IntentTemplateFamilyInfo {
     param (
-        [Parameter(Mandatory = $true)]
-        [System.Collections.ArrayList]$IntentPolicies
+        [Parameter(Mandatory = $false)]
+        $IntentPolicies
     )
+
+    if (-not $IntentPolicies) { return }
 
     $lookup = Get-IntentTemplateFamilyLookup
 
