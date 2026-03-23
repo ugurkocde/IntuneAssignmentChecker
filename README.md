@@ -64,7 +64,7 @@ Update-PSResource IntuneAssignmentChecker
 Install-Module Microsoft.Graph.Authentication -Scope CurrentUser
 
 # Download and run the script
-.\IntuneAssignmentChecker_v3.ps1
+.\IntuneAssignmentChecker.ps1
 ```
 
 ## ✨ Features
@@ -186,7 +186,7 @@ If you prefer a simpler setup than certificates but still need non-interactive a
 
 3. Run the script with the client secret:
    ```powershell
-   .\IntuneAssignmentChecker_v3.ps1 -AppId "your-app-id" -TenantId "your-tenant-id" -ClientSecret "your-client-secret"
+   .\IntuneAssignmentChecker.ps1 -AppId "your-app-id" -TenantId "your-tenant-id" -ClientSecret "your-client-secret"
    ```
 
 > **Security Note**: Never hard-code client secrets in scripts or commit them to source control. Use secure methods such as Azure Key Vault, environment variables, or secure parameter input to manage secrets.
@@ -261,31 +261,31 @@ You can run the script with parameters to automate tasks without user interactio
 
 ```powershell
 # Check assignments for a specific user and export to CSV
-.\IntuneAssignmentChecker_v3.ps1 -CheckUser -UserPrincipalNames "user@contoso.com" -ExportToCSV -ExportPath "C:\Temp\UserAssignments.csv"
+.\IntuneAssignmentChecker.ps1 -CheckUser -UserPrincipalNames "user@contoso.com" -ExportToCSV -ExportPath "C:\Temp\UserAssignments.csv"
 
 # Check assignments for multiple users
-.\IntuneAssignmentChecker_v3.ps1 -CheckUser -UserPrincipalNames "user1@contoso.com,user2@contoso.com"
+.\IntuneAssignmentChecker.ps1 -CheckUser -UserPrincipalNames "user1@contoso.com,user2@contoso.com"
 
 # Check assignments for a specific group
-.\IntuneAssignmentChecker_v3.ps1 -CheckGroup -GroupNames "Marketing Team"
+.\IntuneAssignmentChecker.ps1 -CheckGroup -GroupNames "Marketing Team"
 
 # Check assignments for a specific device
-.\IntuneAssignmentChecker_v3.ps1 -CheckDevice -DeviceNames "Laptop123"
+.\IntuneAssignmentChecker.ps1 -CheckDevice -DeviceNames "Laptop123"
 
 # Show all policies with 'All Users' assignments
-.\IntuneAssignmentChecker_v3.ps1 -ShowAllUsersAssignments -ExportToCSV
+.\IntuneAssignmentChecker.ps1 -ShowAllUsersAssignments -ExportToCSV
 
 # Generate HTML report
-.\IntuneAssignmentChecker_v3.ps1 -GenerateHTMLReport
+.\IntuneAssignmentChecker.ps1 -GenerateHTMLReport
 
 # Specify environment (Global, USGov, USGovDoD)
-.\IntuneAssignmentChecker_v3.ps1 -CheckUser -UserPrincipalNames "user@contoso.com" -Environment "USGov"
+.\IntuneAssignmentChecker.ps1 -CheckUser -UserPrincipalNames "user@contoso.com" -Environment "USGov"
 
 # Use with certificate authentication
-.\IntuneAssignmentChecker_v3.ps1 -CheckUser -UserPrincipalNames "user@contoso.com" -AppId "your-app-id" -TenantId "your-tenant-id" -CertificateThumbprint "your-cert-thumbprint"
+.\IntuneAssignmentChecker.ps1 -CheckUser -UserPrincipalNames "user@contoso.com" -AppId "your-app-id" -TenantId "your-tenant-id" -CertificateThumbprint "your-cert-thumbprint"
 
 # Use with client secret authentication
-.\IntuneAssignmentChecker_v3.ps1 -CheckUser -UserPrincipalNames "user@contoso.com" -AppId "your-app-id" -TenantId "your-tenant-id" -ClientSecret "your-client-secret"
+.\IntuneAssignmentChecker.ps1 -CheckUser -UserPrincipalNames "user@contoso.com" -AppId "your-app-id" -TenantId "your-tenant-id" -ClientSecret "your-client-secret"
 ```
 
 Available parameters:

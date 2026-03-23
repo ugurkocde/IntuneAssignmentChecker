@@ -275,19 +275,19 @@ if (-not $parameterMode -and $HTMLReportPath) {
     Environment (Global, USGov, USGovDoD).
 
 .EXAMPLE
-    .\IntuneAssignmentChecker_v3.ps1 -CheckUser -UserPrincipalNames "user1@contoso.com,user2@contoso.com"
+    .\IntuneAssignmentChecker.ps1 -CheckUser -UserPrincipalNames "user1@contoso.com,user2@contoso.com"
     Checks assignments for the specified users.
 
 .EXAMPLE
-    .\IntuneAssignmentChecker_v3.ps1 -CheckGroup -GroupNames "Marketing Team"
+    .\IntuneAssignmentChecker.ps1 -CheckGroup -GroupNames "Marketing Team"
     Checks assignments for the specified group.
 
 .EXAMPLE
-    .\IntuneAssignmentChecker_v3.ps1 -ShowAllPolicies -ExportToCSV -ExportPath "C:\Temp\AllPolicies.csv"
+    .\IntuneAssignmentChecker.ps1 -ShowAllPolicies -ExportToCSV -ExportPath "C:\Temp\AllPolicies.csv"
     Shows all policies and exports the results to CSV.
 
 .EXAMPLE
-    .\IntuneAssignmentChecker_v3.ps1 -GenerateHTMLReport -HTMLReportPath "C:\Temp\MyReport.html"
+    .\IntuneAssignmentChecker.ps1 -GenerateHTMLReport -HTMLReportPath "C:\Temp\MyReport.html"
     Generates an HTML report and saves it to the specified path.
 
 .AUTHOR
@@ -320,7 +320,7 @@ $clientSecret = if ($ClientSecret) { $ClientSecret } else { '' } # Client Secret
 ####################################################################################################
 
 # Version of the local script
-$localVersion = "3.9.1"
+$localVersion = "3.10.0"
 
 Write-Host "🔍 INTUNE ASSIGNMENT CHECKER" -ForegroundColor Cyan
 Write-Host "Made by Ugur Koc with" -NoNewline; Write-Host " ❤️  and ☕" -NoNewline
@@ -345,15 +345,15 @@ Write-Host ""
 $versionUrl = "https://raw.githubusercontent.com/ugurkocde/IntuneAssignmentChecker/refs/heads/main/version_v3.txt"
 
 # URL to the latest script on GitHub
-$scriptUrl = "https://raw.githubusercontent.com/ugurkocde/IntuneAssignmentChecker/main/IntuneAssignmentChecker_v3.ps1"
+$scriptUrl = "https://raw.githubusercontent.com/ugurkocde/IntuneAssignmentChecker/main/IntuneAssignmentChecker.ps1"
 
 # Determine the script path based on whether it's run as a file or from an IDE
 if ($PSScriptRoot) {
-    $newScriptPath = Join-Path $PSScriptRoot "IntuneAssignmentChecker_v3.ps1"
+    $newScriptPath = Join-Path $PSScriptRoot "IntuneAssignmentChecker.ps1"
 }
 else {
     $currentDirectory = Get-Location
-    $newScriptPath = Join-Path $currentDirectory "IntuneAssignmentChecker_v3.ps1"
+    $newScriptPath = Join-Path $currentDirectory "IntuneAssignmentChecker.ps1"
 }
 
 # Flag to control auto-update behavior
