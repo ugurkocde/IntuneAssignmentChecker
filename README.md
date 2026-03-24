@@ -112,7 +112,9 @@ Your Entra ID application registration needs these permissions:
 | DeviceManagementApps.Read.All | Application | Read Microsoft Intune apps |
 | DeviceManagementConfiguration.Read.All | Application | Read Microsoft Intune device configuration and policies |
 | DeviceManagementManagedDevices.Read.All | Application | Read Microsoft Intune devices |
-| DeviceManagementServiceConfig.Read.All | Application | 	Read Microsoft Intune configuration |
+| DeviceManagementScripts.Read.All | Application | Read device management and health scripts |
+| CloudPC.Read.All | Application | Read Windows 365 Cloud PC provisioning policies and settings |
+| DeviceManagementRBAC.Read.All | Application | Read role scope tags for scope tag display and filtering |
 
 ## 🔐 Authentication Options
 
@@ -304,7 +306,7 @@ Available parameters:
 | `-GenerateHTMLReport`             | Generate HTML report                                       |
 | `-ShowPoliciesWithoutAssignments` | Show policies without assignments                          |
 | `-CheckEmptyGroups`               | Check for empty groups in assignments                      |
-| `-ShowAdminTemplates`             | Show all Administrative Templates                          |
+| `-ShowFailedAssignments`          | Show all failed policy assignments                         |
 | `-CompareGroups`                  | Compare assignments between groups                         |
 | `-CompareGroupNames`              | Groups to compare assignments between (comma-separated)    |
 | `-ExportToCSV`                    | Export results to CSV                                      |
@@ -314,6 +316,9 @@ Available parameters:
 | `-CertificateThumbprint`          | Certificate Thumbprint for authentication                  |
 | `-ClientSecret`                   | Client Secret for authentication                           |
 | `-Environment`                    | Environment (Global, USGov, USGovDoD) - defaults to Global |
+| `-HTMLReportPath`                 | Path for the exported HTML report file                     |
+| `-IncludeNestedGroups`            | Include assignments inherited from parent groups           |
+| `-ScopeTagFilter`                 | Filter results by scope tag name                           |
 
 ### 📋 Interactive Menu Options
 
@@ -378,8 +383,21 @@ The script provides a comprehensive menu-driven interface with the following opt
    - Helps identify ineffective policies
    - Supports CSV export of findings
 
+10. **Compare Assignments Between Groups**
+
+    - Compare policy and app assignments between two or more groups
+    - Highlights differences and overlaps
+    - Useful for auditing group consistency
+
+11. **Show All Failed Assignments**
+
+    - Displays all failed policy deployment assignments
+    - Helps identify configuration issues
+    - Supports CSV export of findings
+
 ### 🛠️ System Options
 
+- **Switch Tenant (12)**: Disconnect and connect to a different tenant without restarting
 - **Exit (0)**: Safely disconnect and close
 - **Report Bug (99)**: Opens GitHub issues page
 
