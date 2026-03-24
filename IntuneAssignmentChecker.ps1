@@ -9,6 +9,10 @@
 .DESCRIPTION
 This script enables IT administrators to efficiently analyze and audit Intune assignments. It checks assignments for specific users, groups, or devices, displays all policies and their assignments, identifies unassigned policies, detects empty groups in assignments, and searches for specific settings across policies.
 .RELEASENOTES
+Version 3.10.0:
+- Fix auto-update URL referencing non-existent _v3 filename (Fixes #110)
+- Correct script filename references from IntuneAssignmentChecker_v3.ps1 to IntuneAssignmentChecker.ps1
+
 Version 3.9.1:
 - Fix HTML report crash when tenant has no legacy Endpoint Security intent policies (Fixes #109)
 
@@ -243,9 +247,6 @@ if (-not $parameterMode -and $HTMLReportPath) {
 
 .PARAMETER CheckEmptyGroups
     Check for empty groups in assignments.
-
-.PARAMETER ShowAdminTemplates
-    Show all Administrative Templates.
 
 .PARAMETER CompareGroups
     Compare assignments between groups.
@@ -1275,9 +1276,15 @@ function Get-GroupMemberships {
     )
 
     $uri = "$GraphEndpoint/v1.0/$($ObjectType.ToLower())s/$ObjectId/transitiveMemberOf?`$select=id,displayName"
-    $response = Invoke-MgGraphRequest -Uri $uri -Method Get
 
-    return $response.value
+    try {
+        $response = Invoke-MgGraphRequest -Uri $uri -Method Get
+        return $response.value
+    }
+    catch {
+        Write-Warning "Error fetching group memberships for $ObjectType '$ObjectId': $($_.Exception.Message)"
+        throw
+    }
 }
 
 function Get-TransitiveGroupMembership {
@@ -1465,12 +1472,12 @@ function Get-AssignmentFailures {
                 top = 50
             } | ConvertTo-Json
 
-            $uri = "https://graph.microsoft.com/beta/deviceManagement/reports/getMobileApplicationManagementAppStatusReport"
+            $uri = "$script:GraphEndpoint/beta/deviceManagement/reports/getMobileApplicationManagementAppStatusReport"
             $response = try {
                 Invoke-MgGraphRequest -Uri $uri -Method POST -Body $reportBody
             } catch {
                 # If the new endpoint fails, try the alternative endpoint
-                $uri = "https://graph.microsoft.com/beta/deviceManagement/reports/getAppStatusOverviewReport"
+                $uri = "$script:GraphEndpoint/beta/deviceManagement/reports/getAppStatusOverviewReport"
                 Invoke-MgGraphRequest -Uri $uri -Method POST -Body $reportBody
             }
 
@@ -1506,11 +1513,11 @@ function Get-AssignmentFailures {
     # 2. Get Device Configuration Policy Failures
     Write-Host "Checking device configuration policy failures..." -ForegroundColor Yellow
     try {
-        $configPoliciesUri = "https://graph.microsoft.com/beta/deviceManagement/deviceConfigurations"
+        $configPoliciesUri = "$script:GraphEndpoint/beta/deviceManagement/deviceConfigurations"
         $configPolicies = (Invoke-MgGraphRequest -Uri $configPoliciesUri -Method GET).value
 
         foreach ($policy in $configPolicies) {
-            $statusUri = "https://graph.microsoft.com/beta/deviceManagement/deviceConfigurations('$($policy.id)')/deviceStatuses"
+            $statusUri = "$script:GraphEndpoint/beta/deviceManagement/deviceConfigurations('$($policy.id)')/deviceStatuses"
             $statuses = (Invoke-MgGraphRequest -Uri $statusUri -Method GET).value
 
             $failures = $statuses | Where-Object {
@@ -1538,11 +1545,11 @@ function Get-AssignmentFailures {
     # 3. Get Compliance Policy Failures
     Write-Host "Checking compliance policy failures..." -ForegroundColor Yellow
     try {
-        $compliancePoliciesUri = "https://graph.microsoft.com/beta/deviceManagement/deviceCompliancePolicies"
+        $compliancePoliciesUri = "$script:GraphEndpoint/beta/deviceManagement/deviceCompliancePolicies"
         $compliancePolicies = (Invoke-MgGraphRequest -Uri $compliancePoliciesUri -Method GET).value
 
         foreach ($policy in $compliancePolicies) {
-            $statusUri = "https://graph.microsoft.com/beta/deviceManagement/deviceCompliancePolicies('$($policy.id)')/deviceStatuses"
+            $statusUri = "$script:GraphEndpoint/beta/deviceManagement/deviceCompliancePolicies('$($policy.id)')/deviceStatuses"
             $statuses = (Invoke-MgGraphRequest -Uri $statusUri -Method GET).value
 
             $failures = $statuses | Where-Object {
