@@ -600,7 +600,6 @@ function Export-HTMLReport {
     $policies = @{
         DeviceConfigs             = @()
         SettingsCatalog           = @()
-        AdminTemplates            = @()
         CompliancePolicies        = @()
         AppProtectionPolicies     = @()
         AppConfigurationPolicies  = @()
@@ -658,21 +657,7 @@ function Export-HTMLReport {
         }
     }
 
-    Write-Host "Fetching Administrative Templates..." -ForegroundColor Yellow
-    $adminTemplates = Get-IntuneEntities -EntityType "groupPolicyConfigurations"
-    foreach ($template in $adminTemplates) {
-        $assignments = Get-IntuneAssignments -EntityType "groupPolicyConfigurations" -EntityId $template.id
-        $assignmentInfo = Get-AssignmentInfo -Assignments $assignments
-        $policies.AdminTemplates += @{
-            Name           = $template.displayName
-            ID             = $template.id
-            Type           = "Administrative Template"
-            Platform       = Get-PolicyPlatform -Policy $template
-            ScopeTags      = Get-ScopeTagNames -ScopeTagIds $template.roleScopeTagIds -ScopeTagLookup $script:ScopeTagLookup
-            AssignmentType = $assignmentInfo.Type
-            AssignedTo     = $assignmentInfo.Target
-        }
-    }
+
 
     Write-Host "Fetching Compliance Policies..." -ForegroundColor Yellow
     $compliancePolicies = Get-IntuneEntities -EntityType "deviceCompliancePolicies"
@@ -995,7 +980,6 @@ function Export-HTMLReport {
         @{ Key = 'all'; Name = 'All Policies & Apps' }, 
         @{ Key = 'DeviceConfigs'; Name = 'Device Configurations' },
         @{ Key = 'SettingsCatalog'; Name = 'Settings Catalog' },
-        @{ Key = 'AdminTemplates'; Name = 'Administrative Templates' },
         @{ Key = 'CompliancePolicies'; Name = 'Compliance Policies' },
         @{ Key = 'AppProtectionPolicies'; Name = 'App Protection Policies' },
         @{ Key = 'RequiredApps'; Name = 'Required Applications' },
@@ -1254,13 +1238,12 @@ function Export-HTMLReport {
     var policyTypesChart = new Chart(ctx2, {
         type: 'bar',
         data: {
-            labels: ['Device Configs', 'Settings Catalog', 'Admin Templates', 'Compliance', 'App Protection', 'Autopilot Profiles', 'ESP Profiles', 'Windows 365 Provisioning', 'Windows 365 User Settings', 'Scripts', 'Antivirus', 'Disk Encryption', 'Firewall', 'EDR', 'ASR', 'Account Protection'],
+            labels: ['Device Configs', 'Settings Catalog', 'Compliance', 'App Protection', 'Autopilot Profiles', 'ESP Profiles', 'Windows 365 Provisioning', 'Windows 365 User Settings', 'Scripts', 'Antivirus', 'Disk Encryption', 'Firewall', 'EDR', 'ASR', 'Account Protection'],
             datasets: [{
                 label: 'Number of Policies',
                 data: [
                     $($policies.DeviceConfigs.Count),
                     $($policies.SettingsCatalog.Count),
-                    $($policies.AdminTemplates.Count),
                     $($policies.CompliancePolicies.Count),
                     $($policies.AppProtectionPolicies.Count),
                     $($policies.DeploymentProfiles.Count),

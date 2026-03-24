@@ -1517,25 +1517,36 @@ function Get-AssignmentFailures {
         $configPolicies = (Invoke-MgGraphRequest -Uri $configPoliciesUri -Method GET).value
 
         foreach ($policy in $configPolicies) {
-            $statusUri = "$script:GraphEndpoint/beta/deviceManagement/deviceConfigurations('$($policy.id)')/deviceStatuses"
-            $statuses = (Invoke-MgGraphRequest -Uri $statusUri -Method GET).value
+            $skip = 0
+            do {
+                $reportBody = @{
+                    filter = "(PolicyBaseTypeName eq 'Microsoft.Management.Services.Api.DeviceConfiguration') and (PolicyId eq '$($policy.id)')"
+                    select = @("DeviceName", "UPN", "PolicyStatus", "PspdpuLastModifiedTimeUtc")
+                    skip   = $skip
+                    top    = 50
+                } | ConvertTo-Json
 
-            $failures = $statuses | Where-Object {
-                $_.status -in @("error", "conflict", "notApplicable") -or
-                $_.complianceGracePeriodExpirationDateTime -and
-                [DateTime]$_.complianceGracePeriodExpirationDateTime -lt [DateTime]::Now
-            }
+                $uri = "$script:GraphEndpoint/beta/deviceManagement/reports/getConfigurationPolicyDevicesReport"
+                $response = Invoke-MgGraphRequest -Uri $uri -Method POST -Body $reportBody
 
-            foreach ($failure in $failures) {
-                $null = $failedAssignments.Add([PSCustomObject]@{
-                        Type             = "Device Configuration"
-                        PolicyName       = $policy.displayName
-                        Target           = "Device: $($failure.deviceDisplayName)"
-                        ErrorCode        = "$($failure.status)"
-                        ErrorDescription = if ($failure.userPrincipalName) { "$($failure.userPrincipalName)" } else { "No additional details" }
-                        LastAttempt      = $failure.lastReportedDateTime
-                    })
-            }
+                if ($response.values) {
+                    $failures = $response.values | Where-Object {
+                        $_[2] -in @("error", "conflict", "notApplicable")
+                    }
+
+                    foreach ($failure in $failures) {
+                        $null = $failedAssignments.Add([PSCustomObject]@{
+                                Type             = "Device Configuration"
+                                PolicyName       = $policy.displayName
+                                Target           = "Device: $($failure[0])"
+                                ErrorCode        = "$($failure[2])"
+                                ErrorDescription = if ($failure[1]) { "$($failure[1])" } else { "No additional details" }
+                                LastAttempt      = $failure[3]
+                            })
+                    }
+                    $skip += 50
+                }
+            } while ($response.values -and $response.values.Count -eq 50)
         }
     }
     catch {
@@ -1933,14 +1944,13 @@ do {
 
                 Write-Host "Fetching Intune Profiles and Applications for the user ... (this takes a few seconds)" -ForegroundColor Yellow
 
-                $totalCategories = 17
+                $totalCategories = 16
                 $currentCategory = 0
 
                 # Initialize collections for relevant policies
                 $relevantPolicies = @{
                     DeviceConfigs               = @()
                     SettingsCatalog             = @()
-                    AdminTemplates              = @()
                     CompliancePolicies          = @()
                     AppProtectionPolicies       = @()
                     AppConfigurationPolicies    = @()
@@ -1984,19 +1994,6 @@ do {
                     if ($reason) {
                         $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
                         $relevantPolicies.SettingsCatalog += $policy
-                    }
-                }
-
-                # Get Administrative Templates
-                $currentCategory++
-                Write-Host "[$currentCategory/$totalCategories] Fetching Administrative Templates..." -ForegroundColor Yellow
-                $adminTemplates = Get-IntuneEntities -EntityType "groupPolicyConfigurations"
-                foreach ($template in $adminTemplates) {
-                    $assignments = Get-IntuneAssignments -EntityType "groupPolicyConfigurations" -EntityId $template.id
-                    $reason = Resolve-AssignmentReason -Assignments $assignments -GroupMembershipIds $groupMemberships.id -IncludeReasons @("All Users")
-                    if ($reason) {
-                        $template | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
-                        $relevantPolicies.AdminTemplates += $template
                     }
                 }
 
@@ -2572,7 +2569,7 @@ do {
                 Write-Host "`nAssignments for User: $upn" -ForegroundColor Green
 
                 # Calculate category summary
-                $categoryNames = @('DeviceConfigs', 'SettingsCatalog', 'AdminTemplates', 'CompliancePolicies', 'AppProtectionPolicies', 'AppConfigurationPolicies', 'PlatformScripts', 'HealthScripts', 'AppsRequired', 'AppsAvailable', 'AppsUninstall', 'AntivirusProfiles', 'DiskEncryptionProfiles', 'FirewallProfiles', 'EndpointDetectionProfiles', 'AttackSurfaceProfiles', 'AccountProtectionProfiles', 'CloudPCProvisioningPolicies', 'CloudPCUserSettings')
+                $categoryNames = @('DeviceConfigs', 'SettingsCatalog', 'CompliancePolicies', 'AppProtectionPolicies', 'AppConfigurationPolicies', 'PlatformScripts', 'HealthScripts', 'AppsRequired', 'AppsAvailable', 'AppsUninstall', 'AntivirusProfiles', 'DiskEncryptionProfiles', 'FirewallProfiles', 'EndpointDetectionProfiles', 'AttackSurfaceProfiles', 'AccountProtectionProfiles', 'CloudPCProvisioningPolicies', 'CloudPCUserSettings')
                 $nonEmptyCount = ($categoryNames | Where-Object { $relevantPolicies[$_].Count -gt 0 }).Count
                 $totalDisplayCategories = $categoryNames.Count
                 Write-Host "`nFound assignments in $nonEmptyCount of $totalDisplayCategories categories." -ForegroundColor Cyan
@@ -2646,43 +2643,6 @@ do {
                         }
 
                         $rowFormat = "{0,-50} {1,-40} {2,-30}" -f $policyName, $policyId, $assignment
-                        if ($assignment -eq "Excluded") {
-                            Write-Host $rowFormat -ForegroundColor Red
-                        }
-                        else {
-                            Write-Host $rowFormat -ForegroundColor White
-                        }
-                    }
-                    Write-Host $separator
-                }
-
-                # Display Administrative Templates
-                if ($relevantPolicies.AdminTemplates.Count -gt 0) {
-                    Write-Host "`n------- Administrative Templates -------" -ForegroundColor Cyan
-                    # Create table header
-                    $headerFormat = "{0,-50} {1,-40} {2,-30}" -f "Template Name", "Template ID", "Assignment"
-                    $separator = "-" * 120
-                    Write-Host $separator
-                    Write-Host $headerFormat -ForegroundColor Yellow
-                    Write-Host $separator
-
-                    foreach ($template in $relevantPolicies.AdminTemplates) {
-                        $templateName = if ([string]::IsNullOrWhiteSpace($template.name)) { $template.displayName } else { $template.name }
-                        if ($templateName.Length -gt 47) {
-                            $templateName = $templateName.Substring(0, 44) + "..."
-                        }
-
-                        $templateId = $template.id
-                        if ($templateId.Length -gt 37) {
-                            $templateId = $templateId.Substring(0, 34) + "..."
-                        }
-
-                        $assignment = $template.AssignmentReason
-                        if ($assignment.Length -gt 27) {
-                            $assignment = $assignment.Substring(0, 24) + "..."
-                        }
-
-                        $rowFormat = "{0,-50} {1,-40} {2,-30}" -f $templateName, $templateId, $assignment
                         if ($assignment -eq "Excluded") {
                             Write-Host $rowFormat -ForegroundColor Red
                         }
@@ -3301,7 +3261,6 @@ do {
 
                     Add-ExportData -ExportData $exportData -Category "Device Configuration" -Items $relevantPolicies.DeviceConfigs -AssignmentReason { param($item) $item.AssignmentReason }
                     Add-ExportData -ExportData $exportData -Category "Settings Catalog Policy" -Items $relevantPolicies.SettingsCatalog -AssignmentReason { param($item) $item.AssignmentReason }
-                    Add-ExportData -ExportData $exportData -Category "Administrative Template" -Items $relevantPolicies.AdminTemplates -AssignmentReason { param($item) $item.AssignmentReason }
                     Add-ExportData -ExportData $exportData -Category "Compliance Policy" -Items $relevantPolicies.CompliancePolicies -AssignmentReason { param($item) $item.AssignmentReason }
                     Add-ExportData -ExportData $exportData -Category "App Protection Policy" -Items $relevantPolicies.AppProtectionPolicies -AssignmentReason { param($item) $item.AssignmentSummary }
                     Add-ExportData -ExportData $exportData -Category "App Configuration Policy" -Items $relevantPolicies.AppConfigurationPolicies -AssignmentReason { param($item) $item.AssignmentReason }
@@ -3424,7 +3383,6 @@ do {
                 $relevantPolicies = @{
                     DeviceConfigs               = @()
                     SettingsCatalog             = @()
-                    AdminTemplates              = @()
                     CompliancePolicies          = @()
                     AppProtectionPolicies       = @()
                     AppConfigurationPolicies    = @()
@@ -3481,20 +3439,6 @@ do {
                         if ($assignmentReasons.Count -gt 0) {
                             $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue ($assignmentReasons -join "; ") -Force
                             $relevantPolicies.SettingsCatalog += $policy
-                        }
-                    }
-                }
-
-                # Get Administrative Templates
-                Write-Host "Fetching Administrative Templates..." -ForegroundColor Yellow
-                $adminTemplates = Get-IntuneEntities -EntityType "groupPolicyConfigurations"
-                foreach ($template in $adminTemplates) {
-                    $directAssignments = Get-IntuneAssignments -EntityType "groupPolicyConfigurations" -EntityId $template.id -GroupIds $allGroupIds
-                    if ($directAssignments.Count -gt 0) {
-                        $assignmentReasons = Get-GroupAssignmentReasons -Assignments $directAssignments -DirectGroupId $groupId -ParentGroupMap $parentGroupMap
-                        if ($assignmentReasons.Count -gt 0) {
-                            $template | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue ($assignmentReasons -join "; ") -Force
-                            $relevantPolicies.AdminTemplates += $template
                         }
                     }
                 }
@@ -3874,12 +3818,6 @@ do {
                     if ([string]::IsNullOrWhiteSpace($policy.name)) { $policy.displayName } else { $policy.name }
                 }
 
-                # Display Administrative Templates
-                Format-PolicyTable -Title "Administrative Templates" -Policies $relevantPolicies.AdminTemplates -GetName {
-                    param($template)
-                    if ([string]::IsNullOrWhiteSpace($template.name)) { $template.displayName } else { $template.name }
-                }
-
                 # Display Compliance Policies
                 Format-PolicyTable -Title "Compliance Policies" -Policies $relevantPolicies.CompliancePolicies -GetName {
                     param($policy)
@@ -3990,7 +3928,6 @@ do {
 
                     Add-ExportData -ExportData $exportData -Category "Device Configuration" -Items $relevantPolicies.DeviceConfigs -AssignmentReason { param($item) $item.AssignmentReason }
                     Add-ExportData -ExportData $exportData -Category "Settings Catalog Policy" -Items $relevantPolicies.SettingsCatalog -AssignmentReason { param($item) $item.AssignmentReason }
-                    Add-ExportData -ExportData $exportData -Category "Administrative Template" -Items $relevantPolicies.AdminTemplates -AssignmentReason { param($item) $item.AssignmentReason }
                     Add-ExportData -ExportData $exportData -Category "Compliance Policy" -Items $relevantPolicies.CompliancePolicies -AssignmentReason { param($item) $item.AssignmentReason }
                     Add-ExportData -ExportData $exportData -Category "App Protection Policy" -Items $relevantPolicies.AppProtectionPolicies -AssignmentReason { param($item) $item.AssignmentSummary }
                     Add-ExportData -ExportData $exportData -Category "App Configuration Policy" -Items $relevantPolicies.AppConfigurationPolicies -AssignmentReason { param($item) $item.AssignmentReason }
@@ -4137,7 +4074,6 @@ do {
                 $relevantPolicies = @{
                     DeviceConfigs               = @()
                     SettingsCatalog             = @()
-                    AdminTemplates              = @()
                     CompliancePolicies          = @()
                     AppProtectionPolicies       = @()
                     AppConfigurationPolicies    = @()
@@ -4179,20 +4115,6 @@ do {
                     if ($reason -and (Test-PlatformCompatibility -DeviceOS $deviceOS -Policy $policy)) {
                         $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
                         $relevantPolicies.SettingsCatalog += $policy
-                    }
-                }
-
-                # Get Administrative Templates (Windows-only, Group Policy)
-                if (-not $deviceOS -or $deviceOS -eq "Windows") {
-                    Write-Host "Fetching Administrative Templates..." -ForegroundColor Yellow
-                    $adminTemplates = Get-IntuneEntities -EntityType "groupPolicyConfigurations"
-                    foreach ($template in $adminTemplates) {
-                        $assignments = Get-IntuneAssignments -EntityType "groupPolicyConfigurations" -EntityId $template.id
-                        $reason = Resolve-AssignmentReason -Assignments $assignments -GroupMembershipIds $groupMemberships.id -IncludeReasons @("All Devices")
-                        if ($reason) {
-                            $template | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
-                            $relevantPolicies.AdminTemplates += $template
-                        }
                     }
                 }
 
@@ -4883,12 +4805,6 @@ do {
                     if ([string]::IsNullOrWhiteSpace($policy.name)) { $policy.displayName } else { $policy.name }
                 }
 
-                # Display Administrative Templates
-                Format-PolicyTable -Title "Administrative Templates" -Policies $relevantPolicies.AdminTemplates -GetName {
-                    param($template)
-                    if ([string]::IsNullOrWhiteSpace($template.name)) { $template.displayName } else { $template.name }
-                }
-
                 # Display Compliance Policies
                 Format-PolicyTable -Title "Compliance Policies" -Policies $relevantPolicies.CompliancePolicies -GetName {
                     param($policy)
@@ -4987,7 +4903,6 @@ do {
 
                     Add-ExportData -ExportData $exportData -Category "Device Configuration" -Items $relevantPolicies.DeviceConfigs -AssignmentReason { param($item) $item.AssignmentReason }
                     Add-ExportData -ExportData $exportData -Category "Settings Catalog Policy" -Items $relevantPolicies.SettingsCatalog -AssignmentReason { param($item) $item.AssignmentReason }
-                    Add-ExportData -ExportData $exportData -Category "Administrative Template" -Items $relevantPolicies.AdminTemplates -AssignmentReason { param($item) $item.AssignmentReason }
                     Add-ExportData -ExportData $exportData -Category "Compliance Policy" -Items $relevantPolicies.CompliancePolicies -AssignmentReason { param($item) $item.AssignmentReason }
                     Add-ExportData -ExportData $exportData -Category "App Protection Policy" -Items $relevantPolicies.AppProtectionPolicies -AssignmentReason { param($item) $item.AssignmentSummary }
                     Add-ExportData -ExportData $exportData -Category "App Configuration Policy" -Items $relevantPolicies.AppConfigurationPolicies -AssignmentReason { param($item) $item.AssignmentReason }
@@ -5020,7 +4935,6 @@ do {
             $allPolicies = @{
                 DeviceConfigs               = @()
                 SettingsCatalog             = @()
-                AdminTemplates              = @()
                 CompliancePolicies          = @()
                 AppProtectionPolicies       = @()
                 AppConfigurationPolicies    = @()
@@ -5104,24 +5018,6 @@ do {
                 }
                 $policy | Add-Member -NotePropertyName 'AssignmentSummary' -NotePropertyValue ($assignmentSummary -join "; ") -Force
                 $allPolicies.SettingsCatalog += $policy
-            }
-
-            # Get Administrative Templates
-            Write-Host "Fetching Administrative Templates..." -ForegroundColor Yellow
-            $adminTemplates = Get-IntuneEntities -EntityType "groupPolicyConfigurations"
-            foreach ($template in $adminTemplates) {
-                $assignments = Get-IntuneAssignments -EntityType "groupPolicyConfigurations" -EntityId $template.id
-                $assignmentSummary = $assignments | ForEach-Object {
-                    if ($_.Reason -eq "Group Assignment" -or $_.Reason -eq "Group Exclusion") {
-                        $groupInfo = Get-GroupInfo -GroupId $_.GroupId
-                        "$($_.Reason) - $($groupInfo.DisplayName)"
-                    }
-                    else {
-                        $_.Reason
-                    }
-                }
-                $template | Add-Member -NotePropertyName 'AssignmentSummary' -NotePropertyValue ($assignmentSummary -join "; ") -Force
-                $allPolicies.AdminTemplates += $template
             }
 
             # Get Compliance Policies
@@ -5648,7 +5544,6 @@ do {
             # Display all policies and their assignments
             Invoke-PolicyAssignments -Policies $allPolicies.DeviceConfigs -DisplayName "Device Configurations"
             Invoke-PolicyAssignments -Policies $allPolicies.SettingsCatalog -DisplayName "Settings Catalog Policies"
-            Invoke-PolicyAssignments -Policies $allPolicies.AdminTemplates -DisplayName "Administrative Templates"
             Invoke-PolicyAssignments -Policies $allPolicies.CompliancePolicies -DisplayName "Compliance Policies"
             Invoke-PolicyAssignments -Policies $allPolicies.AppProtectionPolicies -DisplayName "App Protection Policies"
             Invoke-PolicyAssignments -Policies $allPolicies.AppConfigurationPolicies -DisplayName "App Configuration Policies"
@@ -5668,7 +5563,6 @@ do {
             # Add to export data
             Add-ExportData -ExportData $exportData -Category "Device Configuration" -Items $allPolicies.DeviceConfigs -AssignmentReason { param($item) $item.AssignmentSummary }
             Add-ExportData -ExportData $exportData -Category "Settings Catalog Policy" -Items $allPolicies.SettingsCatalog -AssignmentReason { param($item) $item.AssignmentSummary }
-            Add-ExportData -ExportData $exportData -Category "Administrative Template" -Items $allPolicies.AdminTemplates -AssignmentReason { param($item) $item.AssignmentSummary }
             Add-ExportData -ExportData $exportData -Category "Compliance Policy" -Items $allPolicies.CompliancePolicies -AssignmentReason { param($item) $item.AssignmentSummary }
             Add-ExportData -ExportData $exportData -Category "App Protection Policy" -Items $allPolicies.AppProtectionPolicies -AssignmentReason { param($item) $item.AssignmentSummary }
             Add-ExportData -ExportData $exportData -Category "App Configuration Policy" -Items $allPolicies.AppConfigurationPolicies -AssignmentReason { param($item) $item.AssignmentSummary }
@@ -5696,7 +5590,6 @@ do {
             $allUsersAssignments = @{
                 DeviceConfigs            = @()
                 SettingsCatalog          = @()
-                AdminTemplates           = @()
                 CompliancePolicies       = @()
                 AppProtectionPolicies    = @()
                 AppConfigurationPolicies = @()
@@ -5734,17 +5627,6 @@ do {
                 if ($assignments | Where-Object { $_.Reason -eq "All Users" }) {
                     $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Users" -Force
                     $allUsersAssignments.SettingsCatalog += $policy
-                }
-            }
-
-            # Get Administrative Templates
-            Write-Host "Fetching Administrative Templates..." -ForegroundColor Yellow
-            $adminTemplates = Get-IntuneEntities -EntityType "groupPolicyConfigurations"
-            foreach ($template in $adminTemplates) {
-                $assignments = Get-IntuneAssignments -EntityType "groupPolicyConfigurations" -EntityId $template.id
-                if ($assignments | Where-Object { $_.Reason -eq "All Users" }) {
-                    $template | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Users" -Force
-                    $allUsersAssignments.AdminTemplates += $template
                 }
             }
 
@@ -6160,19 +6042,6 @@ do {
                 }
             }
 
-            # Display Administrative Templates
-            Write-Host "`n------- Administrative Templates -------" -ForegroundColor Cyan
-            if ($allUsersAssignments.AdminTemplates.Count -eq 0) {
-                Write-Host "No Administrative Templates assigned to All Users" -ForegroundColor Gray
-            }
-            else {
-                foreach ($template in $allUsersAssignments.AdminTemplates) {
-                    $templateName = if ([string]::IsNullOrWhiteSpace($template.name)) { $template.displayName } else { $template.name }
-                    Write-Host "Administrative Template Name: $templateName, Template ID: $($template.id)" -ForegroundColor White
-                    Add-ExportData -ExportData $exportData -Category "Administrative Template" -Items @($template) -AssignmentReason "All Users"
-                }
-            }
-
             # Display Compliance Policies
             Write-Host "`n------- Compliance Policies -------" -ForegroundColor Cyan
             if ($allUsersAssignments.CompliancePolicies.Count -eq 0) {
@@ -6399,7 +6268,6 @@ do {
             $allDevicesAssignments = @{
                 DeviceConfigs             = @()
                 SettingsCatalog           = @()
-                AdminTemplates            = @()
                 CompliancePolicies        = @()
                 AppProtectionPolicies     = @()
                 AppConfigurationPolicies  = @()
@@ -6437,17 +6305,6 @@ do {
                 if ($assignments | Where-Object { $_.Reason -eq "All Devices" }) {
                     $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Devices" -Force
                     $allDevicesAssignments.SettingsCatalog += $policy
-                }
-            }
-
-            # Get Administrative Templates
-            Write-Host "Fetching Administrative Templates..." -ForegroundColor Yellow
-            $adminTemplates = Get-IntuneEntities -EntityType "groupPolicyConfigurations"
-            foreach ($template in $adminTemplates) {
-                $assignments = Get-IntuneAssignments -EntityType "groupPolicyConfigurations" -EntityId $template.id
-                if ($assignments | Where-Object { $_.Reason -eq "All Devices" }) {
-                    $template | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Devices" -Force
-                    $allDevicesAssignments.AdminTemplates += $template
                 }
             }
 
@@ -6845,19 +6702,6 @@ do {
                 }
             }
 
-            # Display Administrative Templates
-            Write-Host "`n------- Administrative Templates -------" -ForegroundColor Cyan
-            if ($allDevicesAssignments.AdminTemplates.Count -eq 0) {
-                Write-Host "No Administrative Templates assigned to All Devices" -ForegroundColor Gray
-            }
-            else {
-                foreach ($template in $allDevicesAssignments.AdminTemplates) {
-                    $templateName = if ([string]::IsNullOrWhiteSpace($template.name)) { $template.displayName } else { $template.name }
-                    Write-Host "Administrative Template Name: $templateName, Template ID: $($template.id)" -ForegroundColor White
-                    Add-ExportData -ExportData $exportData -Category "Administrative Template" -Items @($template) -AssignmentReason "All Devices"
-                }
-            }
-
             # Display Compliance Policies
             Write-Host "`n------- Compliance Policies -------" -ForegroundColor Cyan
             if ($allDevicesAssignments.CompliancePolicies.Count -eq 0) {
@@ -7169,7 +7013,6 @@ do {
             $unassignedPolicies = @{
                 DeviceConfigs            = @()
                 SettingsCatalog          = @()
-                AdminTemplates           = @()
                 CompliancePolicies       = @()
                 AppProtectionPolicies    = @()
                 AppConfigurationPolicies = @()
@@ -7195,16 +7038,6 @@ do {
                 $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
                 if ($assignments.Count -eq 0) {
                     $unassignedPolicies.SettingsCatalog += $policy
-                }
-            }
-
-            # Get Administrative Templates
-            Write-Host "Fetching Administrative Templates..." -ForegroundColor Yellow
-            $adminTemplates = Get-IntuneEntities -EntityType "groupPolicyConfigurations"
-            foreach ($template in $adminTemplates) {
-                $assignments = Get-IntuneAssignments -EntityType "groupPolicyConfigurations" -EntityId $template.id
-                if ($assignments.Count -eq 0) {
-                    $unassignedPolicies.AdminTemplates += $template
                 }
             }
 
@@ -7406,19 +7239,6 @@ do {
                 }
             }
 
-            # Display Administrative Templates
-            Write-Host "`n------- Administrative Templates -------" -ForegroundColor Cyan
-            if ($unassignedPolicies.AdminTemplates.Count -eq 0) {
-                Write-Host "No unassigned Administrative Templates found" -ForegroundColor Gray
-            }
-            else {
-                foreach ($template in $unassignedPolicies.AdminTemplates) {
-                    $templateName = if ([string]::IsNullOrWhiteSpace($template.name)) { $template.displayName } else { $template.name }
-                    Write-Host "Administrative Template Name: $templateName, Template ID: $($template.id)" -ForegroundColor White
-                    Add-ExportData -ExportData $exportData -Category "Administrative Template" -Items @($template) -AssignmentReason "No Assignment"
-                }
-            }
-
             # Display Compliance Policies
             Write-Host "`n------- Compliance Policies -------" -ForegroundColor Cyan
             if ($unassignedPolicies.CompliancePolicies.Count -eq 0) {
@@ -7606,7 +7426,6 @@ do {
             $emptyGroupAssignments = @{
                 DeviceConfigs             = @()
                 SettingsCatalog           = @()
-                AdminTemplates            = @()
                 CompliancePolicies        = @()
                 AppProtectionPolicies     = @()
                 AppConfigurationPolicies  = @()
@@ -7648,23 +7467,6 @@ do {
                         if ($groupInfo.Success -and (Test-EmptyGroup -GroupId $assignment.GroupId)) {
                             $policy | Add-Member -NotePropertyName 'EmptyGroupInfo' -NotePropertyValue "Assigned to empty group: $($groupInfo.DisplayName)" -Force
                             $emptyGroupAssignments.SettingsCatalog += $policy
-                            break
-                        }
-                    }
-                }
-            }
-
-            # Get Administrative Templates
-            Write-Host "Fetching Administrative Templates..." -ForegroundColor Yellow
-            $adminTemplates = Get-IntuneEntities -EntityType "groupPolicyConfigurations"
-            foreach ($template in $adminTemplates) {
-                $assignments = Get-IntuneAssignments -EntityType "groupPolicyConfigurations" -EntityId $template.id
-                foreach ($assignment in $assignments) {
-                    if ($assignment.Reason -eq "Group Assignment" -and $assignment.GroupId) {
-                        $groupInfo = Get-GroupInfo -GroupId $assignment.GroupId
-                        if ($groupInfo.Success -and (Test-EmptyGroup -GroupId $assignment.GroupId)) {
-                            $template | Add-Member -NotePropertyName 'EmptyGroupInfo' -NotePropertyValue "Assigned to empty group: $($groupInfo.DisplayName)" -Force
-                            $emptyGroupAssignments.AdminTemplates += $template
                             break
                         }
                     }
@@ -7830,22 +7632,6 @@ do {
                     Write-Host "$($policy.EmptyGroupInfo)" -ForegroundColor Yellow
                     Write-Host ""
                     Add-ExportData -ExportData $exportData -Category "Settings Catalog Policy" -Items @($policy) -AssignmentReason $policy.EmptyGroupInfo
-                }
-            }
-
-            # Display Administrative Templates
-            Write-Host "`n------- Administrative Templates -------" -ForegroundColor Cyan
-            if ($emptyGroupAssignments.AdminTemplates.Count -eq 0) {
-                Write-Host "No Administrative Templates assigned to empty groups" -ForegroundColor Gray
-            }
-            else {
-                foreach ($template in $emptyGroupAssignments.AdminTemplates) {
-                    $templateName = if ([string]::IsNullOrWhiteSpace($template.name)) { $template.displayName } else { $template.name }
-                    Write-Host "Administrative Template Name: $templateName" -ForegroundColor White
-                    Write-Host "Template ID: $($template.id)" -ForegroundColor Gray
-                    Write-Host "$($template.EmptyGroupInfo)" -ForegroundColor Yellow
-                    Write-Host ""
-                    Add-ExportData -ExportData $exportData -Category "Administrative Template" -Items @($template) -AssignmentReason $template.EmptyGroupInfo
                 }
             }
 
@@ -8076,7 +7862,6 @@ do {
                         $groupAssignments[$groupName] = @{
                             DeviceConfigs              = [System.Collections.ArrayList]::new()
                             SettingsCatalog            = [System.Collections.ArrayList]::new()
-                            AdminTemplates             = [System.Collections.ArrayList]::new()
                             CompliancePolicies         = [System.Collections.ArrayList]::new()
                             RequiredApps               = [System.Collections.ArrayList]::new()
                             AvailableApps              = [System.Collections.ArrayList]::new()
@@ -8137,7 +7922,6 @@ do {
                     $groupAssignments[$groupName] = @{
                         DeviceConfigs              = [System.Collections.ArrayList]::new()
                         SettingsCatalog            = [System.Collections.ArrayList]::new()
-                        AdminTemplates             = [System.Collections.ArrayList]::new()
                         CompliancePolicies         = [System.Collections.ArrayList]::new()
                         RequiredApps               = [System.Collections.ArrayList]::new()
                         AvailableApps              = [System.Collections.ArrayList]::new()
@@ -8237,23 +8021,6 @@ do {
                         if ($isInherited) { $suffix += " [INHERITED]" }
                         $displayName = "$($policy.name)$suffix"
                         [void]$groupAssignments[$groupName].SettingsCatalog.Add($displayName)
-                    }
-                }
-
-                # Process Administrative Templates
-                $adminTemplatesUri = "$GraphEndpoint/beta/deviceManagement/groupPolicyConfigurations"
-                $adminTemplatesResponse = Invoke-MgGraphRequest -Uri $adminTemplatesUri -Method Get
-
-                foreach ($template in $adminTemplatesResponse.value) {
-                    $templateId = $template.id
-                    $assignmentsUri = "$GraphEndpoint/beta/deviceManagement/groupPolicyConfigurations('$templateId')/assignments"
-                    $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
-
-                    $hasAssignment = $assignmentResponse.value | Where-Object { $allGroupIds -contains $_.target.groupId }
-                    if ($hasAssignment) {
-                        $isInherited = $hasAssignment | Where-Object { $_.target.groupId -ne $groupId }
-                        $suffix = if ($isInherited) { " [INHERITED]" } else { "" }
-                        [void]$groupAssignments[$groupName].AdminTemplates.Add("$($template.displayName)$suffix")
                     }
                 }
 
@@ -8474,7 +8241,6 @@ do {
             $categories = [ordered]@{
                 "Device Configurations"               = "DeviceConfigs"
                 "Settings Catalog"                    = "SettingsCatalog"
-                "Administrative Templates"            = "AdminTemplates"
                 "Compliance Policies"                 = "CompliancePolicies"
                 "Required Apps"                       = "RequiredApps"
                 "Available Apps"                      = "AvailableApps"
