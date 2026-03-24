@@ -1,0 +1,39 @@
+name: Claude Issue Triage
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Analyze issue and comment
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            A new issue was just opened on this repository. Analyze it and post a helpful comment.
+
+            Steps:
+            1. Read the issue title and body to understand the problem.
+            2. Search the codebase for relevant code (functions, logic, files) related to the issue.
+            3. Analyze the root cause (for bugs) or an implementation approach (for feature requests).
+            4. Post a comment on the issue with:
+               - A concise analysis of the relevant codebase area
+               - A proposed fix or implementation approach with specific file/line references
+               - Code snippets showing the suggested changes
+
+            Guidelines:
+            - Be concise and actionable. Reference specific files and line numbers.
+            - Format your comment with clear markdown headings and code blocks.
+            - Do not mention that you are an AI or automated agent.
+            - If you cannot determine a fix, provide relevant code context to help someone investigate.
+          claude_args: "--model claude-sonnet-4-6 --max-turns 10"
