@@ -3,14 +3,18 @@ name: Claude Issue Triage
 on:
   issues:
     types: [opened]
+  issue_comment:
+    types: [created]
 
 permissions:
   contents: read
   issues: write
 
 jobs:
-  triage:
+  # Automatic triage when a new issue is opened
+  auto-triage:
     runs-on: ubuntu-latest
+    if: github.event_name == 'issues'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -36,4 +40,19 @@ jobs:
             - Format your comment with clear markdown headings and code blocks.
             - Do not mention that you are an AI or automated agent.
             - If you cannot determine a fix, provide relevant code context to help someone investigate.
+          claude_args: "--model claude-sonnet-4-6 --max-turns 10"
+
+  # On-demand analysis when someone comments @claude on any issue
+  on-demand:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Respond to mention
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          trigger_phrase: "@claude"
           claude_args: "--model claude-sonnet-4-6 --max-turns 10"
