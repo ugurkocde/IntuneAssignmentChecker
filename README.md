@@ -416,7 +416,7 @@ param(
     [string]$TenantId,
     [string]$CertificateThumbprint,
     [string]$ClientSecret,
-    [string]$ExportPath = "C:\\Temp\\IntuneAssignmentReport.html"
+    [string]$HTMLReportPath = "C:\\Temp\\IntuneAssignmentReport.html"
 )
 
 # Ensure IntuneAssignmentChecker is available
@@ -429,7 +429,7 @@ $authParams = @{
     GenerateHTMLReport = $true
     AppId              = $AppId
     TenantId           = $TenantId
-    ExportPath         = $ExportPath
+    HTMLReportPath     = $HTMLReportPath
 }
 
 if ($CertificateThumbprint) {
