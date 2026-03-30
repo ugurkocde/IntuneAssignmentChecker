@@ -43,12 +43,12 @@ jobs:
           $infoCount = 0
 
           Write-Host "============================================"
-          Write-Host "Running PSScriptAnalyzer on IntuneAssignmentChecker.ps1"
+          Write-Host "Running PSScriptAnalyzer on Module files"
           Write-Host "============================================"
           Write-Host ""
 
-          # Run the analysis
-          $results = Invoke-ScriptAnalyzer -Path ./IntuneAssignmentChecker.ps1 -Settings ./.PSScriptAnalyzerSettings.psd1 -RecurseCustomRulePath
+          # Run the analysis on the module directory (all .ps1 and .psm1 files)
+          $results = Invoke-ScriptAnalyzer -Path ./Module/IntuneAssignmentChecker -Recurse -Settings ./.PSScriptAnalyzerSettings.psd1 -RecurseCustomRulePath
 
           if ($results) {
               # Group by severity
@@ -151,7 +151,7 @@ jobs:
           $reportContent = @"
           # PSScriptAnalyzer Report
 
-          **Script:** IntuneAssignmentChecker.ps1
+          **Module:** IntuneAssignmentChecker
           **Date:** $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
           **Analyzer Version:** $(Get-Module -Name PSScriptAnalyzer -ListAvailable | Select-Object -ExpandProperty Version)
 
