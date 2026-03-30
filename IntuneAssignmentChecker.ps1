@@ -2,13 +2,30 @@
 #Requires -Modules Microsoft.Graph.Authentication
 
 <#PSScriptInfo
-.VERSION 3.10.0
+.VERSION 4.0.0
 .GUID c6e25ec6-5787-45ef-95af-8abeb8a17daf
 .AUTHOR ugurk
 .PROJECTURI https://github.com/ugurkocde/IntuneAssignmentChecker
 .DESCRIPTION
 This script enables IT administrators to efficiently analyze and audit Intune assignments. It checks assignments for specific users, groups, or devices, displays all policies and their assignments, identifies unassigned policies, detects empty groups in assignments, and searches for specific settings across policies.
 .RELEASENOTES
+Version 4.0.0:
+- Add Option 12: Simulate Group Membership Impact - shows what policies a user would receive if added to a group
+- Add -SimulateGroupMembership and -SimulateTargetGroup parameters for non-interactive simulation
+- Simulation covers all 18 policy categories including Autopilot, ESP, Endpoint Security, and Cloud PC
+- Detect inclusion/exclusion conflicts when target group includes a policy the user is excluded from
+- Add terminal-width-aware separators (adapts to terminal width instead of hardcoded 120 chars)
+- Renumber menu: Simulate Group Membership is now Option 12, Switch Tenant is now Option 13
+- Add UPN format validation before network calls
+- Normalize y/n prompts to accept Y/y/Yes/yes (not just lowercase y)
+- Add Option 14: Simulate removing a user from a group and show policies they would lose
+- Add -SimulateRemoveFromGroup and -SimulateRemoveTargetGroup parameters for non-interactive removal simulation
+- Add Option 15: Search for policies by name and see all assignment targets (reverse lookup)
+- Add -SearchPolicy and -PolicySearchTerm parameters for non-interactive policy search
+- Remove deprecated groupPolicyConfigurations (Administrative Templates) policy type
+- Migrate deviceStatuses API endpoints
+- Fix hardcoded Graph URLs to use $GraphEndpoint variable
+
 Version 3.10.0:
 - Fix auto-update URL referencing non-existent _v3 filename (Fixes #110)
 - Correct script filename references from IntuneAssignmentChecker_v3.ps1 to IntuneAssignmentChecker.ps1
@@ -172,7 +189,25 @@ param(
     [switch]$IncludeNestedGroups,
 
     [Parameter(Mandatory = $false, HelpMessage = "Filter results by scope tag name")]
-    [string]$ScopeTagFilter
+    [string]$ScopeTagFilter,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Simulate adding a user to a group and show new policy impact")]
+    [switch]$SimulateGroupMembership,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Target group name or ID for group membership simulation")]
+    [string]$SimulateTargetGroup,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Simulate removing a user from a group and show policies they would lose")]
+    [switch]$SimulateRemoveFromGroup,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Target group name or ID for group removal simulation")]
+    [string]$SimulateRemoveTargetGroup,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Search for policies by name and show assignment targets")]
+    [switch]$SearchPolicy,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Policy name or partial name to search for")]
+    [string]$PolicySearchTerm
 )
 
 # Check if any command-line parameters were provided
@@ -190,6 +225,9 @@ elseif ($ShowPoliciesWithoutAssignments) { $parameterMode = $true; $selectedOpti
 elseif ($CheckEmptyGroups) { $parameterMode = $true; $selectedOption = '9' }
 elseif ($CompareGroups) { $parameterMode = $true; $selectedOption = '10' }
 elseif ($ShowFailedAssignments) { $parameterMode = $true; $selectedOption = '11' }
+elseif ($SimulateGroupMembership) { $parameterMode = $true; $selectedOption = '12' }
+elseif ($SimulateRemoveFromGroup) { $parameterMode = $true; $selectedOption = '14' }
+elseif ($SearchPolicy) { $parameterMode = $true; $selectedOption = '15' }
 
 # HTMLReportPath implies GenerateHTMLReport
 if (-not $parameterMode -and $HTMLReportPath) {
@@ -275,6 +313,30 @@ if (-not $parameterMode -and $HTMLReportPath) {
 .PARAMETER Environment
     Environment (Global, USGov, USGovDoD).
 
+.PARAMETER IncludeNestedGroups
+    Include assignments inherited from parent groups (used with CheckGroup and CompareGroups).
+
+.PARAMETER ScopeTagFilter
+    Filter results by scope tag name.
+
+.PARAMETER SimulateGroupMembership
+    Simulate adding a user to a group and show new policy impact.
+
+.PARAMETER SimulateTargetGroup
+    Target group name or Object ID for group membership simulation.
+
+.PARAMETER SimulateRemoveFromGroup
+    Simulate removing a user from a group and show policies they would lose.
+
+.PARAMETER SimulateRemoveTargetGroup
+    Target group name or Object ID for group removal simulation.
+
+.PARAMETER SearchPolicy
+    Search for policies by name and show all assignment targets (reverse lookup).
+
+.PARAMETER PolicySearchTerm
+    Policy name or partial name to search for.
+
 .EXAMPLE
     .\IntuneAssignmentChecker.ps1 -CheckUser -UserPrincipalNames "user1@contoso.com,user2@contoso.com"
     Checks assignments for the specified users.
@@ -290,6 +352,18 @@ if (-not $parameterMode -and $HTMLReportPath) {
 .EXAMPLE
     .\IntuneAssignmentChecker.ps1 -GenerateHTMLReport -HTMLReportPath "C:\Temp\MyReport.html"
     Generates an HTML report and saves it to the specified path.
+
+.EXAMPLE
+    .\IntuneAssignmentChecker.ps1 -SimulateGroupMembership -UserPrincipalNames "user@contoso.com" -SimulateTargetGroup "Marketing Team"
+    Simulates adding the user to the Marketing Team group and shows new policies they would receive.
+
+.EXAMPLE
+    .\IntuneAssignmentChecker.ps1 -SimulateRemoveFromGroup -UserPrincipalNames "user@contoso.com" -SimulateRemoveTargetGroup "Marketing Team"
+    Simulates what policies the user would lose if removed from the Marketing Team group.
+
+.EXAMPLE
+    .\IntuneAssignmentChecker.ps1 -SearchPolicy -PolicySearchTerm "BitLocker"
+    Searches all policy categories for policies matching "BitLocker" and shows their assignment targets.
 
 .AUTHOR
     Ugur Koc (@ugurkocde)
@@ -321,12 +395,12 @@ $clientSecret = if ($ClientSecret) { $ClientSecret } else { '' } # Client Secret
 ####################################################################################################
 
 # Version of the local script
-$localVersion = "3.10.0"
+$localVersion = "4.0.0"
 
 Write-Host "🔍 INTUNE ASSIGNMENT CHECKER" -ForegroundColor Cyan
 Write-Host "Made by Ugur Koc with" -NoNewline; Write-Host " ❤️  and ☕" -NoNewline
 Write-Host " | Version" -NoNewline; Write-Host " $localVersion" -ForegroundColor Yellow -NoNewline
-Write-Host " | Last updated: " -NoNewline; Write-Host "2026-03-02" -ForegroundColor Magenta
+Write-Host " | Last updated: " -NoNewline; Write-Host "2026-03-30" -ForegroundColor Magenta
 Write-Host ""
 Write-Host "📢 Feedback & Issues: " -NoNewline -ForegroundColor Cyan
 Write-Host "https://github.com/ugurkocde/IntuneAssignmentChecker/issues" -ForegroundColor White
@@ -593,7 +667,7 @@ try {
             # Interactive authentication fallback
             Write-Host "App ID, Tenant ID, or authentication credential (Certificate/Client Secret) is missing or not set correctly." -ForegroundColor Red
             $manualConnection = Read-Host "Would you like to attempt a manual interactive connection? (y/n)"
-            if ($manualConnection -eq 'y') {
+            if ($manualConnection -match '^[Yy]') {
                 Write-Host "Attempting manual interactive connection (you need privileges to consent permissions)..." -ForegroundColor Yellow
                 $permissionsList = ($requiredPermissions | ForEach-Object { $_.Permission }) -join ', '
                 if ($parameterMode) {
@@ -672,7 +746,7 @@ try {
             Write-Host "Please ensure these permissions are granted to the app registration for full functionality." -ForegroundColor Yellow
 
             $continueChoice = Read-Host "Do you want to continue anyway? (y/n)"
-            if ($continueChoice -ne 'y') {
+            if ($continueChoice -notmatch '^[Yy]') {
                 Write-Host "Script execution cancelled by user." -ForegroundColor Red
                 exit
             }
@@ -957,6 +1031,15 @@ function Add-IntentTemplateFamilyInfo {
     }
 }
 
+function Get-Separator {
+    param (
+        [string]$Character = "-",
+        [int]$MinWidth = 80
+    )
+    $width = try { [Math]::Max($MinWidth, $Host.UI.RawUI.WindowSize.Width - 2) } catch { 120 }
+    return $Character * [Math]::Min($width, 120)
+}
+
 function Resolve-AssignmentReason {
     param (
         [object[]]$Assignments,
@@ -983,6 +1066,52 @@ function Resolve-AssignmentReason {
 
     if ($isExcluded) { return "Excluded" }
     return $inclusionReason
+}
+
+function Resolve-SimulatedAssignmentDelta {
+    param (
+        [object[]]$Assignments,
+        [object[]]$CurrentGroupIds,
+        [object[]]$SimulatedGroupIds,
+        [object[]]$TargetGroupIds = @(),
+        [string[]]$IncludeReasons = @("All Users")
+    )
+
+    $currentStatus = Resolve-AssignmentReason -Assignments $Assignments -GroupMembershipIds $CurrentGroupIds -IncludeReasons $IncludeReasons
+    $simulatedStatus = Resolve-AssignmentReason -Assignments $Assignments -GroupMembershipIds $SimulatedGroupIds -IncludeReasons $IncludeReasons
+
+    $isNewPolicy = $false
+    $isConflict = $false
+
+    # New policy: user doesn't currently receive it (null or excluded), but would after simulation (non-null, non-excluded)
+    if ((-not $currentStatus -or $currentStatus -eq "Excluded") -and $simulatedStatus -and $simulatedStatus -ne "Excluded") {
+        $isNewPolicy = $true
+    }
+
+    # Conflict: user is currently excluded, and the target group specifically includes it (but exclusion still wins in Intune)
+    if ($currentStatus -eq "Excluded" -and $simulatedStatus -eq "Excluded" -and $TargetGroupIds.Count -gt 0) {
+        foreach ($a in $Assignments) {
+            if ($a.Reason -eq "Group Assignment" -and $TargetGroupIds -contains $a.GroupId) {
+                $isConflict = $true
+                break
+            }
+        }
+    }
+
+    # Lost policy: user currently receives it, but would not after simulation
+    $isLostPolicy = $false
+    if ($currentStatus -and $currentStatus -ne "Excluded" -and (-not $simulatedStatus -or $simulatedStatus -eq "Excluded")) {
+        $isLostPolicy = $true
+    }
+
+    return [PSCustomObject]@{
+        CurrentStatus    = $currentStatus
+        SimulatedStatus  = $simulatedStatus
+        IsNewPolicy      = $isNewPolicy
+        IsLostPolicy     = $isLostPolicy
+        IsConflict       = $isConflict
+        AssignmentReason = $simulatedStatus
+    }
 }
 
 function Get-PolicyPlatform {
@@ -1642,7 +1771,7 @@ function Export-PolicyData {
         if (-not (Get-Module -ListAvailable -Name ImportExcel)) {
             Write-Host "The ImportExcel module is required for Excel export. Would you like to install it? (y/n)" -ForegroundColor Yellow
             $install = Read-Host
-            if ($install -eq 'y') {
+            if ($install -match '^[Yy]') {
                 try {
                     Install-Module -Name ImportExcel -Force -Scope CurrentUser
                     Write-Host "ImportExcel module installed successfully." -ForegroundColor Green
@@ -1773,13 +1902,15 @@ function Show-Menu {
     Write-Host "  [9] Check for Empty Groups in Assignments" -ForegroundColor White
     Write-Host "  [10] Compare Assignments Between Groups" -ForegroundColor White
     Write-Host "  [11] Show All Failed Assignments" -ForegroundColor White
+    Write-Host "  [12] Simulate Group Membership Impact" -ForegroundColor White
+    Write-Host "  [14] Simulate Removing User from Group" -ForegroundColor White
+    Write-Host "  [15] Search Policy Assignments" -ForegroundColor White
     Write-Host ""
 
     Write-Host "System:" -ForegroundColor Cyan
-    Write-Host "  [12] Disconnect and Connect to Different Tenant" -ForegroundColor White
+    Write-Host "  [13] Disconnect and Connect to Different Tenant" -ForegroundColor White
     Write-Host "  [0] Exit" -ForegroundColor White
-    Write-Host "  [98] Support the Project 💝" -ForegroundColor Magenta
-    Write-Host "  [99] Report a Bug or Request a Feature" -ForegroundColor White
+    Write-Host "  [98] Support the Project  [99] Report a Bug or Request a Feature" -ForegroundColor DarkGray
     Write-Host ""
 
     Write-Host "Select an option: " -ForegroundColor Yellow -NoNewline
@@ -1868,7 +1999,7 @@ function Export-ResultsIfRequested {
     }
     elseif (-not $parameterMode) {
         $export = Read-Host "`nWould you like to export the results to CSV? (y/n)"
-        if ($export -eq 'y') {
+        if ($export -match '^[Yy]') {
             $exportPath = Show-SaveFileDialog -DefaultFileName $DefaultFileName
             if ($exportPath) {
                 Export-PolicyData -ExportData $ExportData -FilePath $exportPath
@@ -1918,6 +2049,20 @@ do {
                 if ($parameterMode) { exit 1 } else { continue }
             }
 
+            # Validate UPN format
+            $upnRegex = '^[^@\s]+@[^@\s]+\.[^@\s]+$'
+            $invalidUpns = @($upns | Where-Object { $_ -notmatch $upnRegex })
+            if ($invalidUpns.Count -gt 0) {
+                foreach ($badUpn in $invalidUpns) {
+                    Write-Host "Invalid UPN format: '$badUpn'. Expected: user@domain.com" -ForegroundColor Red
+                }
+                $upns = @($upns | Where-Object { $_ -match $upnRegex })
+                if ($upns.Count -eq 0) {
+                    Write-Host "No valid UPNs remaining. Please try again." -ForegroundColor Red
+                    if ($parameterMode) { exit 1 } else { continue }
+                }
+            }
+
             $exportData = [System.Collections.ArrayList]::new()
 
             foreach ($upn in $upns) {
@@ -1942,7 +2087,7 @@ do {
                     continue
                 }
 
-                Write-Host "Fetching Intune Profiles and Applications for the user ... (this takes a few seconds)" -ForegroundColor Yellow
+                Write-Host "Fetching Intune Profiles and Applications for the user..." -ForegroundColor Yellow
 
                 $totalCategories = 16
                 $currentCategory = 0
@@ -2579,7 +2724,7 @@ do {
                     Write-Host "`n------- Device Configurations -------" -ForegroundColor Cyan
                     # Create table header
                     $headerFormat = "{0,-45} {1,-20} {2,-35} {3,-20}" -f "Configuration Name", "Platform", "Configuration ID", "Assignment"
-                    $separator = "-" * 120
+                    $separator = Get-Separator
                     Write-Host $separator
                     Write-Host $headerFormat -ForegroundColor Yellow
                     Write-Host $separator
@@ -2621,7 +2766,7 @@ do {
                     Write-Host "`n------- Settings Catalog Policies -------" -ForegroundColor Cyan
                     # Create table header
                     $headerFormat = "{0,-50} {1,-40} {2,-30}" -f "Policy Name", "Policy ID", "Assignment"
-                    $separator = "-" * 120
+                    $separator = Get-Separator
                     Write-Host $separator
                     Write-Host $headerFormat -ForegroundColor Yellow
                     Write-Host $separator
@@ -2658,7 +2803,7 @@ do {
                     Write-Host "`n------- Compliance Policies -------" -ForegroundColor Cyan
                     # Create table header
                     $headerFormat = "{0,-50} {1,-40} {2,-30}" -f "Policy Name", "Policy ID", "Assignment"
-                    $separator = "-" * 120
+                    $separator = Get-Separator
                     Write-Host $separator
                     Write-Host $headerFormat -ForegroundColor Yellow
                     Write-Host $separator
@@ -2695,7 +2840,7 @@ do {
                     Write-Host "`n------- App Protection Policies -------" -ForegroundColor Cyan
                     # Create table header
                     $headerFormat = "{0,-40} {1,-30} {2,-20} {3,-30}" -f "Policy Name", "Policy ID", "Type", "Assignment"
-                    $separator = "-" * 120
+                    $separator = Get-Separator
                     Write-Host $separator
                     Write-Host $headerFormat -ForegroundColor Yellow
                     Write-Host $separator
@@ -2739,7 +2884,7 @@ do {
                     Write-Host "`n------- App Configuration Policies -------" -ForegroundColor Cyan
                     # Create table header
                     $headerFormat = "{0,-50} {1,-40} {2,-30}" -f "Policy Name", "Policy ID", "Assignment"
-                    $separator = "-" * 120
+                    $separator = Get-Separator
                     Write-Host $separator
                     Write-Host $headerFormat -ForegroundColor Yellow
                     Write-Host $separator
@@ -2776,7 +2921,7 @@ do {
                     Write-Host "`n------- Platform Scripts -------" -ForegroundColor Cyan
                     # Create table header
                     $headerFormat = "{0,-50} {1,-40} {2,-30}" -f "Script Name", "Script ID", "Assignment"
-                    $separator = "-" * 120
+                    $separator = Get-Separator
                     Write-Host $separator
                     Write-Host $headerFormat -ForegroundColor Yellow
                     Write-Host $separator
@@ -2813,7 +2958,7 @@ do {
                     Write-Host "`n------- Proactive Remediation Scripts -------" -ForegroundColor Cyan
                     # Create table header
                     $headerFormat = "{0,-50} {1,-40} {2,-30}" -f "Script Name", "Script ID", "Assignment"
-                    $separator = "-" * 120
+                    $separator = Get-Separator
                     Write-Host $separator
                     Write-Host $headerFormat -ForegroundColor Yellow
                     Write-Host $separator
@@ -2850,7 +2995,7 @@ do {
                     Write-Host "`n------- Required Apps -------" -ForegroundColor Cyan
                     # Create table header
                     $headerFormat = "{0,-50} {1,-40} {2,-30}" -f "App Name", "App ID", "Assignment"
-                    $separator = "-" * 120
+                    $separator = Get-Separator
                     Write-Host $separator
                     Write-Host $headerFormat -ForegroundColor Yellow
                     Write-Host $separator
@@ -2887,7 +3032,7 @@ do {
                     Write-Host "`n------- Available Apps -------" -ForegroundColor Cyan
                     # Create table header
                     $headerFormat = "{0,-50} {1,-40} {2,-30}" -f "App Name", "App ID", "Assignment"
-                    $separator = "-" * 120
+                    $separator = Get-Separator
                     Write-Host $separator
                     Write-Host $headerFormat -ForegroundColor Yellow
                     Write-Host $separator
@@ -2924,7 +3069,7 @@ do {
                     Write-Host "`n------- Uninstall Apps -------" -ForegroundColor Cyan
                     # Create table header
                     $headerFormat = "{0,-50} {1,-40} {2,-30}" -f "App Name", "App ID", "Assignment"
-                    $separator = "-" * 120
+                    $separator = Get-Separator
                     Write-Host $separator
                     Write-Host $headerFormat -ForegroundColor Yellow
                     Write-Host $separator
@@ -2961,7 +3106,7 @@ do {
                     Write-Host "`n------- Endpoint Security - Antivirus Profiles -------" -ForegroundColor Cyan
                     # Create table header
                     $headerFormat = "{0,-50} {1,-40} {2,-30}" -f "Profile Name", "Profile ID", "Assignment"
-                    $separator = "-" * 120
+                    $separator = Get-Separator
                     Write-Host $separator
                     Write-Host $headerFormat -ForegroundColor Yellow
                     Write-Host $separator
@@ -2998,7 +3143,7 @@ do {
                     Write-Host "`n------- Endpoint Security - Disk Encryption Profiles -------" -ForegroundColor Cyan
                     # Create table header
                     $headerFormat = "{0,-50} {1,-40} {2,-30}" -f "Profile Name", "Profile ID", "Assignment"
-                    $separator = "-" * 120
+                    $separator = Get-Separator
                     Write-Host $separator
                     Write-Host $headerFormat -ForegroundColor Yellow
                     Write-Host $separator
@@ -3035,7 +3180,7 @@ do {
                     Write-Host "`n------- Endpoint Security - Firewall Profiles -------" -ForegroundColor Cyan
                     # Create table header
                     $headerFormat = "{0,-50} {1,-40} {2,-30}" -f "Profile Name", "Profile ID", "Assignment"
-                    $separator = "-" * 120
+                    $separator = Get-Separator
                     Write-Host $separator
                     Write-Host $headerFormat -ForegroundColor Yellow
                     Write-Host $separator
@@ -3072,7 +3217,7 @@ do {
                     Write-Host "`n------- Endpoint Security - Endpoint Detection and Response Profiles -------" -ForegroundColor Cyan
                     # Create table header
                     $headerFormat = "{0,-50} {1,-40} {2,-30}" -f "Profile Name", "Profile ID", "Assignment"
-                    $separator = "-" * 120
+                    $separator = Get-Separator
                     Write-Host $separator
                     Write-Host $headerFormat -ForegroundColor Yellow
                     Write-Host $separator
@@ -3109,7 +3254,7 @@ do {
                     Write-Host "`n------- Endpoint Security - Attack Surface Reduction Profiles -------" -ForegroundColor Cyan
                     # Create table header
                     $headerFormat = "{0,-50} {1,-40} {2,-30}" -f "Profile Name", "Profile ID", "Assignment"
-                    $separator = "-" * 120
+                    $separator = Get-Separator
                     Write-Host $separator
                     Write-Host $headerFormat -ForegroundColor Yellow
                     Write-Host $separator
@@ -3146,7 +3291,7 @@ do {
                     Write-Host "`n------- Endpoint Security - Account Protection Profiles -------" -ForegroundColor Cyan
                     # Create table header
                     $headerFormat = "{0,-50} {1,-40} {2,-30}" -f "Profile Name", "Profile ID", "Assignment"
-                    $separator = "-" * 120
+                    $separator = Get-Separator
                     Write-Host $separator
                     Write-Host $headerFormat -ForegroundColor Yellow
                     Write-Host $separator
@@ -3183,7 +3328,7 @@ do {
                     Write-Host "`n------- Windows 365 Cloud PC Provisioning Policies -------" -ForegroundColor Cyan
                     # Create table header
                     $headerFormat = "{0,-50} {1,-40} {2,-30}" -f "Policy Name", "Policy ID", "Assignment"
-                    $separator = "-" * 120
+                    $separator = Get-Separator
                     Write-Host $separator
                     Write-Host $headerFormat -ForegroundColor Yellow
                     Write-Host $separator
@@ -3220,7 +3365,7 @@ do {
                     Write-Host "`n------- Windows 365 Cloud PC User Settings -------" -ForegroundColor Cyan
                     # Create table header
                     $headerFormat = "{0,-50} {1,-40} {2,-30}" -f "Setting Name", "Setting ID", "Assignment"
-                    $separator = "-" * 120
+                    $separator = Get-Separator
                     Write-Host $separator
                     Write-Host $headerFormat -ForegroundColor Yellow
                     Write-Host $separator
@@ -3314,7 +3459,7 @@ do {
             }
             elseif (-not $parameterMode) {
                 $nestedPrompt = Read-Host "Include assignments inherited from parent groups? (y/n)"
-                if ($nestedPrompt -eq 'y') {
+                if ($nestedPrompt -match '^[Yy]') {
                     $checkNestedGroups = $true
                 }
             }
@@ -3377,7 +3522,7 @@ do {
                     }
                 }
 
-                Write-Host "Fetching Intune Profiles and Applications for the group ... (this takes a few seconds)" -ForegroundColor Yellow
+                Write-Host "Fetching Intune Profiles and Applications for the group..." -ForegroundColor Yellow
 
                 # Initialize collections for relevant policies
                 $relevantPolicies = @{
@@ -3750,7 +3895,7 @@ do {
                         [object[]]$Policies,
                         [scriptblock]$GetName
                     )
-                    $localTableSeparator = "-" * 140
+                    $localTableSeparator = Get-Separator
 
                     # Create prominent section header
                     $headerSeparator = "-" * ($Title.Length + 16)
@@ -4068,7 +4213,7 @@ do {
                     continue
                 }
 
-                Write-Host "Fetching Intune Profiles and Applications for the device ... (this takes a few seconds)" -ForegroundColor Yellow
+                Write-Host "Fetching Intune Profiles and Applications for the device..." -ForegroundColor Yellow
 
                 # Initialize collections for relevant policies
                 $relevantPolicies = @{
@@ -4739,7 +4884,7 @@ do {
                         [object[]]$Policies,
                         [scriptblock]$GetName
                     )
-                    $tableSeparator = "-" * 130
+                    $tableSeparator = Get-Separator
 
                     # Create prominent section header
                     $headerSeparator = "-" * ($Title.Length + 16)
@@ -6979,7 +7124,7 @@ do {
                 if (-not $parameterMode) {
                     # Ask if user wants to open the report
                     $openReport = Read-Host "Would you like to open the report now? (y/n)"
-                    if ($openReport -eq 'y') {
+                    if ($openReport -match '^[Yy]') {
                         # Platform-specific file opening
                         if ($IsWindows -or $env:OS -match "Windows") {
                             Start-Process $filePath
@@ -7829,7 +7974,7 @@ do {
             }
             elseif (-not $parameterMode) {
                 $nestedPromptCompare = Read-Host "Include assignments inherited from parent groups? (y/n)"
-                if ($nestedPromptCompare -eq 'y') {
+                if ($nestedPromptCompare -match '^[Yy]') {
                     $checkNestedGroupsCompare = $true
                 }
             }
@@ -8433,7 +8578,7 @@ do {
                 }
                 elseif (-not $parameterMode) {
                     $export = Read-Host "Would you like to export the comparison results to CSV? (y/n)"
-                    if ($export -eq 'y') {
+                    if ($export -match '^[Yy]') {
                         Show-SaveFileDialog -DefaultFileName "IntuneGroupAssignmentComparison.csv"
                     }
                     else {
@@ -8496,7 +8641,2373 @@ do {
         }
 
         '12' {
+            Write-Host "Group Membership Impact Analysis selected" -ForegroundColor Green
+
+            # Get User Principal Name
+            if ($parameterMode -and $UserPrincipalNames) {
+                $simUpnInput = $UserPrincipalNames
+            }
+            else {
+                Write-Host "Please enter the User Principal Name: " -ForegroundColor Cyan
+                $simUpnInput = Read-Host
+            }
+
+            if ([string]::IsNullOrWhiteSpace($simUpnInput)) {
+                Write-Host "No UPN provided. Please try again with a valid UPN." -ForegroundColor Red
+                if ($parameterMode) { exit 1 } else { continue }
+            }
+
+            $simUpn = ($simUpnInput -split ',')[0].Trim()
+
+            # Validate UPN format
+            if ($simUpn -notmatch '^[^@\s]+@[^@\s]+\.[^@\s]+$') {
+                Write-Host "Invalid UPN format: '$simUpn'. Expected: user@domain.com" -ForegroundColor Red
+                if ($parameterMode) { exit 1 } else { continue }
+            }
+
+            # Get Target Group
+            if ($parameterMode -and $SimulateTargetGroup) {
+                $simGroupInput = $SimulateTargetGroup
+            }
+            elseif ($parameterMode -and $GroupNames) {
+                $simGroupInput = $GroupNames
+            }
+            else {
+                Write-Host "Please enter the Target Group name or Object ID: " -ForegroundColor Cyan
+                Write-Host "Example: 'Marketing Team' or '12345678-1234-1234-1234-123456789012'" -ForegroundColor Gray
+                $simGroupInput = Read-Host
+            }
+
+            if ([string]::IsNullOrWhiteSpace($simGroupInput)) {
+                Write-Host "No group provided. Please try again." -ForegroundColor Red
+                if ($parameterMode) { exit 1 } else { continue }
+            }
+
+            $simGroupInput = ($simGroupInput -split ',')[0].Trim()
+
+            # Resolve user
+            Write-Host "Looking up user: $simUpn" -ForegroundColor Yellow
+            $simUserInfo = Get-UserInfo -UserPrincipalName $simUpn
+            if (-not $simUserInfo.Success) {
+                Write-Host "User not found: $simUpn" -ForegroundColor Red
+                if ($parameterMode) { exit 1 } else { continue }
+            }
+
+            # Resolve target group
+            Write-Host "Looking up group: $simGroupInput" -ForegroundColor Yellow
+            $simTargetGroupId = $null
+            $simTargetGroupName = $null
+
+            if ($simGroupInput -match '^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$') {
+                $simGroupInfo = Get-GroupInfo -GroupId $simGroupInput
+                if (-not $simGroupInfo.Success) {
+                    Write-Host "No group found with ID: $simGroupInput" -ForegroundColor Red
+                    if ($parameterMode) { exit 1 } else { continue }
+                }
+                $simTargetGroupId = $simGroupInfo.Id
+                $simTargetGroupName = $simGroupInfo.DisplayName
+            }
+            else {
+                $simGroupUri = "$GraphEndpoint/v1.0/groups?`$filter=displayName eq '$simGroupInput'"
+                $simGroupResponse = Invoke-MgGraphRequest -Uri $simGroupUri -Method Get
+
+                if ($simGroupResponse.value.Count -eq 0) {
+                    Write-Host "No group found with name: $simGroupInput" -ForegroundColor Red
+                    if ($parameterMode) { exit 1 } else { continue }
+                }
+                elseif ($simGroupResponse.value.Count -gt 1) {
+                    Write-Host "Multiple groups found with name: $simGroupInput. Please use the Object ID instead:" -ForegroundColor Red
+                    foreach ($g in $simGroupResponse.value) {
+                        Write-Host "  - $($g.displayName) (ID: $($g.id))" -ForegroundColor Yellow
+                    }
+                    if ($parameterMode) { exit 1 } else { continue }
+                }
+
+                $simTargetGroupId = $simGroupResponse.value[0].id
+                $simTargetGroupName = $simGroupResponse.value[0].displayName
+            }
+
+            Write-Host "Target group: $simTargetGroupName (ID: $simTargetGroupId)" -ForegroundColor Green
+
+            # Get user's current group memberships
+            try {
+                $simUserGroups = Get-GroupMemberships -ObjectId $simUserInfo.Id -ObjectType "User"
+                $simCurrentGroupIds = @($simUserGroups | Where-Object { $_.id } | ForEach-Object { $_.id })
+            }
+            catch {
+                Write-Host "Error fetching group memberships: $($_.Exception.Message)" -ForegroundColor Red
+                if ($parameterMode) { exit 1 } else { continue }
+            }
+
+            # Check if user is already in the target group
+            $alreadyMember = $simCurrentGroupIds -contains $simTargetGroupId
+            if ($alreadyMember) {
+                Write-Host "`nNote: User is already a member of '$simTargetGroupName'. Showing policies received via this group." -ForegroundColor Yellow
+            }
+
+            # Get target group's parent groups (transitive)
+            $simTargetParentGroups = Get-TransitiveGroupMembership -GroupId $simTargetGroupId
+            $simTargetAllGroupIds = @($simTargetGroupId)
+            if ($simTargetParentGroups) {
+                $simTargetAllGroupIds += $simTargetParentGroups.id
+            }
+
+            # Build simulated group set (current + target + target's parents, deduplicated)
+            $simSimulatedGroupIds = @($simCurrentGroupIds + $simTargetAllGroupIds | Select-Object -Unique)
+
+            Write-Host "Analyzing impact..." -ForegroundColor Yellow
+
+            $totalCategories = 18
+            $currentCategory = 0
+
+            # Initialize delta collections
+            $deltaPolicies = @{
+                DeviceConfigs               = [System.Collections.ArrayList]::new()
+                SettingsCatalog             = [System.Collections.ArrayList]::new()
+                CompliancePolicies          = [System.Collections.ArrayList]::new()
+                AppProtectionPolicies       = [System.Collections.ArrayList]::new()
+                AppConfigurationPolicies    = [System.Collections.ArrayList]::new()
+                AppsRequired                = [System.Collections.ArrayList]::new()
+                AppsAvailable               = [System.Collections.ArrayList]::new()
+                AppsUninstall               = [System.Collections.ArrayList]::new()
+                PlatformScripts             = [System.Collections.ArrayList]::new()
+                HealthScripts               = [System.Collections.ArrayList]::new()
+                AntivirusProfiles           = [System.Collections.ArrayList]::new()
+                DiskEncryptionProfiles      = [System.Collections.ArrayList]::new()
+                FirewallProfiles            = [System.Collections.ArrayList]::new()
+                EndpointDetectionProfiles   = [System.Collections.ArrayList]::new()
+                AttackSurfaceProfiles       = [System.Collections.ArrayList]::new()
+                AccountProtectionProfiles   = [System.Collections.ArrayList]::new()
+                DeploymentProfiles          = [System.Collections.ArrayList]::new()
+                ESPProfiles                 = [System.Collections.ArrayList]::new()
+                CloudPCProvisioningPolicies = [System.Collections.ArrayList]::new()
+                CloudPCUserSettings         = [System.Collections.ArrayList]::new()
+            }
+            $conflictPolicies = [System.Collections.ArrayList]::new()
+
+            # --- Device Configurations ---
+            $currentCategory++
+            Write-Host "[$currentCategory/$totalCategories] Fetching Device Configurations..." -ForegroundColor Yellow
+            $simDeviceConfigs = Get-IntuneEntities -EntityType "deviceConfigurations"
+            foreach ($config in $simDeviceConfigs) {
+                $assignments = Get-IntuneAssignments -EntityType "deviceConfigurations" -EntityId $config.id
+                $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+                if ($delta.IsNewPolicy) {
+                    $config | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.AssignmentReason -Force
+                    [void]$deltaPolicies.DeviceConfigs.Add($config)
+                }
+                elseif ($delta.IsConflict) {
+                    [void]$conflictPolicies.Add([PSCustomObject]@{ Category = "Device Configuration"; PolicyName = if ($config.displayName) { $config.displayName } else { $config.name }; PolicyId = $config.id; ConflictType = "Currently excluded; target group includes it" })
+                }
+            }
+
+            # --- Settings Catalog ---
+            $currentCategory++
+            Write-Host "[$currentCategory/$totalCategories] Fetching Settings Catalog Policies..." -ForegroundColor Yellow
+            $simSettingsCatalog = Get-IntuneEntities -EntityType "configurationPolicies"
+            foreach ($policy in $simSettingsCatalog) {
+                $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
+                $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+                if ($delta.IsNewPolicy) {
+                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.AssignmentReason -Force
+                    [void]$deltaPolicies.SettingsCatalog.Add($policy)
+                }
+                elseif ($delta.IsConflict) {
+                    [void]$conflictPolicies.Add([PSCustomObject]@{ Category = "Settings Catalog"; PolicyName = if ($policy.displayName) { $policy.displayName } else { $policy.name }; PolicyId = $policy.id; ConflictType = "Currently excluded; target group includes it" })
+                }
+            }
+
+            # --- Compliance Policies ---
+            $currentCategory++
+            Write-Host "[$currentCategory/$totalCategories] Fetching Compliance Policies..." -ForegroundColor Yellow
+            $simCompliancePolicies = Get-IntuneEntities -EntityType "deviceCompliancePolicies"
+            foreach ($policy in $simCompliancePolicies) {
+                $assignments = Get-IntuneAssignments -EntityType "deviceCompliancePolicies" -EntityId $policy.id
+                $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+                if ($delta.IsNewPolicy) {
+                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.AssignmentReason -Force
+                    [void]$deltaPolicies.CompliancePolicies.Add($policy)
+                }
+                elseif ($delta.IsConflict) {
+                    [void]$conflictPolicies.Add([PSCustomObject]@{ Category = "Compliance Policy"; PolicyName = if ($policy.displayName) { $policy.displayName } else { $policy.name }; PolicyId = $policy.id; ConflictType = "Currently excluded; target group includes it" })
+                }
+            }
+
+            # --- App Protection Policies ---
+            $currentCategory++
+            Write-Host "[$currentCategory/$totalCategories] Fetching App Protection Policies..." -ForegroundColor Yellow
+            $simAppProtectionPolicies = Get-IntuneEntities -EntityType "deviceAppManagement/managedAppPolicies"
+            foreach ($policy in $simAppProtectionPolicies) {
+                $policyType = $policy.'@odata.type'
+                $assignmentsUri = switch ($policyType) {
+                    "#microsoft.graph.androidManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/androidManagedAppProtections('$($policy.id)')/assignments" }
+                    "#microsoft.graph.iosManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/iosManagedAppProtections('$($policy.id)')/assignments" }
+                    "#microsoft.graph.windowsManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/windowsManagedAppProtections('$($policy.id)')/assignments" }
+                    default { $null }
+                }
+
+                if ($assignmentsUri) {
+                    try {
+                        $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
+                        $assignments = @()
+                        foreach ($assignment in $assignmentResponse.value) {
+                            $assignmentReason = $null
+                            switch ($assignment.target.'@odata.type') {
+                                '#microsoft.graph.allLicensedUsersAssignmentTarget' { $assignmentReason = "All Users" }
+                                '#microsoft.graph.groupAssignmentTarget' { $assignmentReason = "Group Assignment" }
+                                '#microsoft.graph.exclusionGroupAssignmentTarget' { $assignmentReason = "Group Exclusion" }
+                            }
+                            if ($assignmentReason) {
+                                $assignments += @{ Reason = $assignmentReason; GroupId = $assignment.target.groupId }
+                            }
+                        }
+
+                        if ($assignments.Count -gt 0) {
+                            $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+                            if ($delta.IsNewPolicy) {
+                                $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.AssignmentReason -Force
+                                [void]$deltaPolicies.AppProtectionPolicies.Add($policy)
+                            }
+                            elseif ($delta.IsConflict) {
+                                [void]$conflictPolicies.Add([PSCustomObject]@{ Category = "App Protection Policy"; PolicyName = $policy.displayName; PolicyId = $policy.id; ConflictType = "Currently excluded; target group includes it" })
+                            }
+                        }
+                    }
+                    catch {
+                        Write-Host "Error fetching assignments for policy $($policy.displayName): $($_.Exception.Message)" -ForegroundColor Red
+                    }
+                }
+            }
+
+            # --- App Configuration Policies ---
+            $currentCategory++
+            Write-Host "[$currentCategory/$totalCategories] Fetching App Configuration Policies..." -ForegroundColor Yellow
+            $simAppConfigPolicies = Get-IntuneEntities -EntityType "deviceAppManagement/mobileAppConfigurations"
+            foreach ($policy in $simAppConfigPolicies) {
+                $assignments = Get-IntuneAssignments -EntityType "mobileAppConfigurations" -EntityId $policy.id
+                $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+                if ($delta.IsNewPolicy) {
+                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.AssignmentReason -Force
+                    [void]$deltaPolicies.AppConfigurationPolicies.Add($policy)
+                }
+                elseif ($delta.IsConflict) {
+                    [void]$conflictPolicies.Add([PSCustomObject]@{ Category = "App Configuration Policy"; PolicyName = if ($policy.displayName) { $policy.displayName } else { $policy.name }; PolicyId = $policy.id; ConflictType = "Currently excluded; target group includes it" })
+                }
+            }
+
+            # --- Applications ---
+            $currentCategory++
+            Write-Host "[$currentCategory/$totalCategories] Fetching Applications..." -ForegroundColor Yellow
+            $simAppUri = "$GraphEndpoint/beta/deviceAppManagement/mobileApps?`$filter=isAssigned eq true"
+            $simAppResponse = Invoke-MgGraphRequest -Uri $simAppUri -Method Get
+            $simAllApps = $simAppResponse.value
+            while ($simAppResponse.'@odata.nextLink') {
+                $simAppResponse = Invoke-MgGraphRequest -Uri $simAppResponse.'@odata.nextLink' -Method Get
+                $simAllApps += $simAppResponse.value
+            }
+            $simTotalApps = $simAllApps.Count
+            $simCurrentApp = 0
+
+            foreach ($app in $simAllApps) {
+                if ($app.isFeatured -or $app.isBuiltIn) { continue }
+
+                $simCurrentApp++
+                Write-Host "`rFetching Application $simCurrentApp of $simTotalApps" -NoNewline
+                $appId = $app.id
+
+                try {
+                    $assignmentsUri = "$GraphEndpoint/beta/deviceAppManagement/mobileApps('$appId')/assignments"
+                    $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
+
+                    # Check current assignment status
+                    $currentExcluded = $false
+                    $currentIncluded = $false
+                    $simExcluded = $false
+                    $simIncluded = $false
+                    $appIntent = $null
+
+                    foreach ($assignment in $assignmentResponse.value) {
+                        $targetType = $assignment.target.'@odata.type'
+                        $targetGroupId = $assignment.target.groupId
+
+                        if ($targetType -eq '#microsoft.graph.exclusionGroupAssignmentTarget') {
+                            if ($simCurrentGroupIds -contains $targetGroupId) { $currentExcluded = $true }
+                            if ($simSimulatedGroupIds -contains $targetGroupId) { $simExcluded = $true }
+                        }
+                        elseif ($targetType -eq '#microsoft.graph.allLicensedUsersAssignmentTarget') {
+                            $currentIncluded = $true
+                            $simIncluded = $true
+                            $appIntent = $assignment.intent
+                        }
+                        elseif ($targetType -eq '#microsoft.graph.groupAssignmentTarget') {
+                            if ($simCurrentGroupIds -contains $targetGroupId) { $currentIncluded = $true; $appIntent = $assignment.intent }
+                            if ($simSimulatedGroupIds -contains $targetGroupId) { $simIncluded = $true; $appIntent = $assignment.intent }
+                        }
+                    }
+
+                    $currentHasApp = $currentIncluded -and -not $currentExcluded
+                    $simHasApp = $simIncluded -and -not $simExcluded
+
+                    if ($simHasApp -and -not $currentHasApp) {
+                        $appWithReason = $app.PSObject.Copy()
+                        $appWithReason | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Group Assignment" -Force
+                        $appWithReason | Add-Member -NotePropertyName 'AssignmentIntent' -NotePropertyValue $appIntent -Force
+                        switch ($appIntent) {
+                            "required" { [void]$deltaPolicies.AppsRequired.Add($appWithReason) }
+                            "available" { [void]$deltaPolicies.AppsAvailable.Add($appWithReason) }
+                            "uninstall" { [void]$deltaPolicies.AppsUninstall.Add($appWithReason) }
+                        }
+                    }
+                    elseif ($currentExcluded -and $simExcluded) {
+                        # Check if target group specifically includes this app while user is excluded
+                        foreach ($assignment in $assignmentResponse.value) {
+                            if ($assignment.target.'@odata.type' -eq '#microsoft.graph.groupAssignmentTarget' -and
+                                $simTargetAllGroupIds -contains $assignment.target.groupId -and
+                                $simCurrentGroupIds -notcontains $assignment.target.groupId) {
+                                $appName = if ($app.displayName) { $app.displayName } else { $app.name }
+                                [void]$conflictPolicies.Add([PSCustomObject]@{ Category = "Application ($($assignment.intent))"; PolicyName = $appName; PolicyId = $app.id; ConflictType = "Currently excluded; target group includes it" })
+                                break
+                            }
+                        }
+                    }
+                }
+                catch {
+                    Write-Host "`nError fetching assignments for app $($app.displayName): $($_.Exception.Message)" -ForegroundColor Red
+                }
+            }
+            Write-Host "`rFetching Application $simTotalApps of $simTotalApps" -NoNewline
+            Start-Sleep -Milliseconds 100
+            Write-Host ""
+
+            # --- Platform Scripts ---
+            $currentCategory++
+            Write-Host "[$currentCategory/$totalCategories] Fetching Platform Scripts..." -ForegroundColor Yellow
+            $simPlatformScripts = Get-IntuneEntities -EntityType "deviceManagementScripts"
+            foreach ($script in $simPlatformScripts) {
+                $assignments = Get-IntuneAssignments -EntityType "deviceManagementScripts" -EntityId $script.id
+                $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+                if ($delta.IsNewPolicy) {
+                    $script | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.AssignmentReason -Force
+                    [void]$deltaPolicies.PlatformScripts.Add($script)
+                }
+                elseif ($delta.IsConflict) {
+                    [void]$conflictPolicies.Add([PSCustomObject]@{ Category = "Platform Script"; PolicyName = if ($script.displayName) { $script.displayName } else { $script.name }; PolicyId = $script.id; ConflictType = "Currently excluded; target group includes it" })
+                }
+            }
+
+            # --- Proactive Remediation Scripts ---
+            $currentCategory++
+            Write-Host "[$currentCategory/$totalCategories] Fetching Proactive Remediation Scripts..." -ForegroundColor Yellow
+            $simHealthScripts = Get-IntuneEntities -EntityType "deviceHealthScripts"
+            foreach ($script in $simHealthScripts) {
+                $assignments = Get-IntuneAssignments -EntityType "deviceHealthScripts" -EntityId $script.id
+                $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+                if ($delta.IsNewPolicy) {
+                    $script | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.AssignmentReason -Force
+                    [void]$deltaPolicies.HealthScripts.Add($script)
+                }
+                elseif ($delta.IsConflict) {
+                    [void]$conflictPolicies.Add([PSCustomObject]@{ Category = "Proactive Remediation Script"; PolicyName = if ($script.displayName) { $script.displayName } else { $script.name }; PolicyId = $script.id; ConflictType = "Currently excluded; target group includes it" })
+                }
+            }
+
+            # --- Endpoint Security: Antivirus ---
+            $currentCategory++
+            Write-Host "[$currentCategory/$totalCategories] Fetching Antivirus Policies..." -ForegroundColor Yellow
+            $simProcessedAntivirusIds = [System.Collections.Generic.HashSet[string]]::new()
+
+            $simConfigPoliciesForAntivirus = Get-IntuneEntities -EntityType "configurationPolicies"
+            $simMatchingAntivirus = $simConfigPoliciesForAntivirus | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAntivirus' }
+            if ($simMatchingAntivirus) {
+                foreach ($policy in $simMatchingAntivirus) {
+                    if ($simProcessedAntivirusIds.Add($policy.id)) {
+                        $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
+                        $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+                        if ($delta.IsNewPolicy) {
+                            $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.AssignmentReason -Force
+                            [void]$deltaPolicies.AntivirusProfiles.Add($policy)
+                        }
+                        elseif ($delta.IsConflict) {
+                            [void]$conflictPolicies.Add([PSCustomObject]@{ Category = "Endpoint Security - Antivirus"; PolicyName = if ($policy.displayName) { $policy.displayName } else { $policy.name }; PolicyId = $policy.id; ConflictType = "Currently excluded; target group includes it" })
+                        }
+                    }
+                }
+            }
+
+            $simAllIntentsForAntivirus = Get-IntuneEntities -EntityType "deviceManagement/intents"
+            Add-IntentTemplateFamilyInfo -IntentPolicies $simAllIntentsForAntivirus
+            $simMatchingIntentsAntivirus = $simAllIntentsForAntivirus | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAntivirus' }
+            if ($simMatchingIntentsAntivirus) {
+                foreach ($policy in $simMatchingIntentsAntivirus) {
+                    if ($simProcessedAntivirusIds.Add($policy.id)) {
+                        $assignmentsResponse = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
+                        $assignmentDetailsList = foreach ($assignment in $assignmentsResponse.value) {
+                            [PSCustomObject]@{
+                                Reason  = switch ($assignment.target.'@odata.type') {
+                                    '#microsoft.graph.allLicensedUsersAssignmentTarget' { "All Users" }
+                                    '#microsoft.graph.allDevicesAssignmentTarget' { "All Devices" }
+                                    '#microsoft.graph.groupAssignmentTarget' { "Group Assignment" }
+                                    '#microsoft.graph.exclusionGroupAssignmentTarget' { "Group Exclusion" }
+                                    default { "Unknown" }
+                                }
+                                GroupId = if ($assignment.target.'@odata.type' -match "groupAssignmentTarget") { $assignment.target.groupId } else { $null }
+                            }
+                        }
+                        $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignmentDetailsList -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+                        if ($delta.IsNewPolicy) {
+                            $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.AssignmentReason -Force
+                            [void]$deltaPolicies.AntivirusProfiles.Add($policy)
+                        }
+                        elseif ($delta.IsConflict) {
+                            [void]$conflictPolicies.Add([PSCustomObject]@{ Category = "Endpoint Security - Antivirus"; PolicyName = if ($policy.displayName) { $policy.displayName } else { $policy.name }; PolicyId = $policy.id; ConflictType = "Currently excluded; target group includes it" })
+                        }
+                    }
+                }
+            }
+
+            # --- Endpoint Security: Disk Encryption ---
+            $currentCategory++
+            Write-Host "[$currentCategory/$totalCategories] Fetching Disk Encryption Policies..." -ForegroundColor Yellow
+            $simProcessedDiskEncIds = [System.Collections.Generic.HashSet[string]]::new()
+
+            $simConfigPoliciesForDiskEnc = Get-IntuneEntities -EntityType "configurationPolicies"
+            $simMatchingDiskEnc = $simConfigPoliciesForDiskEnc | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityDiskEncryption' }
+            if ($simMatchingDiskEnc) {
+                foreach ($policy in $simMatchingDiskEnc) {
+                    if ($simProcessedDiskEncIds.Add($policy.id)) {
+                        $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
+                        $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+                        if ($delta.IsNewPolicy) {
+                            $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.AssignmentReason -Force
+                            [void]$deltaPolicies.DiskEncryptionProfiles.Add($policy)
+                        }
+                        elseif ($delta.IsConflict) {
+                            [void]$conflictPolicies.Add([PSCustomObject]@{ Category = "Endpoint Security - Disk Encryption"; PolicyName = if ($policy.displayName) { $policy.displayName } else { $policy.name }; PolicyId = $policy.id; ConflictType = "Currently excluded; target group includes it" })
+                        }
+                    }
+                }
+            }
+
+            $simAllIntentsForDiskEnc = Get-IntuneEntities -EntityType "deviceManagement/intents"
+            Add-IntentTemplateFamilyInfo -IntentPolicies $simAllIntentsForDiskEnc
+            $simMatchingIntentsDiskEnc = $simAllIntentsForDiskEnc | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityDiskEncryption' }
+            if ($simMatchingIntentsDiskEnc) {
+                foreach ($policy in $simMatchingIntentsDiskEnc) {
+                    if ($simProcessedDiskEncIds.Add($policy.id)) {
+                        $assignmentsResponse = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
+                        $assignmentDetailsList = foreach ($assignment in $assignmentsResponse.value) {
+                            [PSCustomObject]@{
+                                Reason  = switch ($assignment.target.'@odata.type') {
+                                    '#microsoft.graph.allLicensedUsersAssignmentTarget' { "All Users" }
+                                    '#microsoft.graph.allDevicesAssignmentTarget' { "All Devices" }
+                                    '#microsoft.graph.groupAssignmentTarget' { "Group Assignment" }
+                                    '#microsoft.graph.exclusionGroupAssignmentTarget' { "Group Exclusion" }
+                                    default { "Unknown" }
+                                }
+                                GroupId = if ($assignment.target.'@odata.type' -match "groupAssignmentTarget") { $assignment.target.groupId } else { $null }
+                            }
+                        }
+                        $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignmentDetailsList -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+                        if ($delta.IsNewPolicy) {
+                            $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.AssignmentReason -Force
+                            [void]$deltaPolicies.DiskEncryptionProfiles.Add($policy)
+                        }
+                        elseif ($delta.IsConflict) {
+                            [void]$conflictPolicies.Add([PSCustomObject]@{ Category = "Endpoint Security - Disk Encryption"; PolicyName = if ($policy.displayName) { $policy.displayName } else { $policy.name }; PolicyId = $policy.id; ConflictType = "Currently excluded; target group includes it" })
+                        }
+                    }
+                }
+            }
+
+            # --- Endpoint Security: Firewall ---
+            $currentCategory++
+            Write-Host "[$currentCategory/$totalCategories] Fetching Firewall Policies..." -ForegroundColor Yellow
+            $simProcessedFirewallIds = [System.Collections.Generic.HashSet[string]]::new()
+
+            $simConfigPoliciesForFirewall = Get-IntuneEntities -EntityType "configurationPolicies"
+            $simMatchingFirewall = $simConfigPoliciesForFirewall | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityFirewall' }
+            if ($simMatchingFirewall) {
+                foreach ($policy in $simMatchingFirewall) {
+                    if ($simProcessedFirewallIds.Add($policy.id)) {
+                        $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
+                        $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+                        if ($delta.IsNewPolicy) {
+                            $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.AssignmentReason -Force
+                            [void]$deltaPolicies.FirewallProfiles.Add($policy)
+                        }
+                        elseif ($delta.IsConflict) {
+                            [void]$conflictPolicies.Add([PSCustomObject]@{ Category = "Endpoint Security - Firewall"; PolicyName = if ($policy.displayName) { $policy.displayName } else { $policy.name }; PolicyId = $policy.id; ConflictType = "Currently excluded; target group includes it" })
+                        }
+                    }
+                }
+            }
+
+            $simAllIntentsForFirewall = Get-IntuneEntities -EntityType "deviceManagement/intents"
+            Add-IntentTemplateFamilyInfo -IntentPolicies $simAllIntentsForFirewall
+            $simMatchingIntentsFirewall = $simAllIntentsForFirewall | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityFirewall' }
+            if ($simMatchingIntentsFirewall) {
+                foreach ($policy in $simMatchingIntentsFirewall) {
+                    if ($simProcessedFirewallIds.Add($policy.id)) {
+                        $assignmentsResponse = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
+                        $assignmentDetailsList = foreach ($assignment in $assignmentsResponse.value) {
+                            [PSCustomObject]@{
+                                Reason  = switch ($assignment.target.'@odata.type') {
+                                    '#microsoft.graph.allLicensedUsersAssignmentTarget' { "All Users" }
+                                    '#microsoft.graph.allDevicesAssignmentTarget' { "All Devices" }
+                                    '#microsoft.graph.groupAssignmentTarget' { "Group Assignment" }
+                                    '#microsoft.graph.exclusionGroupAssignmentTarget' { "Group Exclusion" }
+                                    default { "Unknown" }
+                                }
+                                GroupId = if ($assignment.target.'@odata.type' -match "groupAssignmentTarget") { $assignment.target.groupId } else { $null }
+                            }
+                        }
+                        $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignmentDetailsList -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+                        if ($delta.IsNewPolicy) {
+                            $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.AssignmentReason -Force
+                            [void]$deltaPolicies.FirewallProfiles.Add($policy)
+                        }
+                        elseif ($delta.IsConflict) {
+                            [void]$conflictPolicies.Add([PSCustomObject]@{ Category = "Endpoint Security - Firewall"; PolicyName = if ($policy.displayName) { $policy.displayName } else { $policy.name }; PolicyId = $policy.id; ConflictType = "Currently excluded; target group includes it" })
+                        }
+                    }
+                }
+            }
+
+            # --- Endpoint Security: EDR ---
+            $currentCategory++
+            Write-Host "[$currentCategory/$totalCategories] Fetching Endpoint Detection and Response Policies..." -ForegroundColor Yellow
+            $simProcessedEDRIds = [System.Collections.Generic.HashSet[string]]::new()
+
+            $simConfigPoliciesForEDR = Get-IntuneEntities -EntityType "configurationPolicies"
+            $simMatchingEDR = $simConfigPoliciesForEDR | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityEndpointDetectionAndResponse' }
+            if ($simMatchingEDR) {
+                foreach ($policy in $simMatchingEDR) {
+                    if ($simProcessedEDRIds.Add($policy.id)) {
+                        $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
+                        $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+                        if ($delta.IsNewPolicy) {
+                            $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.AssignmentReason -Force
+                            [void]$deltaPolicies.EndpointDetectionProfiles.Add($policy)
+                        }
+                        elseif ($delta.IsConflict) {
+                            [void]$conflictPolicies.Add([PSCustomObject]@{ Category = "Endpoint Security - EDR"; PolicyName = if ($policy.displayName) { $policy.displayName } else { $policy.name }; PolicyId = $policy.id; ConflictType = "Currently excluded; target group includes it" })
+                        }
+                    }
+                }
+            }
+
+            $simAllIntentsForEDR = Get-IntuneEntities -EntityType "deviceManagement/intents"
+            Add-IntentTemplateFamilyInfo -IntentPolicies $simAllIntentsForEDR
+            $simMatchingIntentsEDR = $simAllIntentsForEDR | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityEndpointDetectionAndResponse' }
+            if ($simMatchingIntentsEDR) {
+                foreach ($policy in $simMatchingIntentsEDR) {
+                    if ($simProcessedEDRIds.Add($policy.id)) {
+                        $assignmentsResponse = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
+                        $assignmentDetailsList = foreach ($assignment in $assignmentsResponse.value) {
+                            [PSCustomObject]@{
+                                Reason  = switch ($assignment.target.'@odata.type') {
+                                    '#microsoft.graph.allLicensedUsersAssignmentTarget' { "All Users" }
+                                    '#microsoft.graph.allDevicesAssignmentTarget' { "All Devices" }
+                                    '#microsoft.graph.groupAssignmentTarget' { "Group Assignment" }
+                                    '#microsoft.graph.exclusionGroupAssignmentTarget' { "Group Exclusion" }
+                                    default { "Unknown" }
+                                }
+                                GroupId = if ($assignment.target.'@odata.type' -match "groupAssignmentTarget") { $assignment.target.groupId } else { $null }
+                            }
+                        }
+                        $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignmentDetailsList -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+                        if ($delta.IsNewPolicy) {
+                            $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.AssignmentReason -Force
+                            [void]$deltaPolicies.EndpointDetectionProfiles.Add($policy)
+                        }
+                        elseif ($delta.IsConflict) {
+                            [void]$conflictPolicies.Add([PSCustomObject]@{ Category = "Endpoint Security - EDR"; PolicyName = if ($policy.displayName) { $policy.displayName } else { $policy.name }; PolicyId = $policy.id; ConflictType = "Currently excluded; target group includes it" })
+                        }
+                    }
+                }
+            }
+
+            # --- Endpoint Security: Attack Surface Reduction ---
+            $currentCategory++
+            Write-Host "[$currentCategory/$totalCategories] Fetching Attack Surface Reduction Policies..." -ForegroundColor Yellow
+            $simProcessedASRIds = [System.Collections.Generic.HashSet[string]]::new()
+
+            $simConfigPoliciesForASR = Get-IntuneEntities -EntityType "configurationPolicies"
+            $simMatchingASR = $simConfigPoliciesForASR | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReduction' }
+            if ($simMatchingASR) {
+                foreach ($policy in $simMatchingASR) {
+                    if ($simProcessedASRIds.Add($policy.id)) {
+                        $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
+                        $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+                        if ($delta.IsNewPolicy) {
+                            $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.AssignmentReason -Force
+                            [void]$deltaPolicies.AttackSurfaceProfiles.Add($policy)
+                        }
+                        elseif ($delta.IsConflict) {
+                            [void]$conflictPolicies.Add([PSCustomObject]@{ Category = "Endpoint Security - ASR"; PolicyName = if ($policy.displayName) { $policy.displayName } else { $policy.name }; PolicyId = $policy.id; ConflictType = "Currently excluded; target group includes it" })
+                        }
+                    }
+                }
+            }
+
+            $simAllIntentsForASR = Get-IntuneEntities -EntityType "deviceManagement/intents"
+            Add-IntentTemplateFamilyInfo -IntentPolicies $simAllIntentsForASR
+            $simMatchingIntentsASR = $simAllIntentsForASR | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReduction' }
+            if ($simMatchingIntentsASR) {
+                foreach ($policy in $simMatchingIntentsASR) {
+                    if ($simProcessedASRIds.Add($policy.id)) {
+                        $assignmentsResponse = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
+                        $assignmentDetailsList = foreach ($assignment in $assignmentsResponse.value) {
+                            [PSCustomObject]@{
+                                Reason  = switch ($assignment.target.'@odata.type') {
+                                    '#microsoft.graph.allLicensedUsersAssignmentTarget' { "All Users" }
+                                    '#microsoft.graph.allDevicesAssignmentTarget' { "All Devices" }
+                                    '#microsoft.graph.groupAssignmentTarget' { "Group Assignment" }
+                                    '#microsoft.graph.exclusionGroupAssignmentTarget' { "Group Exclusion" }
+                                    default { "Unknown" }
+                                }
+                                GroupId = if ($assignment.target.'@odata.type' -match "groupAssignmentTarget") { $assignment.target.groupId } else { $null }
+                            }
+                        }
+                        $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignmentDetailsList -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+                        if ($delta.IsNewPolicy) {
+                            $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.AssignmentReason -Force
+                            [void]$deltaPolicies.AttackSurfaceProfiles.Add($policy)
+                        }
+                        elseif ($delta.IsConflict) {
+                            [void]$conflictPolicies.Add([PSCustomObject]@{ Category = "Endpoint Security - ASR"; PolicyName = if ($policy.displayName) { $policy.displayName } else { $policy.name }; PolicyId = $policy.id; ConflictType = "Currently excluded; target group includes it" })
+                        }
+                    }
+                }
+            }
+
+            # --- Endpoint Security: Account Protection ---
+            $currentCategory++
+            Write-Host "[$currentCategory/$totalCategories] Fetching Account Protection Policies..." -ForegroundColor Yellow
+            $simProcessedAcctProtIds = [System.Collections.Generic.HashSet[string]]::new()
+
+            $simConfigPoliciesForAcctProt = Get-IntuneEntities -EntityType "configurationPolicies"
+            $simMatchingAcctProt = $simConfigPoliciesForAcctProt | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAccountProtection' }
+            if ($simMatchingAcctProt) {
+                foreach ($policy in $simMatchingAcctProt) {
+                    if ($simProcessedAcctProtIds.Add($policy.id)) {
+                        $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
+                        $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+                        if ($delta.IsNewPolicy) {
+                            $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.AssignmentReason -Force
+                            [void]$deltaPolicies.AccountProtectionProfiles.Add($policy)
+                        }
+                        elseif ($delta.IsConflict) {
+                            [void]$conflictPolicies.Add([PSCustomObject]@{ Category = "Endpoint Security - Account Protection"; PolicyName = if ($policy.displayName) { $policy.displayName } else { $policy.name }; PolicyId = $policy.id; ConflictType = "Currently excluded; target group includes it" })
+                        }
+                    }
+                }
+            }
+
+            $simAllIntentsForAcctProt = Get-IntuneEntities -EntityType "deviceManagement/intents"
+            Add-IntentTemplateFamilyInfo -IntentPolicies $simAllIntentsForAcctProt
+            $simMatchingIntentsAcctProt = $simAllIntentsForAcctProt | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAccountProtection' }
+            if ($simMatchingIntentsAcctProt) {
+                foreach ($policy in $simMatchingIntentsAcctProt) {
+                    if ($simProcessedAcctProtIds.Add($policy.id)) {
+                        $assignmentsResponse = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
+                        $assignmentDetailsList = foreach ($assignment in $assignmentsResponse.value) {
+                            [PSCustomObject]@{
+                                Reason  = switch ($assignment.target.'@odata.type') {
+                                    '#microsoft.graph.allLicensedUsersAssignmentTarget' { "All Users" }
+                                    '#microsoft.graph.allDevicesAssignmentTarget' { "All Devices" }
+                                    '#microsoft.graph.groupAssignmentTarget' { "Group Assignment" }
+                                    '#microsoft.graph.exclusionGroupAssignmentTarget' { "Group Exclusion" }
+                                    default { "Unknown" }
+                                }
+                                GroupId = if ($assignment.target.'@odata.type' -match "groupAssignmentTarget") { $assignment.target.groupId } else { $null }
+                            }
+                        }
+                        $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignmentDetailsList -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+                        if ($delta.IsNewPolicy) {
+                            $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.AssignmentReason -Force
+                            [void]$deltaPolicies.AccountProtectionProfiles.Add($policy)
+                        }
+                        elseif ($delta.IsConflict) {
+                            [void]$conflictPolicies.Add([PSCustomObject]@{ Category = "Endpoint Security - Account Protection"; PolicyName = if ($policy.displayName) { $policy.displayName } else { $policy.name }; PolicyId = $policy.id; ConflictType = "Currently excluded; target group includes it" })
+                        }
+                    }
+                }
+            }
+
+            # --- Autopilot Deployment Profiles ---
+            $currentCategory++
+            Write-Host "[$currentCategory/$totalCategories] Fetching Autopilot Deployment Profiles..." -ForegroundColor Yellow
+            $simAutoProfiles = Get-IntuneEntities -EntityType "windowsAutopilotDeploymentProfiles"
+            foreach ($profile in $simAutoProfiles) {
+                $assignments = Get-IntuneAssignments -EntityType "windowsAutopilotDeploymentProfiles" -EntityId $profile.id
+                $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+                if ($delta.IsNewPolicy) {
+                    $profile | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.AssignmentReason -Force
+                    [void]$deltaPolicies.DeploymentProfiles.Add($profile)
+                }
+                elseif ($delta.IsConflict) {
+                    [void]$conflictPolicies.Add([PSCustomObject]@{ Category = "Autopilot Deployment Profile"; PolicyName = if ($profile.displayName) { $profile.displayName } else { $profile.name }; PolicyId = $profile.id; ConflictType = "Currently excluded; target group includes it" })
+                }
+            }
+
+            # --- Enrollment Status Page Profiles ---
+            $currentCategory++
+            Write-Host "[$currentCategory/$totalCategories] Fetching Enrollment Status Page Profiles..." -ForegroundColor Yellow
+            $simEnrollmentConfigs = Get-IntuneEntities -EntityType "deviceEnrollmentConfigurations"
+            $simEspProfiles = $simEnrollmentConfigs | Where-Object { $_.'@odata.type' -match 'EnrollmentCompletionPageConfiguration' }
+            foreach ($esp in $simEspProfiles) {
+                $assignments = Get-IntuneAssignments -EntityType "deviceEnrollmentConfigurations" -EntityId $esp.id
+                $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+                if ($delta.IsNewPolicy) {
+                    $esp | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.AssignmentReason -Force
+                    [void]$deltaPolicies.ESPProfiles.Add($esp)
+                }
+                elseif ($delta.IsConflict) {
+                    [void]$conflictPolicies.Add([PSCustomObject]@{ Category = "Enrollment Status Page"; PolicyName = if ($esp.displayName) { $esp.displayName } else { $esp.name }; PolicyId = $esp.id; ConflictType = "Currently excluded; target group includes it" })
+                }
+            }
+
+            # --- Windows 365 Cloud PC Provisioning Policies ---
+            $currentCategory++
+            Write-Host "[$currentCategory/$totalCategories] Fetching Windows 365 Cloud PC Provisioning Policies..." -ForegroundColor Yellow
+            try {
+                $simCloudPCProvisioning = Get-IntuneEntities -EntityType "virtualEndpoint/provisioningPolicies"
+                foreach ($policy in $simCloudPCProvisioning) {
+                    $assignments = Get-IntuneAssignments -EntityType "virtualEndpoint/provisioningPolicies" -EntityId $policy.id
+                    $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+                    if ($delta.IsNewPolicy) {
+                        $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.AssignmentReason -Force
+                        [void]$deltaPolicies.CloudPCProvisioningPolicies.Add($policy)
+                    }
+                    elseif ($delta.IsConflict) {
+                        [void]$conflictPolicies.Add([PSCustomObject]@{ Category = "Cloud PC Provisioning"; PolicyName = if ($policy.displayName) { $policy.displayName } else { $policy.name }; PolicyId = $policy.id; ConflictType = "Currently excluded; target group includes it" })
+                    }
+                }
+            }
+            catch {
+                Write-Verbose "Skipping - Windows 365 may not be licensed for this tenant"
+            }
+
+            # --- Windows 365 Cloud PC User Settings ---
+            $currentCategory++
+            Write-Host "[$currentCategory/$totalCategories] Fetching Windows 365 Cloud PC User Settings..." -ForegroundColor Yellow
+            try {
+                $simCloudPCUserSettings = Get-IntuneEntities -EntityType "virtualEndpoint/userSettings"
+                foreach ($setting in $simCloudPCUserSettings) {
+                    $assignments = Get-IntuneAssignments -EntityType "virtualEndpoint/userSettings" -EntityId $setting.id
+                    $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+                    if ($delta.IsNewPolicy) {
+                        $setting | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.AssignmentReason -Force
+                        [void]$deltaPolicies.CloudPCUserSettings.Add($setting)
+                    }
+                    elseif ($delta.IsConflict) {
+                        [void]$conflictPolicies.Add([PSCustomObject]@{ Category = "Cloud PC User Setting"; PolicyName = if ($setting.displayName) { $setting.displayName } else { $setting.name }; PolicyId = $setting.id; ConflictType = "Currently excluded; target group includes it" })
+                    }
+                }
+            }
+            catch {
+                Write-Verbose "Skipping - Windows 365 may not be licensed for this tenant"
+            }
+
+            # Apply scope tag filter if specified
+            if ($ScopeTagFilter) {
+                foreach ($key in @($deltaPolicies.Keys)) {
+                    $deltaPolicies[$key] = @(Filter-ByScopeTag -Items $deltaPolicies[$key] -FilterTag $ScopeTagFilter -ScopeTagLookup $script:ScopeTagLookup)
+                }
+            }
+
+            # ===== DISPLAY RESULTS =====
+            Write-Host ""
+            Write-Host (Get-Separator -Character "=") -ForegroundColor Yellow
+            Write-Host "  SIMULATION RESULTS - GROUP MEMBERSHIP IMPACT ANALYSIS" -ForegroundColor Yellow
+            Write-Host "  (no changes were made)" -ForegroundColor DarkGray
+            Write-Host (Get-Separator -Character "=") -ForegroundColor Yellow
+            Write-Host "  User: $simUpn" -ForegroundColor White
+            Write-Host "  Target Group: $simTargetGroupName (ID: $simTargetGroupId)" -ForegroundColor White
+            if ($alreadyMember) {
+                Write-Host "  Status: User is ALREADY a member of this group" -ForegroundColor Yellow
+            }
+            Write-Host (Get-Separator -Character "=") -ForegroundColor Yellow
+
+            # Category display mapping
+            $categoryDisplay = [ordered]@{
+                DeviceConfigs               = "Device Configurations"
+                SettingsCatalog             = "Settings Catalog Policies"
+                CompliancePolicies          = "Compliance Policies"
+                AppProtectionPolicies       = "App Protection Policies"
+                AppConfigurationPolicies    = "App Configuration Policies"
+                AppsRequired                = "Required Apps"
+                AppsAvailable               = "Available Apps"
+                AppsUninstall               = "Uninstall Apps"
+                PlatformScripts             = "Platform Scripts"
+                HealthScripts               = "Proactive Remediation Scripts"
+                AntivirusProfiles           = "Endpoint Security - Antivirus"
+                DiskEncryptionProfiles      = "Endpoint Security - Disk Encryption"
+                FirewallProfiles            = "Endpoint Security - Firewall"
+                EndpointDetectionProfiles   = "Endpoint Security - EDR"
+                AttackSurfaceProfiles       = "Endpoint Security - ASR"
+                AccountProtectionProfiles   = "Endpoint Security - Account Protection"
+                DeploymentProfiles          = "Autopilot Deployment Profiles"
+                ESPProfiles                 = "Enrollment Status Page Profiles"
+                CloudPCProvisioningPolicies = "Windows 365 Cloud PC Provisioning"
+                CloudPCUserSettings         = "Windows 365 Cloud PC User Settings"
+            }
+
+            $totalNewPolicies = 0
+            foreach ($catKey in $categoryDisplay.Keys) {
+                $items = $deltaPolicies[$catKey]
+                if ($items.Count -gt 0) {
+                    $catLabel = $categoryDisplay[$catKey]
+                    $totalNewPolicies += $items.Count
+                    Write-Host "`n------- NEW: $catLabel ($($items.Count)) -------" -ForegroundColor Green
+                    $headerFormat = "{0,-50} {1,-40} {2,-30}" -f "Policy Name", "Policy ID", "Assignment Reason"
+                    $separator = Get-Separator
+                    Write-Host $separator
+                    Write-Host $headerFormat -ForegroundColor Yellow
+                    Write-Host $separator
+
+                    foreach ($item in $items) {
+                        $itemName = if (-not [string]::IsNullOrWhiteSpace($item.displayName)) { $item.displayName } else { $item.name }
+                        if (-not $itemName) { $itemName = "Unnamed" }
+                        if ($itemName.Length -gt 47) { $itemName = $itemName.Substring(0, 44) + "..." }
+
+                        $itemId = if ($item.id) { $item.id } else { "Unknown" }
+                        if ($itemId.Length -gt 37) { $itemId = $itemId.Substring(0, 34) + "..." }
+
+                        $reason = if ($item.AssignmentReason) { $item.AssignmentReason } else { "Unknown" }
+                        if ($reason.Length -gt 27) { $reason = $reason.Substring(0, 24) + "..." }
+
+                        Write-Host ("{0,-50} {1,-40} {2,-30}" -f $itemName, $itemId, $reason) -ForegroundColor White
+                    }
+                    Write-Host $separator
+                }
+            }
+
+            # Display conflicts
+            if ($conflictPolicies.Count -gt 0) {
+                Write-Host "`n------- CONFLICTS (Exclusion Overrides) -------" -ForegroundColor Red
+                Write-Host "Note: In Intune, exclusions take priority over inclusions." -ForegroundColor Yellow
+                $headerFormat = "{0,-50} {1,-35} {2,-35}" -f "Policy Name", "Category", "Conflict"
+                $separator = Get-Separator
+                Write-Host $separator
+                Write-Host $headerFormat -ForegroundColor Yellow
+                Write-Host $separator
+
+                foreach ($conflict in $conflictPolicies) {
+                    $cName = $conflict.PolicyName
+                    if ($cName.Length -gt 47) { $cName = $cName.Substring(0, 44) + "..." }
+                    $cCat = $conflict.Category
+                    if ($cCat.Length -gt 32) { $cCat = $cCat.Substring(0, 29) + "..." }
+                    $cType = $conflict.ConflictType
+                    if ($cType.Length -gt 32) { $cType = $cType.Substring(0, 29) + "..." }
+                    Write-Host ("{0,-50} {1,-35} {2,-35}" -f $cName, $cCat, $cType) -ForegroundColor Red
+                }
+                Write-Host $separator
+            }
+
+            # Summary
+            Write-Host "`n=== Impact Summary ===" -ForegroundColor Cyan
+            if ($alreadyMember) {
+                Write-Host "User '$simUpn' is already a member of '$simTargetGroupName'." -ForegroundColor Yellow
+                Write-Host "The following shows policies currently received via this group:" -ForegroundColor Yellow
+            }
+            else {
+                Write-Host "Adding '$simUpn' to '$simTargetGroupName' would result in:" -ForegroundColor White
+            }
+
+            $categoryCount = ($categoryDisplay.Keys | Where-Object { $deltaPolicies[$_].Count -gt 0 }).Count
+            $conflictCount = $conflictPolicies.Count
+
+            if ($totalNewPolicies -eq 0 -and $conflictCount -eq 0) {
+                Write-Host "  No new policy assignments and no conflicts." -ForegroundColor Yellow
+            }
+            else {
+                $parts = @()
+                if ($totalNewPolicies -gt 0) {
+                    $parts += "$totalNewPolicies new $(if ($totalNewPolicies -eq 1) { 'policy' } else { 'policies' }) across $categoryCount $(if ($categoryCount -eq 1) { 'category' } else { 'categories' })"
+                }
+                if ($conflictCount -gt 0) {
+                    $parts += "$conflictCount $(if ($conflictCount -eq 1) { 'conflict' } else { 'conflicts' })"
+                }
+                Write-Host "  Impact: $($parts -join ', ')" -ForegroundColor $(if ($conflictCount -gt 0) { "Yellow" } else { "Green" })
+            }
+
+            # Export
+            $exportData = [System.Collections.ArrayList]::new()
+            $null = $exportData.Add([PSCustomObject]@{
+                Category         = "Simulation Info"
+                Item             = "User: $simUpn -> Group: $simTargetGroupName (ID: $simTargetGroupId)"
+                ScopeTags        = ""
+                AssignmentReason = if ($alreadyMember) { "Already a member" } else { "Impact Analysis" }
+            })
+
+            Add-ExportData -ExportData $exportData -Category "NEW: Device Configuration" -Items $deltaPolicies.DeviceConfigs -AssignmentReason { param($item) $item.AssignmentReason }
+            Add-ExportData -ExportData $exportData -Category "NEW: Settings Catalog Policy" -Items $deltaPolicies.SettingsCatalog -AssignmentReason { param($item) $item.AssignmentReason }
+            Add-ExportData -ExportData $exportData -Category "NEW: Compliance Policy" -Items $deltaPolicies.CompliancePolicies -AssignmentReason { param($item) $item.AssignmentReason }
+            Add-ExportData -ExportData $exportData -Category "NEW: App Protection Policy" -Items $deltaPolicies.AppProtectionPolicies -AssignmentReason { param($item) $item.AssignmentReason }
+            Add-ExportData -ExportData $exportData -Category "NEW: App Configuration Policy" -Items $deltaPolicies.AppConfigurationPolicies -AssignmentReason { param($item) $item.AssignmentReason }
+            Add-ExportData -ExportData $exportData -Category "NEW: Required App" -Items $deltaPolicies.AppsRequired -AssignmentReason { param($item) $item.AssignmentReason }
+            Add-ExportData -ExportData $exportData -Category "NEW: Available App" -Items $deltaPolicies.AppsAvailable -AssignmentReason { param($item) $item.AssignmentReason }
+            Add-ExportData -ExportData $exportData -Category "NEW: Uninstall App" -Items $deltaPolicies.AppsUninstall -AssignmentReason { param($item) $item.AssignmentReason }
+            Add-ExportData -ExportData $exportData -Category "NEW: Platform Script" -Items $deltaPolicies.PlatformScripts -AssignmentReason { param($item) $item.AssignmentReason }
+            Add-ExportData -ExportData $exportData -Category "NEW: Proactive Remediation Script" -Items $deltaPolicies.HealthScripts -AssignmentReason { param($item) $item.AssignmentReason }
+            Add-ExportData -ExportData $exportData -Category "NEW: Endpoint Security - Antivirus" -Items $deltaPolicies.AntivirusProfiles -AssignmentReason { param($item) $item.AssignmentReason }
+            Add-ExportData -ExportData $exportData -Category "NEW: Endpoint Security - Disk Encryption" -Items $deltaPolicies.DiskEncryptionProfiles -AssignmentReason { param($item) $item.AssignmentReason }
+            Add-ExportData -ExportData $exportData -Category "NEW: Endpoint Security - Firewall" -Items $deltaPolicies.FirewallProfiles -AssignmentReason { param($item) $item.AssignmentReason }
+            Add-ExportData -ExportData $exportData -Category "NEW: Endpoint Security - EDR" -Items $deltaPolicies.EndpointDetectionProfiles -AssignmentReason { param($item) $item.AssignmentReason }
+            Add-ExportData -ExportData $exportData -Category "NEW: Endpoint Security - ASR" -Items $deltaPolicies.AttackSurfaceProfiles -AssignmentReason { param($item) $item.AssignmentReason }
+            Add-ExportData -ExportData $exportData -Category "NEW: Endpoint Security - Account Protection" -Items $deltaPolicies.AccountProtectionProfiles -AssignmentReason { param($item) $item.AssignmentReason }
+            Add-ExportData -ExportData $exportData -Category "NEW: Autopilot Deployment Profile" -Items $deltaPolicies.DeploymentProfiles -AssignmentReason { param($item) $item.AssignmentReason }
+            Add-ExportData -ExportData $exportData -Category "NEW: Enrollment Status Page Profile" -Items $deltaPolicies.ESPProfiles -AssignmentReason { param($item) $item.AssignmentReason }
+            Add-ExportData -ExportData $exportData -Category "NEW: Cloud PC Provisioning Policy" -Items $deltaPolicies.CloudPCProvisioningPolicies -AssignmentReason { param($item) $item.AssignmentReason }
+            Add-ExportData -ExportData $exportData -Category "NEW: Cloud PC User Setting" -Items $deltaPolicies.CloudPCUserSettings -AssignmentReason { param($item) $item.AssignmentReason }
+
+            foreach ($conflict in $conflictPolicies) {
+                $null = $exportData.Add([PSCustomObject]@{
+                    Category         = "CONFLICT: $($conflict.Category)"
+                    Item             = "$($conflict.PolicyName) (ID: $($conflict.PolicyId))"
+                    ScopeTags        = ""
+                    AssignmentReason = $conflict.ConflictType
+                })
+            }
+
+            Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneGroupMembershipImpact.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath
+        }
+
+        '13' {
             Switch-Tenant
+        }
+
+        '14' {
+            Write-Host "Group Membership Removal Impact Analysis selected" -ForegroundColor Green
+
+            # Get User Principal Name
+            if ($parameterMode -and $UserPrincipalNames) {
+                $simUpnInput = $UserPrincipalNames
+            }
+            else {
+                Write-Host "Please enter the User Principal Name: " -ForegroundColor Cyan
+                $simUpnInput = Read-Host
+            }
+
+            if ([string]::IsNullOrWhiteSpace($simUpnInput)) {
+                Write-Host "No UPN provided. Please try again with a valid UPN." -ForegroundColor Red
+                if ($parameterMode) { exit 1 } else { continue }
+            }
+
+            $simUpn = ($simUpnInput -split ',')[0].Trim()
+
+            # Validate UPN format
+            if ($simUpn -notmatch '^[^@\s]+@[^@\s]+\.[^@\s]+$') {
+                Write-Host "Invalid UPN format: '$simUpn'. Expected: user@domain.com" -ForegroundColor Red
+                if ($parameterMode) { exit 1 } else { continue }
+            }
+
+            # Get Target Group
+            if ($parameterMode -and $SimulateRemoveTargetGroup) {
+                $simGroupInput = $SimulateRemoveTargetGroup
+            }
+            elseif ($parameterMode -and $GroupNames) {
+                $simGroupInput = $GroupNames
+            }
+            else {
+                Write-Host "Please enter the Target Group name or Object ID: " -ForegroundColor Cyan
+                Write-Host "Example: 'Marketing Team' or '12345678-1234-1234-1234-123456789012'" -ForegroundColor Gray
+                $simGroupInput = Read-Host
+            }
+
+            if ([string]::IsNullOrWhiteSpace($simGroupInput)) {
+                Write-Host "No group provided. Please try again." -ForegroundColor Red
+                if ($parameterMode) { exit 1 } else { continue }
+            }
+
+            $simGroupInput = ($simGroupInput -split ',')[0].Trim()
+
+            # Resolve user
+            Write-Host "Looking up user: $simUpn" -ForegroundColor Yellow
+            $simUserInfo = Get-UserInfo -UserPrincipalName $simUpn
+            if (-not $simUserInfo.Success) {
+                Write-Host "User not found: $simUpn" -ForegroundColor Red
+                if ($parameterMode) { exit 1 } else { continue }
+            }
+
+            # Resolve target group
+            Write-Host "Looking up group: $simGroupInput" -ForegroundColor Yellow
+            $simTargetGroupId = $null
+            $simTargetGroupName = $null
+
+            if ($simGroupInput -match '^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$') {
+                $simGroupInfo = Get-GroupInfo -GroupId $simGroupInput
+                if (-not $simGroupInfo.Success) {
+                    Write-Host "No group found with ID: $simGroupInput" -ForegroundColor Red
+                    if ($parameterMode) { exit 1 } else { continue }
+                }
+                $simTargetGroupId = $simGroupInfo.Id
+                $simTargetGroupName = $simGroupInfo.DisplayName
+            }
+            else {
+                $simGroupUri = "$GraphEndpoint/v1.0/groups?`$filter=displayName eq '$simGroupInput'"
+                $simGroupResponse = Invoke-MgGraphRequest -Uri $simGroupUri -Method Get
+
+                if ($simGroupResponse.value.Count -eq 0) {
+                    Write-Host "No group found with name: $simGroupInput" -ForegroundColor Red
+                    if ($parameterMode) { exit 1 } else { continue }
+                }
+                elseif ($simGroupResponse.value.Count -gt 1) {
+                    Write-Host "Multiple groups found with name: $simGroupInput. Please use the Object ID instead:" -ForegroundColor Red
+                    foreach ($g in $simGroupResponse.value) {
+                        Write-Host "  - $($g.displayName) (ID: $($g.id))" -ForegroundColor Yellow
+                    }
+                    if ($parameterMode) { exit 1 } else { continue }
+                }
+
+                $simTargetGroupId = $simGroupResponse.value[0].id
+                $simTargetGroupName = $simGroupResponse.value[0].displayName
+            }
+
+            Write-Host "Target group: $simTargetGroupName (ID: $simTargetGroupId)" -ForegroundColor Green
+
+            # Get user's current group memberships
+            try {
+                $simUserGroups = Get-GroupMemberships -ObjectId $simUserInfo.Id -ObjectType "User"
+                $simCurrentGroupIds = @($simUserGroups | Where-Object { $_.id } | ForEach-Object { $_.id })
+            }
+            catch {
+                Write-Host "Error fetching group memberships: $($_.Exception.Message)" -ForegroundColor Red
+                if ($parameterMode) { exit 1 } else { continue }
+            }
+
+            # Check if user is a member of the target group (required for removal simulation)
+            $isMember = $simCurrentGroupIds -contains $simTargetGroupId
+            if (-not $isMember) {
+                Write-Host "`nUser '$simUpn' is NOT a member of '$simTargetGroupName'. Nothing to simulate." -ForegroundColor Red
+                if ($parameterMode) { exit 1 } else { continue }
+            }
+
+            # Get target group's parent groups (transitive)
+            $simTargetParentGroups = Get-TransitiveGroupMembership -GroupId $simTargetGroupId
+            $simTargetAllGroupIds = @($simTargetGroupId)
+            if ($simTargetParentGroups) {
+                $simTargetAllGroupIds += $simTargetParentGroups.id
+            }
+
+            # Build simulated group set (current MINUS target and target's parents)
+            $simSimulatedGroupIds = @($simCurrentGroupIds | Where-Object { $simTargetAllGroupIds -notcontains $_ })
+
+            Write-Host "Analyzing removal impact..." -ForegroundColor Yellow
+
+            $totalCategories = 18
+            $currentCategory = 0
+
+            # Initialize delta collections
+            $deltaPolicies = @{
+                DeviceConfigs               = [System.Collections.ArrayList]::new()
+                SettingsCatalog             = [System.Collections.ArrayList]::new()
+                CompliancePolicies          = [System.Collections.ArrayList]::new()
+                AppProtectionPolicies       = [System.Collections.ArrayList]::new()
+                AppConfigurationPolicies    = [System.Collections.ArrayList]::new()
+                AppsRequired                = [System.Collections.ArrayList]::new()
+                AppsAvailable               = [System.Collections.ArrayList]::new()
+                AppsUninstall               = [System.Collections.ArrayList]::new()
+                PlatformScripts             = [System.Collections.ArrayList]::new()
+                HealthScripts               = [System.Collections.ArrayList]::new()
+                AntivirusProfiles           = [System.Collections.ArrayList]::new()
+                DiskEncryptionProfiles      = [System.Collections.ArrayList]::new()
+                FirewallProfiles            = [System.Collections.ArrayList]::new()
+                EndpointDetectionProfiles   = [System.Collections.ArrayList]::new()
+                AttackSurfaceProfiles       = [System.Collections.ArrayList]::new()
+                AccountProtectionProfiles   = [System.Collections.ArrayList]::new()
+                DeploymentProfiles          = [System.Collections.ArrayList]::new()
+                ESPProfiles                 = [System.Collections.ArrayList]::new()
+                CloudPCProvisioningPolicies = [System.Collections.ArrayList]::new()
+                CloudPCUserSettings         = [System.Collections.ArrayList]::new()
+            }
+            $conflictPolicies = [System.Collections.ArrayList]::new()
+
+            # --- Device Configurations ---
+            $currentCategory++
+            Write-Host "[$currentCategory/$totalCategories] Fetching Device Configurations..." -ForegroundColor Yellow
+            $simDeviceConfigs = Get-IntuneEntities -EntityType "deviceConfigurations"
+            foreach ($config in $simDeviceConfigs) {
+                $assignments = Get-IntuneAssignments -EntityType "deviceConfigurations" -EntityId $config.id
+                $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+                if ($delta.IsLostPolicy) {
+                    $config | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.CurrentStatus -Force
+                    [void]$deltaPolicies.DeviceConfigs.Add($config)
+                }
+                elseif ($delta.IsConflict) {
+                    [void]$conflictPolicies.Add([PSCustomObject]@{ Category = "Device Configuration"; PolicyName = if ($config.displayName) { $config.displayName } else { $config.name }; PolicyId = $config.id; ConflictType = "Currently included; removal would expose exclusion" })
+                }
+            }
+
+            # --- Settings Catalog ---
+            $currentCategory++
+            Write-Host "[$currentCategory/$totalCategories] Fetching Settings Catalog Policies..." -ForegroundColor Yellow
+            $simSettingsCatalog = Get-IntuneEntities -EntityType "configurationPolicies"
+            foreach ($policy in $simSettingsCatalog) {
+                $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
+                $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+                if ($delta.IsLostPolicy) {
+                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.CurrentStatus -Force
+                    [void]$deltaPolicies.SettingsCatalog.Add($policy)
+                }
+                elseif ($delta.IsConflict) {
+                    [void]$conflictPolicies.Add([PSCustomObject]@{ Category = "Settings Catalog"; PolicyName = if ($policy.displayName) { $policy.displayName } else { $policy.name }; PolicyId = $policy.id; ConflictType = "Currently included; removal would expose exclusion" })
+                }
+            }
+
+            # --- Compliance Policies ---
+            $currentCategory++
+            Write-Host "[$currentCategory/$totalCategories] Fetching Compliance Policies..." -ForegroundColor Yellow
+            $simCompliancePolicies = Get-IntuneEntities -EntityType "deviceCompliancePolicies"
+            foreach ($policy in $simCompliancePolicies) {
+                $assignments = Get-IntuneAssignments -EntityType "deviceCompliancePolicies" -EntityId $policy.id
+                $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+                if ($delta.IsLostPolicy) {
+                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.CurrentStatus -Force
+                    [void]$deltaPolicies.CompliancePolicies.Add($policy)
+                }
+                elseif ($delta.IsConflict) {
+                    [void]$conflictPolicies.Add([PSCustomObject]@{ Category = "Compliance Policy"; PolicyName = if ($policy.displayName) { $policy.displayName } else { $policy.name }; PolicyId = $policy.id; ConflictType = "Currently included; removal would expose exclusion" })
+                }
+            }
+
+            # --- App Protection Policies ---
+            $currentCategory++
+            Write-Host "[$currentCategory/$totalCategories] Fetching App Protection Policies..." -ForegroundColor Yellow
+            $simAppProtectionPolicies = Get-IntuneEntities -EntityType "deviceAppManagement/managedAppPolicies"
+            foreach ($policy in $simAppProtectionPolicies) {
+                $policyType = $policy.'@odata.type'
+                $assignmentsUri = switch ($policyType) {
+                    "#microsoft.graph.androidManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/androidManagedAppProtections('$($policy.id)')/assignments" }
+                    "#microsoft.graph.iosManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/iosManagedAppProtections('$($policy.id)')/assignments" }
+                    "#microsoft.graph.windowsManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/windowsManagedAppProtections('$($policy.id)')/assignments" }
+                    default { $null }
+                }
+
+                if ($assignmentsUri) {
+                    try {
+                        $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
+                        $assignments = @()
+                        foreach ($assignment in $assignmentResponse.value) {
+                            $assignmentReason = $null
+                            switch ($assignment.target.'@odata.type') {
+                                '#microsoft.graph.allLicensedUsersAssignmentTarget' { $assignmentReason = "All Users" }
+                                '#microsoft.graph.groupAssignmentTarget' { $assignmentReason = "Group Assignment" }
+                                '#microsoft.graph.exclusionGroupAssignmentTarget' { $assignmentReason = "Group Exclusion" }
+                            }
+                            if ($assignmentReason) {
+                                $assignments += @{ Reason = $assignmentReason; GroupId = $assignment.target.groupId }
+                            }
+                        }
+
+                        if ($assignments.Count -gt 0) {
+                            $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+                            if ($delta.IsLostPolicy) {
+                                $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.CurrentStatus -Force
+                                [void]$deltaPolicies.AppProtectionPolicies.Add($policy)
+                            }
+                            elseif ($delta.IsConflict) {
+                                [void]$conflictPolicies.Add([PSCustomObject]@{ Category = "App Protection Policy"; PolicyName = $policy.displayName; PolicyId = $policy.id; ConflictType = "Currently included; removal would expose exclusion" })
+                            }
+                        }
+                    }
+                    catch {
+                        Write-Host "Error fetching assignments for policy $($policy.displayName): $($_.Exception.Message)" -ForegroundColor Red
+                    }
+                }
+            }
+
+            # --- App Configuration Policies ---
+            $currentCategory++
+            Write-Host "[$currentCategory/$totalCategories] Fetching App Configuration Policies..." -ForegroundColor Yellow
+            $simAppConfigPolicies = Get-IntuneEntities -EntityType "deviceAppManagement/mobileAppConfigurations"
+            foreach ($policy in $simAppConfigPolicies) {
+                $assignments = Get-IntuneAssignments -EntityType "mobileAppConfigurations" -EntityId $policy.id
+                $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+                if ($delta.IsLostPolicy) {
+                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.CurrentStatus -Force
+                    [void]$deltaPolicies.AppConfigurationPolicies.Add($policy)
+                }
+                elseif ($delta.IsConflict) {
+                    [void]$conflictPolicies.Add([PSCustomObject]@{ Category = "App Configuration Policy"; PolicyName = if ($policy.displayName) { $policy.displayName } else { $policy.name }; PolicyId = $policy.id; ConflictType = "Currently included; removal would expose exclusion" })
+                }
+            }
+
+            # --- Applications ---
+            $currentCategory++
+            Write-Host "[$currentCategory/$totalCategories] Fetching Applications..." -ForegroundColor Yellow
+            $simAppUri = "$GraphEndpoint/beta/deviceAppManagement/mobileApps?`$filter=isAssigned eq true"
+            $simAppResponse = Invoke-MgGraphRequest -Uri $simAppUri -Method Get
+            $simAllApps = $simAppResponse.value
+            while ($simAppResponse.'@odata.nextLink') {
+                $simAppResponse = Invoke-MgGraphRequest -Uri $simAppResponse.'@odata.nextLink' -Method Get
+                $simAllApps += $simAppResponse.value
+            }
+            $simTotalApps = $simAllApps.Count
+            $simCurrentApp = 0
+
+            foreach ($app in $simAllApps) {
+                if ($app.isFeatured -or $app.isBuiltIn) { continue }
+
+                $simCurrentApp++
+                Write-Host "`rFetching Application $simCurrentApp of $simTotalApps" -NoNewline
+                $appId = $app.id
+
+                try {
+                    $assignmentsUri = "$GraphEndpoint/beta/deviceAppManagement/mobileApps('$appId')/assignments"
+                    $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
+
+                    # Check current assignment status
+                    $currentExcluded = $false
+                    $currentIncluded = $false
+                    $simExcluded = $false
+                    $simIncluded = $false
+                    $currentAppIntent = $null
+
+                    foreach ($assignment in $assignmentResponse.value) {
+                        $targetType = $assignment.target.'@odata.type'
+                        $targetGroupId = $assignment.target.groupId
+
+                        if ($targetType -eq '#microsoft.graph.exclusionGroupAssignmentTarget') {
+                            if ($simCurrentGroupIds -contains $targetGroupId) { $currentExcluded = $true }
+                            if ($simSimulatedGroupIds -contains $targetGroupId) { $simExcluded = $true }
+                        }
+                        elseif ($targetType -eq '#microsoft.graph.allLicensedUsersAssignmentTarget') {
+                            $currentIncluded = $true
+                            $simIncluded = $true
+                            $currentAppIntent = $assignment.intent
+                        }
+                        elseif ($targetType -eq '#microsoft.graph.groupAssignmentTarget') {
+                            if ($simCurrentGroupIds -contains $targetGroupId) { $currentIncluded = $true; $currentAppIntent = $assignment.intent }
+                            if ($simSimulatedGroupIds -contains $targetGroupId) { $simIncluded = $true }
+                        }
+                    }
+
+                    $currentHasApp = $currentIncluded -and -not $currentExcluded
+                    $simHasApp = $simIncluded -and -not $simExcluded
+
+                    if ($currentHasApp -and -not $simHasApp) {
+                        $appWithReason = $app.PSObject.Copy()
+                        $appWithReason | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Group Assignment" -Force
+                        $appWithReason | Add-Member -NotePropertyName 'AssignmentIntent' -NotePropertyValue $currentAppIntent -Force
+                        switch ($currentAppIntent) {
+                            "required" { [void]$deltaPolicies.AppsRequired.Add($appWithReason) }
+                            "available" { [void]$deltaPolicies.AppsAvailable.Add($appWithReason) }
+                            "uninstall" { [void]$deltaPolicies.AppsUninstall.Add($appWithReason) }
+                        }
+                    }
+                    elseif ($currentExcluded -and $simExcluded) {
+                        # Check if target group specifically includes this app while user is excluded
+                        foreach ($assignment in $assignmentResponse.value) {
+                            if ($assignment.target.'@odata.type' -eq '#microsoft.graph.groupAssignmentTarget' -and
+                                $simTargetAllGroupIds -contains $assignment.target.groupId -and
+                                $simCurrentGroupIds -notcontains $assignment.target.groupId) {
+                                $appName = if ($app.displayName) { $app.displayName } else { $app.name }
+                                [void]$conflictPolicies.Add([PSCustomObject]@{ Category = "Application ($($assignment.intent))"; PolicyName = $appName; PolicyId = $app.id; ConflictType = "Currently included; removal would expose exclusion" })
+                                break
+                            }
+                        }
+                    }
+                }
+                catch {
+                    Write-Host "`nError fetching assignments for app $($app.displayName): $($_.Exception.Message)" -ForegroundColor Red
+                }
+            }
+            Write-Host "`rFetching Application $simTotalApps of $simTotalApps" -NoNewline
+            Start-Sleep -Milliseconds 100
+            Write-Host ""
+
+            # --- Platform Scripts ---
+            $currentCategory++
+            Write-Host "[$currentCategory/$totalCategories] Fetching Platform Scripts..." -ForegroundColor Yellow
+            $simPlatformScripts = Get-IntuneEntities -EntityType "deviceManagementScripts"
+            foreach ($script in $simPlatformScripts) {
+                $assignments = Get-IntuneAssignments -EntityType "deviceManagementScripts" -EntityId $script.id
+                $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+                if ($delta.IsLostPolicy) {
+                    $script | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.CurrentStatus -Force
+                    [void]$deltaPolicies.PlatformScripts.Add($script)
+                }
+                elseif ($delta.IsConflict) {
+                    [void]$conflictPolicies.Add([PSCustomObject]@{ Category = "Platform Script"; PolicyName = if ($script.displayName) { $script.displayName } else { $script.name }; PolicyId = $script.id; ConflictType = "Currently included; removal would expose exclusion" })
+                }
+            }
+
+            # --- Proactive Remediation Scripts ---
+            $currentCategory++
+            Write-Host "[$currentCategory/$totalCategories] Fetching Proactive Remediation Scripts..." -ForegroundColor Yellow
+            $simHealthScripts = Get-IntuneEntities -EntityType "deviceHealthScripts"
+            foreach ($script in $simHealthScripts) {
+                $assignments = Get-IntuneAssignments -EntityType "deviceHealthScripts" -EntityId $script.id
+                $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+                if ($delta.IsLostPolicy) {
+                    $script | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.CurrentStatus -Force
+                    [void]$deltaPolicies.HealthScripts.Add($script)
+                }
+                elseif ($delta.IsConflict) {
+                    [void]$conflictPolicies.Add([PSCustomObject]@{ Category = "Proactive Remediation Script"; PolicyName = if ($script.displayName) { $script.displayName } else { $script.name }; PolicyId = $script.id; ConflictType = "Currently included; removal would expose exclusion" })
+                }
+            }
+
+            # --- Endpoint Security: Antivirus ---
+            $currentCategory++
+            Write-Host "[$currentCategory/$totalCategories] Fetching Antivirus Policies..." -ForegroundColor Yellow
+            $simProcessedAntivirusIds = [System.Collections.Generic.HashSet[string]]::new()
+
+            $simConfigPoliciesForAntivirus = Get-IntuneEntities -EntityType "configurationPolicies"
+            $simMatchingAntivirus = $simConfigPoliciesForAntivirus | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAntivirus' }
+            if ($simMatchingAntivirus) {
+                foreach ($policy in $simMatchingAntivirus) {
+                    if ($simProcessedAntivirusIds.Add($policy.id)) {
+                        $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
+                        $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+                        if ($delta.IsLostPolicy) {
+                            $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.CurrentStatus -Force
+                            [void]$deltaPolicies.AntivirusProfiles.Add($policy)
+                        }
+                        elseif ($delta.IsConflict) {
+                            [void]$conflictPolicies.Add([PSCustomObject]@{ Category = "Endpoint Security - Antivirus"; PolicyName = if ($policy.displayName) { $policy.displayName } else { $policy.name }; PolicyId = $policy.id; ConflictType = "Currently included; removal would expose exclusion" })
+                        }
+                    }
+                }
+            }
+
+            $simAllIntentsForAntivirus = Get-IntuneEntities -EntityType "deviceManagement/intents"
+            Add-IntentTemplateFamilyInfo -IntentPolicies $simAllIntentsForAntivirus
+            $simMatchingIntentsAntivirus = $simAllIntentsForAntivirus | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAntivirus' }
+            if ($simMatchingIntentsAntivirus) {
+                foreach ($policy in $simMatchingIntentsAntivirus) {
+                    if ($simProcessedAntivirusIds.Add($policy.id)) {
+                        $assignmentsResponse = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
+                        $assignmentDetailsList = foreach ($assignment in $assignmentsResponse.value) {
+                            [PSCustomObject]@{
+                                Reason  = switch ($assignment.target.'@odata.type') {
+                                    '#microsoft.graph.allLicensedUsersAssignmentTarget' { "All Users" }
+                                    '#microsoft.graph.allDevicesAssignmentTarget' { "All Devices" }
+                                    '#microsoft.graph.groupAssignmentTarget' { "Group Assignment" }
+                                    '#microsoft.graph.exclusionGroupAssignmentTarget' { "Group Exclusion" }
+                                    default { "Unknown" }
+                                }
+                                GroupId = if ($assignment.target.'@odata.type' -match "groupAssignmentTarget") { $assignment.target.groupId } else { $null }
+                            }
+                        }
+                        $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignmentDetailsList -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+                        if ($delta.IsLostPolicy) {
+                            $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.CurrentStatus -Force
+                            [void]$deltaPolicies.AntivirusProfiles.Add($policy)
+                        }
+                        elseif ($delta.IsConflict) {
+                            [void]$conflictPolicies.Add([PSCustomObject]@{ Category = "Endpoint Security - Antivirus"; PolicyName = if ($policy.displayName) { $policy.displayName } else { $policy.name }; PolicyId = $policy.id; ConflictType = "Currently included; removal would expose exclusion" })
+                        }
+                    }
+                }
+            }
+
+            # --- Endpoint Security: Disk Encryption ---
+            $currentCategory++
+            Write-Host "[$currentCategory/$totalCategories] Fetching Disk Encryption Policies..." -ForegroundColor Yellow
+            $simProcessedDiskEncIds = [System.Collections.Generic.HashSet[string]]::new()
+
+            $simConfigPoliciesForDiskEnc = Get-IntuneEntities -EntityType "configurationPolicies"
+            $simMatchingDiskEnc = $simConfigPoliciesForDiskEnc | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityDiskEncryption' }
+            if ($simMatchingDiskEnc) {
+                foreach ($policy in $simMatchingDiskEnc) {
+                    if ($simProcessedDiskEncIds.Add($policy.id)) {
+                        $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
+                        $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+                        if ($delta.IsLostPolicy) {
+                            $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.CurrentStatus -Force
+                            [void]$deltaPolicies.DiskEncryptionProfiles.Add($policy)
+                        }
+                        elseif ($delta.IsConflict) {
+                            [void]$conflictPolicies.Add([PSCustomObject]@{ Category = "Endpoint Security - Disk Encryption"; PolicyName = if ($policy.displayName) { $policy.displayName } else { $policy.name }; PolicyId = $policy.id; ConflictType = "Currently included; removal would expose exclusion" })
+                        }
+                    }
+                }
+            }
+
+            $simAllIntentsForDiskEnc = Get-IntuneEntities -EntityType "deviceManagement/intents"
+            Add-IntentTemplateFamilyInfo -IntentPolicies $simAllIntentsForDiskEnc
+            $simMatchingIntentsDiskEnc = $simAllIntentsForDiskEnc | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityDiskEncryption' }
+            if ($simMatchingIntentsDiskEnc) {
+                foreach ($policy in $simMatchingIntentsDiskEnc) {
+                    if ($simProcessedDiskEncIds.Add($policy.id)) {
+                        $assignmentsResponse = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
+                        $assignmentDetailsList = foreach ($assignment in $assignmentsResponse.value) {
+                            [PSCustomObject]@{
+                                Reason  = switch ($assignment.target.'@odata.type') {
+                                    '#microsoft.graph.allLicensedUsersAssignmentTarget' { "All Users" }
+                                    '#microsoft.graph.allDevicesAssignmentTarget' { "All Devices" }
+                                    '#microsoft.graph.groupAssignmentTarget' { "Group Assignment" }
+                                    '#microsoft.graph.exclusionGroupAssignmentTarget' { "Group Exclusion" }
+                                    default { "Unknown" }
+                                }
+                                GroupId = if ($assignment.target.'@odata.type' -match "groupAssignmentTarget") { $assignment.target.groupId } else { $null }
+                            }
+                        }
+                        $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignmentDetailsList -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+                        if ($delta.IsLostPolicy) {
+                            $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.CurrentStatus -Force
+                            [void]$deltaPolicies.DiskEncryptionProfiles.Add($policy)
+                        }
+                        elseif ($delta.IsConflict) {
+                            [void]$conflictPolicies.Add([PSCustomObject]@{ Category = "Endpoint Security - Disk Encryption"; PolicyName = if ($policy.displayName) { $policy.displayName } else { $policy.name }; PolicyId = $policy.id; ConflictType = "Currently included; removal would expose exclusion" })
+                        }
+                    }
+                }
+            }
+
+            # --- Endpoint Security: Firewall ---
+            $currentCategory++
+            Write-Host "[$currentCategory/$totalCategories] Fetching Firewall Policies..." -ForegroundColor Yellow
+            $simProcessedFirewallIds = [System.Collections.Generic.HashSet[string]]::new()
+
+            $simConfigPoliciesForFirewall = Get-IntuneEntities -EntityType "configurationPolicies"
+            $simMatchingFirewall = $simConfigPoliciesForFirewall | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityFirewall' }
+            if ($simMatchingFirewall) {
+                foreach ($policy in $simMatchingFirewall) {
+                    if ($simProcessedFirewallIds.Add($policy.id)) {
+                        $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
+                        $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+                        if ($delta.IsLostPolicy) {
+                            $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.CurrentStatus -Force
+                            [void]$deltaPolicies.FirewallProfiles.Add($policy)
+                        }
+                        elseif ($delta.IsConflict) {
+                            [void]$conflictPolicies.Add([PSCustomObject]@{ Category = "Endpoint Security - Firewall"; PolicyName = if ($policy.displayName) { $policy.displayName } else { $policy.name }; PolicyId = $policy.id; ConflictType = "Currently included; removal would expose exclusion" })
+                        }
+                    }
+                }
+            }
+
+            $simAllIntentsForFirewall = Get-IntuneEntities -EntityType "deviceManagement/intents"
+            Add-IntentTemplateFamilyInfo -IntentPolicies $simAllIntentsForFirewall
+            $simMatchingIntentsFirewall = $simAllIntentsForFirewall | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityFirewall' }
+            if ($simMatchingIntentsFirewall) {
+                foreach ($policy in $simMatchingIntentsFirewall) {
+                    if ($simProcessedFirewallIds.Add($policy.id)) {
+                        $assignmentsResponse = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
+                        $assignmentDetailsList = foreach ($assignment in $assignmentsResponse.value) {
+                            [PSCustomObject]@{
+                                Reason  = switch ($assignment.target.'@odata.type') {
+                                    '#microsoft.graph.allLicensedUsersAssignmentTarget' { "All Users" }
+                                    '#microsoft.graph.allDevicesAssignmentTarget' { "All Devices" }
+                                    '#microsoft.graph.groupAssignmentTarget' { "Group Assignment" }
+                                    '#microsoft.graph.exclusionGroupAssignmentTarget' { "Group Exclusion" }
+                                    default { "Unknown" }
+                                }
+                                GroupId = if ($assignment.target.'@odata.type' -match "groupAssignmentTarget") { $assignment.target.groupId } else { $null }
+                            }
+                        }
+                        $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignmentDetailsList -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+                        if ($delta.IsLostPolicy) {
+                            $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.CurrentStatus -Force
+                            [void]$deltaPolicies.FirewallProfiles.Add($policy)
+                        }
+                        elseif ($delta.IsConflict) {
+                            [void]$conflictPolicies.Add([PSCustomObject]@{ Category = "Endpoint Security - Firewall"; PolicyName = if ($policy.displayName) { $policy.displayName } else { $policy.name }; PolicyId = $policy.id; ConflictType = "Currently included; removal would expose exclusion" })
+                        }
+                    }
+                }
+            }
+
+            # --- Endpoint Security: EDR ---
+            $currentCategory++
+            Write-Host "[$currentCategory/$totalCategories] Fetching Endpoint Detection and Response Policies..." -ForegroundColor Yellow
+            $simProcessedEDRIds = [System.Collections.Generic.HashSet[string]]::new()
+
+            $simConfigPoliciesForEDR = Get-IntuneEntities -EntityType "configurationPolicies"
+            $simMatchingEDR = $simConfigPoliciesForEDR | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityEndpointDetectionAndResponse' }
+            if ($simMatchingEDR) {
+                foreach ($policy in $simMatchingEDR) {
+                    if ($simProcessedEDRIds.Add($policy.id)) {
+                        $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
+                        $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+                        if ($delta.IsLostPolicy) {
+                            $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.CurrentStatus -Force
+                            [void]$deltaPolicies.EndpointDetectionProfiles.Add($policy)
+                        }
+                        elseif ($delta.IsConflict) {
+                            [void]$conflictPolicies.Add([PSCustomObject]@{ Category = "Endpoint Security - EDR"; PolicyName = if ($policy.displayName) { $policy.displayName } else { $policy.name }; PolicyId = $policy.id; ConflictType = "Currently included; removal would expose exclusion" })
+                        }
+                    }
+                }
+            }
+
+            $simAllIntentsForEDR = Get-IntuneEntities -EntityType "deviceManagement/intents"
+            Add-IntentTemplateFamilyInfo -IntentPolicies $simAllIntentsForEDR
+            $simMatchingIntentsEDR = $simAllIntentsForEDR | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityEndpointDetectionAndResponse' }
+            if ($simMatchingIntentsEDR) {
+                foreach ($policy in $simMatchingIntentsEDR) {
+                    if ($simProcessedEDRIds.Add($policy.id)) {
+                        $assignmentsResponse = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
+                        $assignmentDetailsList = foreach ($assignment in $assignmentsResponse.value) {
+                            [PSCustomObject]@{
+                                Reason  = switch ($assignment.target.'@odata.type') {
+                                    '#microsoft.graph.allLicensedUsersAssignmentTarget' { "All Users" }
+                                    '#microsoft.graph.allDevicesAssignmentTarget' { "All Devices" }
+                                    '#microsoft.graph.groupAssignmentTarget' { "Group Assignment" }
+                                    '#microsoft.graph.exclusionGroupAssignmentTarget' { "Group Exclusion" }
+                                    default { "Unknown" }
+                                }
+                                GroupId = if ($assignment.target.'@odata.type' -match "groupAssignmentTarget") { $assignment.target.groupId } else { $null }
+                            }
+                        }
+                        $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignmentDetailsList -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+                        if ($delta.IsLostPolicy) {
+                            $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.CurrentStatus -Force
+                            [void]$deltaPolicies.EndpointDetectionProfiles.Add($policy)
+                        }
+                        elseif ($delta.IsConflict) {
+                            [void]$conflictPolicies.Add([PSCustomObject]@{ Category = "Endpoint Security - EDR"; PolicyName = if ($policy.displayName) { $policy.displayName } else { $policy.name }; PolicyId = $policy.id; ConflictType = "Currently included; removal would expose exclusion" })
+                        }
+                    }
+                }
+            }
+
+            # --- Endpoint Security: Attack Surface Reduction ---
+            $currentCategory++
+            Write-Host "[$currentCategory/$totalCategories] Fetching Attack Surface Reduction Policies..." -ForegroundColor Yellow
+            $simProcessedASRIds = [System.Collections.Generic.HashSet[string]]::new()
+
+            $simConfigPoliciesForASR = Get-IntuneEntities -EntityType "configurationPolicies"
+            $simMatchingASR = $simConfigPoliciesForASR | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReduction' }
+            if ($simMatchingASR) {
+                foreach ($policy in $simMatchingASR) {
+                    if ($simProcessedASRIds.Add($policy.id)) {
+                        $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
+                        $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+                        if ($delta.IsLostPolicy) {
+                            $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.CurrentStatus -Force
+                            [void]$deltaPolicies.AttackSurfaceProfiles.Add($policy)
+                        }
+                        elseif ($delta.IsConflict) {
+                            [void]$conflictPolicies.Add([PSCustomObject]@{ Category = "Endpoint Security - ASR"; PolicyName = if ($policy.displayName) { $policy.displayName } else { $policy.name }; PolicyId = $policy.id; ConflictType = "Currently included; removal would expose exclusion" })
+                        }
+                    }
+                }
+            }
+
+            $simAllIntentsForASR = Get-IntuneEntities -EntityType "deviceManagement/intents"
+            Add-IntentTemplateFamilyInfo -IntentPolicies $simAllIntentsForASR
+            $simMatchingIntentsASR = $simAllIntentsForASR | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReduction' }
+            if ($simMatchingIntentsASR) {
+                foreach ($policy in $simMatchingIntentsASR) {
+                    if ($simProcessedASRIds.Add($policy.id)) {
+                        $assignmentsResponse = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
+                        $assignmentDetailsList = foreach ($assignment in $assignmentsResponse.value) {
+                            [PSCustomObject]@{
+                                Reason  = switch ($assignment.target.'@odata.type') {
+                                    '#microsoft.graph.allLicensedUsersAssignmentTarget' { "All Users" }
+                                    '#microsoft.graph.allDevicesAssignmentTarget' { "All Devices" }
+                                    '#microsoft.graph.groupAssignmentTarget' { "Group Assignment" }
+                                    '#microsoft.graph.exclusionGroupAssignmentTarget' { "Group Exclusion" }
+                                    default { "Unknown" }
+                                }
+                                GroupId = if ($assignment.target.'@odata.type' -match "groupAssignmentTarget") { $assignment.target.groupId } else { $null }
+                            }
+                        }
+                        $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignmentDetailsList -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+                        if ($delta.IsLostPolicy) {
+                            $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.CurrentStatus -Force
+                            [void]$deltaPolicies.AttackSurfaceProfiles.Add($policy)
+                        }
+                        elseif ($delta.IsConflict) {
+                            [void]$conflictPolicies.Add([PSCustomObject]@{ Category = "Endpoint Security - ASR"; PolicyName = if ($policy.displayName) { $policy.displayName } else { $policy.name }; PolicyId = $policy.id; ConflictType = "Currently included; removal would expose exclusion" })
+                        }
+                    }
+                }
+            }
+
+            # --- Endpoint Security: Account Protection ---
+            $currentCategory++
+            Write-Host "[$currentCategory/$totalCategories] Fetching Account Protection Policies..." -ForegroundColor Yellow
+            $simProcessedAcctProtIds = [System.Collections.Generic.HashSet[string]]::new()
+
+            $simConfigPoliciesForAcctProt = Get-IntuneEntities -EntityType "configurationPolicies"
+            $simMatchingAcctProt = $simConfigPoliciesForAcctProt | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAccountProtection' }
+            if ($simMatchingAcctProt) {
+                foreach ($policy in $simMatchingAcctProt) {
+                    if ($simProcessedAcctProtIds.Add($policy.id)) {
+                        $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
+                        $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+                        if ($delta.IsLostPolicy) {
+                            $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.CurrentStatus -Force
+                            [void]$deltaPolicies.AccountProtectionProfiles.Add($policy)
+                        }
+                        elseif ($delta.IsConflict) {
+                            [void]$conflictPolicies.Add([PSCustomObject]@{ Category = "Endpoint Security - Account Protection"; PolicyName = if ($policy.displayName) { $policy.displayName } else { $policy.name }; PolicyId = $policy.id; ConflictType = "Currently included; removal would expose exclusion" })
+                        }
+                    }
+                }
+            }
+
+            $simAllIntentsForAcctProt = Get-IntuneEntities -EntityType "deviceManagement/intents"
+            Add-IntentTemplateFamilyInfo -IntentPolicies $simAllIntentsForAcctProt
+            $simMatchingIntentsAcctProt = $simAllIntentsForAcctProt | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAccountProtection' }
+            if ($simMatchingIntentsAcctProt) {
+                foreach ($policy in $simMatchingIntentsAcctProt) {
+                    if ($simProcessedAcctProtIds.Add($policy.id)) {
+                        $assignmentsResponse = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
+                        $assignmentDetailsList = foreach ($assignment in $assignmentsResponse.value) {
+                            [PSCustomObject]@{
+                                Reason  = switch ($assignment.target.'@odata.type') {
+                                    '#microsoft.graph.allLicensedUsersAssignmentTarget' { "All Users" }
+                                    '#microsoft.graph.allDevicesAssignmentTarget' { "All Devices" }
+                                    '#microsoft.graph.groupAssignmentTarget' { "Group Assignment" }
+                                    '#microsoft.graph.exclusionGroupAssignmentTarget' { "Group Exclusion" }
+                                    default { "Unknown" }
+                                }
+                                GroupId = if ($assignment.target.'@odata.type' -match "groupAssignmentTarget") { $assignment.target.groupId } else { $null }
+                            }
+                        }
+                        $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignmentDetailsList -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+                        if ($delta.IsLostPolicy) {
+                            $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.CurrentStatus -Force
+                            [void]$deltaPolicies.AccountProtectionProfiles.Add($policy)
+                        }
+                        elseif ($delta.IsConflict) {
+                            [void]$conflictPolicies.Add([PSCustomObject]@{ Category = "Endpoint Security - Account Protection"; PolicyName = if ($policy.displayName) { $policy.displayName } else { $policy.name }; PolicyId = $policy.id; ConflictType = "Currently included; removal would expose exclusion" })
+                        }
+                    }
+                }
+            }
+
+            # --- Autopilot Deployment Profiles ---
+            $currentCategory++
+            Write-Host "[$currentCategory/$totalCategories] Fetching Autopilot Deployment Profiles..." -ForegroundColor Yellow
+            $simAutoProfiles = Get-IntuneEntities -EntityType "windowsAutopilotDeploymentProfiles"
+            foreach ($profile in $simAutoProfiles) {
+                $assignments = Get-IntuneAssignments -EntityType "windowsAutopilotDeploymentProfiles" -EntityId $profile.id
+                $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+                if ($delta.IsLostPolicy) {
+                    $profile | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.CurrentStatus -Force
+                    [void]$deltaPolicies.DeploymentProfiles.Add($profile)
+                }
+                elseif ($delta.IsConflict) {
+                    [void]$conflictPolicies.Add([PSCustomObject]@{ Category = "Autopilot Deployment Profile"; PolicyName = if ($profile.displayName) { $profile.displayName } else { $profile.name }; PolicyId = $profile.id; ConflictType = "Currently included; removal would expose exclusion" })
+                }
+            }
+
+            # --- Enrollment Status Page Profiles ---
+            $currentCategory++
+            Write-Host "[$currentCategory/$totalCategories] Fetching Enrollment Status Page Profiles..." -ForegroundColor Yellow
+            $simEnrollmentConfigs = Get-IntuneEntities -EntityType "deviceEnrollmentConfigurations"
+            $simEspProfiles = $simEnrollmentConfigs | Where-Object { $_.'@odata.type' -match 'EnrollmentCompletionPageConfiguration' }
+            foreach ($esp in $simEspProfiles) {
+                $assignments = Get-IntuneAssignments -EntityType "deviceEnrollmentConfigurations" -EntityId $esp.id
+                $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+                if ($delta.IsLostPolicy) {
+                    $esp | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.CurrentStatus -Force
+                    [void]$deltaPolicies.ESPProfiles.Add($esp)
+                }
+                elseif ($delta.IsConflict) {
+                    [void]$conflictPolicies.Add([PSCustomObject]@{ Category = "Enrollment Status Page"; PolicyName = if ($esp.displayName) { $esp.displayName } else { $esp.name }; PolicyId = $esp.id; ConflictType = "Currently included; removal would expose exclusion" })
+                }
+            }
+
+            # --- Windows 365 Cloud PC Provisioning Policies ---
+            $currentCategory++
+            Write-Host "[$currentCategory/$totalCategories] Fetching Windows 365 Cloud PC Provisioning Policies..." -ForegroundColor Yellow
+            try {
+                $simCloudPCProvisioning = Get-IntuneEntities -EntityType "virtualEndpoint/provisioningPolicies"
+                foreach ($policy in $simCloudPCProvisioning) {
+                    $assignments = Get-IntuneAssignments -EntityType "virtualEndpoint/provisioningPolicies" -EntityId $policy.id
+                    $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+                    if ($delta.IsLostPolicy) {
+                        $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.CurrentStatus -Force
+                        [void]$deltaPolicies.CloudPCProvisioningPolicies.Add($policy)
+                    }
+                    elseif ($delta.IsConflict) {
+                        [void]$conflictPolicies.Add([PSCustomObject]@{ Category = "Cloud PC Provisioning"; PolicyName = if ($policy.displayName) { $policy.displayName } else { $policy.name }; PolicyId = $policy.id; ConflictType = "Currently included; removal would expose exclusion" })
+                    }
+                }
+            }
+            catch {
+                Write-Verbose "Skipping - Windows 365 may not be licensed for this tenant"
+            }
+
+            # --- Windows 365 Cloud PC User Settings ---
+            $currentCategory++
+            Write-Host "[$currentCategory/$totalCategories] Fetching Windows 365 Cloud PC User Settings..." -ForegroundColor Yellow
+            try {
+                $simCloudPCUserSettings = Get-IntuneEntities -EntityType "virtualEndpoint/userSettings"
+                foreach ($setting in $simCloudPCUserSettings) {
+                    $assignments = Get-IntuneAssignments -EntityType "virtualEndpoint/userSettings" -EntityId $setting.id
+                    $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+                    if ($delta.IsLostPolicy) {
+                        $setting | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.CurrentStatus -Force
+                        [void]$deltaPolicies.CloudPCUserSettings.Add($setting)
+                    }
+                    elseif ($delta.IsConflict) {
+                        [void]$conflictPolicies.Add([PSCustomObject]@{ Category = "Cloud PC User Setting"; PolicyName = if ($setting.displayName) { $setting.displayName } else { $setting.name }; PolicyId = $setting.id; ConflictType = "Currently included; removal would expose exclusion" })
+                    }
+                }
+            }
+            catch {
+                Write-Verbose "Skipping - Windows 365 may not be licensed for this tenant"
+            }
+
+            # Apply scope tag filter if specified
+            if ($ScopeTagFilter) {
+                foreach ($key in @($deltaPolicies.Keys)) {
+                    $deltaPolicies[$key] = @(Filter-ByScopeTag -Items $deltaPolicies[$key] -FilterTag $ScopeTagFilter -ScopeTagLookup $script:ScopeTagLookup)
+                }
+            }
+
+            # ===== DISPLAY RESULTS =====
+            Write-Host ""
+            Write-Host (Get-Separator -Character "=") -ForegroundColor Yellow
+            Write-Host "  SIMULATION RESULTS - GROUP MEMBERSHIP REMOVAL IMPACT" -ForegroundColor Yellow
+            Write-Host "  (no changes were made)" -ForegroundColor DarkGray
+            Write-Host (Get-Separator -Character "=") -ForegroundColor Yellow
+            Write-Host "  User: $simUpn" -ForegroundColor White
+            Write-Host "  Target Group: $simTargetGroupName (ID: $simTargetGroupId)" -ForegroundColor White
+            Write-Host (Get-Separator -Character "=") -ForegroundColor Yellow
+
+            # Category display mapping
+            $categoryDisplay = [ordered]@{
+                DeviceConfigs               = "Device Configurations"
+                SettingsCatalog             = "Settings Catalog Policies"
+                CompliancePolicies          = "Compliance Policies"
+                AppProtectionPolicies       = "App Protection Policies"
+                AppConfigurationPolicies    = "App Configuration Policies"
+                AppsRequired                = "Required Apps"
+                AppsAvailable               = "Available Apps"
+                AppsUninstall               = "Uninstall Apps"
+                PlatformScripts             = "Platform Scripts"
+                HealthScripts               = "Proactive Remediation Scripts"
+                AntivirusProfiles           = "Endpoint Security - Antivirus"
+                DiskEncryptionProfiles      = "Endpoint Security - Disk Encryption"
+                FirewallProfiles            = "Endpoint Security - Firewall"
+                EndpointDetectionProfiles   = "Endpoint Security - EDR"
+                AttackSurfaceProfiles       = "Endpoint Security - ASR"
+                AccountProtectionProfiles   = "Endpoint Security - Account Protection"
+                DeploymentProfiles          = "Autopilot Deployment Profiles"
+                ESPProfiles                 = "Enrollment Status Page Profiles"
+                CloudPCProvisioningPolicies = "Windows 365 Cloud PC Provisioning"
+                CloudPCUserSettings         = "Windows 365 Cloud PC User Settings"
+            }
+
+            $totalLostPolicies = 0
+            foreach ($catKey in $categoryDisplay.Keys) {
+                $items = $deltaPolicies[$catKey]
+                if ($items.Count -gt 0) {
+                    $catLabel = $categoryDisplay[$catKey]
+                    $totalLostPolicies += $items.Count
+                    Write-Host "`n------- LOST: $catLabel ($($items.Count)) -------" -ForegroundColor Red
+                    $headerFormat = "{0,-50} {1,-40} {2,-30}" -f "Policy Name", "Policy ID", "Assignment Reason"
+                    $separator = Get-Separator
+                    Write-Host $separator
+                    Write-Host $headerFormat -ForegroundColor Yellow
+                    Write-Host $separator
+
+                    foreach ($item in $items) {
+                        $itemName = if (-not [string]::IsNullOrWhiteSpace($item.displayName)) { $item.displayName } else { $item.name }
+                        if (-not $itemName) { $itemName = "Unnamed" }
+                        if ($itemName.Length -gt 47) { $itemName = $itemName.Substring(0, 44) + "..." }
+
+                        $itemId = if ($item.id) { $item.id } else { "Unknown" }
+                        if ($itemId.Length -gt 37) { $itemId = $itemId.Substring(0, 34) + "..." }
+
+                        $reason = if ($item.AssignmentReason) { $item.AssignmentReason } else { "Unknown" }
+                        if ($reason.Length -gt 27) { $reason = $reason.Substring(0, 24) + "..." }
+
+                        Write-Host ("{0,-50} {1,-40} {2,-30}" -f $itemName, $itemId, $reason) -ForegroundColor White
+                    }
+                    Write-Host $separator
+                }
+            }
+
+            # Display conflicts
+            if ($conflictPolicies.Count -gt 0) {
+                Write-Host "`n------- CONFLICTS (Exclusion Overrides) -------" -ForegroundColor Red
+                Write-Host "Note: In Intune, exclusions take priority over inclusions." -ForegroundColor Yellow
+                $headerFormat = "{0,-50} {1,-35} {2,-35}" -f "Policy Name", "Category", "Conflict"
+                $separator = Get-Separator
+                Write-Host $separator
+                Write-Host $headerFormat -ForegroundColor Yellow
+                Write-Host $separator
+
+                foreach ($conflict in $conflictPolicies) {
+                    $cName = $conflict.PolicyName
+                    if ($cName.Length -gt 47) { $cName = $cName.Substring(0, 44) + "..." }
+                    $cCat = $conflict.Category
+                    if ($cCat.Length -gt 32) { $cCat = $cCat.Substring(0, 29) + "..." }
+                    $cType = $conflict.ConflictType
+                    if ($cType.Length -gt 32) { $cType = $cType.Substring(0, 29) + "..." }
+                    Write-Host ("{0,-50} {1,-35} {2,-35}" -f $cName, $cCat, $cType) -ForegroundColor Red
+                }
+                Write-Host $separator
+            }
+
+            # Summary
+            Write-Host "`n=== Impact Summary ===" -ForegroundColor Cyan
+            Write-Host "Removing '$simUpn' from '$simTargetGroupName' would result in:" -ForegroundColor White
+
+            $categoryCount = ($categoryDisplay.Keys | Where-Object { $deltaPolicies[$_].Count -gt 0 }).Count
+            $conflictCount = $conflictPolicies.Count
+
+            if ($totalLostPolicies -eq 0 -and $conflictCount -eq 0) {
+                Write-Host "  No lost policy assignments and no conflicts." -ForegroundColor Yellow
+            }
+            else {
+                $parts = @()
+                if ($totalLostPolicies -gt 0) {
+                    $parts += "$totalLostPolicies lost $(if ($totalLostPolicies -eq 1) { 'policy' } else { 'policies' }) across $categoryCount $(if ($categoryCount -eq 1) { 'category' } else { 'categories' })"
+                }
+                if ($conflictCount -gt 0) {
+                    $parts += "$conflictCount $(if ($conflictCount -eq 1) { 'conflict' } else { 'conflicts' })"
+                }
+                Write-Host "  Impact: $($parts -join ', ')" -ForegroundColor $(if ($conflictCount -gt 0) { "Yellow" } else { "Red" })
+            }
+
+            # Export
+            $exportData = [System.Collections.ArrayList]::new()
+            $null = $exportData.Add([PSCustomObject]@{
+                Category         = "Simulation Info"
+                Item             = "User: $simUpn -> Remove from Group: $simTargetGroupName (ID: $simTargetGroupId)"
+                ScopeTags        = ""
+                AssignmentReason = "Removal Impact Analysis"
+            })
+
+            Add-ExportData -ExportData $exportData -Category "LOST: Device Configuration" -Items $deltaPolicies.DeviceConfigs -AssignmentReason { param($item) $item.AssignmentReason }
+            Add-ExportData -ExportData $exportData -Category "LOST: Settings Catalog Policy" -Items $deltaPolicies.SettingsCatalog -AssignmentReason { param($item) $item.AssignmentReason }
+            Add-ExportData -ExportData $exportData -Category "LOST: Compliance Policy" -Items $deltaPolicies.CompliancePolicies -AssignmentReason { param($item) $item.AssignmentReason }
+            Add-ExportData -ExportData $exportData -Category "LOST: App Protection Policy" -Items $deltaPolicies.AppProtectionPolicies -AssignmentReason { param($item) $item.AssignmentReason }
+            Add-ExportData -ExportData $exportData -Category "LOST: App Configuration Policy" -Items $deltaPolicies.AppConfigurationPolicies -AssignmentReason { param($item) $item.AssignmentReason }
+            Add-ExportData -ExportData $exportData -Category "LOST: Required App" -Items $deltaPolicies.AppsRequired -AssignmentReason { param($item) $item.AssignmentReason }
+            Add-ExportData -ExportData $exportData -Category "LOST: Available App" -Items $deltaPolicies.AppsAvailable -AssignmentReason { param($item) $item.AssignmentReason }
+            Add-ExportData -ExportData $exportData -Category "LOST: Uninstall App" -Items $deltaPolicies.AppsUninstall -AssignmentReason { param($item) $item.AssignmentReason }
+            Add-ExportData -ExportData $exportData -Category "LOST: Platform Script" -Items $deltaPolicies.PlatformScripts -AssignmentReason { param($item) $item.AssignmentReason }
+            Add-ExportData -ExportData $exportData -Category "LOST: Proactive Remediation Script" -Items $deltaPolicies.HealthScripts -AssignmentReason { param($item) $item.AssignmentReason }
+            Add-ExportData -ExportData $exportData -Category "LOST: Endpoint Security - Antivirus" -Items $deltaPolicies.AntivirusProfiles -AssignmentReason { param($item) $item.AssignmentReason }
+            Add-ExportData -ExportData $exportData -Category "LOST: Endpoint Security - Disk Encryption" -Items $deltaPolicies.DiskEncryptionProfiles -AssignmentReason { param($item) $item.AssignmentReason }
+            Add-ExportData -ExportData $exportData -Category "LOST: Endpoint Security - Firewall" -Items $deltaPolicies.FirewallProfiles -AssignmentReason { param($item) $item.AssignmentReason }
+            Add-ExportData -ExportData $exportData -Category "LOST: Endpoint Security - EDR" -Items $deltaPolicies.EndpointDetectionProfiles -AssignmentReason { param($item) $item.AssignmentReason }
+            Add-ExportData -ExportData $exportData -Category "LOST: Endpoint Security - ASR" -Items $deltaPolicies.AttackSurfaceProfiles -AssignmentReason { param($item) $item.AssignmentReason }
+            Add-ExportData -ExportData $exportData -Category "LOST: Endpoint Security - Account Protection" -Items $deltaPolicies.AccountProtectionProfiles -AssignmentReason { param($item) $item.AssignmentReason }
+            Add-ExportData -ExportData $exportData -Category "LOST: Autopilot Deployment Profile" -Items $deltaPolicies.DeploymentProfiles -AssignmentReason { param($item) $item.AssignmentReason }
+            Add-ExportData -ExportData $exportData -Category "LOST: Enrollment Status Page Profile" -Items $deltaPolicies.ESPProfiles -AssignmentReason { param($item) $item.AssignmentReason }
+            Add-ExportData -ExportData $exportData -Category "LOST: Cloud PC Provisioning Policy" -Items $deltaPolicies.CloudPCProvisioningPolicies -AssignmentReason { param($item) $item.AssignmentReason }
+            Add-ExportData -ExportData $exportData -Category "LOST: Cloud PC User Setting" -Items $deltaPolicies.CloudPCUserSettings -AssignmentReason { param($item) $item.AssignmentReason }
+
+            foreach ($conflict in $conflictPolicies) {
+                $null = $exportData.Add([PSCustomObject]@{
+                    Category         = "CONFLICT: $($conflict.Category)"
+                    Item             = "$($conflict.PolicyName) (ID: $($conflict.PolicyId))"
+                    ScopeTags        = ""
+                    AssignmentReason = $conflict.ConflictType
+                })
+            }
+
+            Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneGroupRemovalImpact.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath
+        }
+
+        '15' {
+            Write-Host "Policy Search / Reverse Lookup selected" -ForegroundColor Green
+
+            if ($parameterMode -and $PolicySearchTerm) {
+                $searchTerm = $PolicySearchTerm
+            }
+            else {
+                Write-Host "Enter policy name or partial name to search for: " -ForegroundColor Cyan
+                $searchTerm = Read-Host
+            }
+
+            if ([string]::IsNullOrWhiteSpace($searchTerm)) {
+                Write-Host "No search term provided. Please try again." -ForegroundColor Red
+                if ($parameterMode) { exit 1 } else { continue }
+            }
+
+            Write-Host "Searching for policies matching '$searchTerm'..." -ForegroundColor Yellow
+
+            $allSearchResults = [System.Collections.ArrayList]::new()
+            $groupNameCache = @{}
+            $totalCategories = 18
+            $currentCategory = 0
+
+            # Helper function to resolve assignment targets for a matched policy
+            function Resolve-SearchAssignments {
+                param (
+                    [object[]]$Assignments,
+                    [string]$CategoryLabel,
+                    [string]$PolicyName,
+                    [string]$PolicyId,
+                    [System.Collections.ArrayList]$Results,
+                    [hashtable]$GroupCache
+                )
+
+                if ($null -eq $Assignments -or $Assignments.Count -eq 0) {
+                    [void]$Results.Add([PSCustomObject]@{
+                        Category       = $CategoryLabel
+                        PolicyName     = $PolicyName
+                        PolicyId       = $PolicyId
+                        AssignmentType = "None"
+                        TargetName     = "No assignments"
+                        TargetGroupId  = ""
+                    })
+                    return
+                }
+
+                foreach ($assignment in $Assignments) {
+                    $assignmentType = "Include"
+                    $targetName = ""
+                    $targetGroupId = ""
+
+                    if ($assignment.Reason -eq "Group Assignment") {
+                        $targetGroupId = $assignment.GroupId
+                        if ($GroupCache.ContainsKey($targetGroupId)) {
+                            $targetName = $GroupCache[$targetGroupId]
+                        }
+                        else {
+                            $groupInfo = Get-GroupInfo -GroupId $targetGroupId
+                            $targetName = if ($groupInfo.Success) { $groupInfo.DisplayName } else { "Unknown Group" }
+                            $GroupCache[$targetGroupId] = $targetName
+                        }
+                    }
+                    elseif ($assignment.Reason -eq "Group Exclusion") {
+                        $assignmentType = "Exclude"
+                        $targetGroupId = $assignment.GroupId
+                        if ($GroupCache.ContainsKey($targetGroupId)) {
+                            $targetName = $GroupCache[$targetGroupId]
+                        }
+                        else {
+                            $groupInfo = Get-GroupInfo -GroupId $targetGroupId
+                            $targetName = if ($groupInfo.Success) { $groupInfo.DisplayName } else { "Unknown Group" }
+                            $GroupCache[$targetGroupId] = $targetName
+                        }
+                    }
+                    elseif ($assignment.Reason -eq "All Users") {
+                        $targetName = "All Users"
+                    }
+                    elseif ($assignment.Reason -eq "All Devices") {
+                        $targetName = "All Devices"
+                    }
+                    else {
+                        continue
+                    }
+
+                    [void]$Results.Add([PSCustomObject]@{
+                        Category       = $CategoryLabel
+                        PolicyName     = $PolicyName
+                        PolicyId       = $PolicyId
+                        AssignmentType = $assignmentType
+                        TargetName     = $targetName
+                        TargetGroupId  = $targetGroupId
+                    })
+                }
+            }
+
+            # --- 1. Device Configurations ---
+            $currentCategory++
+            Write-Host "[$currentCategory/$totalCategories] Searching Device Configurations..." -ForegroundColor Yellow
+            $searchDeviceConfigs = Get-IntuneEntities -EntityType "deviceConfigurations"
+            $matchedDeviceConfigs = $searchDeviceConfigs | Where-Object { $_.displayName -like "*$searchTerm*" -or $_.name -like "*$searchTerm*" }
+            foreach ($policy in $matchedDeviceConfigs) {
+                $policyName = if (-not [string]::IsNullOrWhiteSpace($policy.displayName)) { $policy.displayName } else { $policy.name }
+                $assignments = Get-IntuneAssignments -EntityType "deviceConfigurations" -EntityId $policy.id
+                Resolve-SearchAssignments -Assignments $assignments -CategoryLabel "Device Configuration" -PolicyName $policyName -PolicyId $policy.id -Results $allSearchResults -GroupCache $groupNameCache
+            }
+
+            # --- 2. Settings Catalog ---
+            $currentCategory++
+            Write-Host "[$currentCategory/$totalCategories] Searching Settings Catalog Policies..." -ForegroundColor Yellow
+            $searchSettingsCatalog = Get-IntuneEntities -EntityType "configurationPolicies"
+            # Exclude endpoint security policies (they will be handled separately)
+            $searchSettingsCatalogFiltered = $searchSettingsCatalog | Where-Object {
+                -not ($_.templateReference -and $_.templateReference.templateFamily -and $_.templateReference.templateFamily -like 'endpointSecurity*')
+            }
+            $matchedSettingsCatalog = $searchSettingsCatalogFiltered | Where-Object { $_.displayName -like "*$searchTerm*" -or $_.name -like "*$searchTerm*" }
+            foreach ($policy in $matchedSettingsCatalog) {
+                $policyName = if (-not [string]::IsNullOrWhiteSpace($policy.displayName)) { $policy.displayName } else { $policy.name }
+                $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
+                Resolve-SearchAssignments -Assignments $assignments -CategoryLabel "Settings Catalog" -PolicyName $policyName -PolicyId $policy.id -Results $allSearchResults -GroupCache $groupNameCache
+            }
+
+            # --- 3. Compliance Policies ---
+            $currentCategory++
+            Write-Host "[$currentCategory/$totalCategories] Searching Compliance Policies..." -ForegroundColor Yellow
+            $searchCompliancePolicies = Get-IntuneEntities -EntityType "deviceCompliancePolicies"
+            $matchedCompliancePolicies = $searchCompliancePolicies | Where-Object { $_.displayName -like "*$searchTerm*" -or $_.name -like "*$searchTerm*" }
+            foreach ($policy in $matchedCompliancePolicies) {
+                $policyName = if (-not [string]::IsNullOrWhiteSpace($policy.displayName)) { $policy.displayName } else { $policy.name }
+                $assignments = Get-IntuneAssignments -EntityType "deviceCompliancePolicies" -EntityId $policy.id
+                Resolve-SearchAssignments -Assignments $assignments -CategoryLabel "Compliance Policy" -PolicyName $policyName -PolicyId $policy.id -Results $allSearchResults -GroupCache $groupNameCache
+            }
+
+            # --- 4. App Protection Policies ---
+            $currentCategory++
+            Write-Host "[$currentCategory/$totalCategories] Searching App Protection Policies..." -ForegroundColor Yellow
+            $searchAppProtectionPolicies = Get-IntuneEntities -EntityType "deviceAppManagement/managedAppPolicies"
+            $matchedAppProtectionPolicies = $searchAppProtectionPolicies | Where-Object { $_.displayName -like "*$searchTerm*" -or $_.name -like "*$searchTerm*" }
+            foreach ($policy in $matchedAppProtectionPolicies) {
+                $policyName = if (-not [string]::IsNullOrWhiteSpace($policy.displayName)) { $policy.displayName } else { $policy.name }
+                $policyType = $policy.'@odata.type'
+                $assignmentsUri = switch ($policyType) {
+                    "#microsoft.graph.androidManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/androidManagedAppProtections('$($policy.id)')/assignments" }
+                    "#microsoft.graph.iosManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/iosManagedAppProtections('$($policy.id)')/assignments" }
+                    "#microsoft.graph.windowsManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/windowsManagedAppProtections('$($policy.id)')/assignments" }
+                    default { $null }
+                }
+
+                if ($assignmentsUri) {
+                    try {
+                        $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
+                        $appProtAssignments = @()
+                        foreach ($assignment in $assignmentResponse.value) {
+                            $assignmentReason = $null
+                            $groupId = $null
+                            switch ($assignment.target.'@odata.type') {
+                                '#microsoft.graph.allLicensedUsersAssignmentTarget' { $assignmentReason = "All Users" }
+                                '#microsoft.graph.allDevicesAssignmentTarget' { $assignmentReason = "All Devices" }
+                                '#microsoft.graph.groupAssignmentTarget' {
+                                    $assignmentReason = "Group Assignment"
+                                    $groupId = $assignment.target.groupId
+                                }
+                                '#microsoft.graph.exclusionGroupAssignmentTarget' {
+                                    $assignmentReason = "Group Exclusion"
+                                    $groupId = $assignment.target.groupId
+                                }
+                            }
+                            if ($assignmentReason) {
+                                $appProtAssignments += [PSCustomObject]@{ Reason = $assignmentReason; GroupId = $groupId }
+                            }
+                        }
+                        Resolve-SearchAssignments -Assignments $appProtAssignments -CategoryLabel "App Protection Policy" -PolicyName $policyName -PolicyId $policy.id -Results $allSearchResults -GroupCache $groupNameCache
+                    }
+                    catch {
+                        Write-Host "Error fetching assignments for policy $($policyName): $($_.Exception.Message)" -ForegroundColor Red
+                    }
+                }
+                else {
+                    # Unknown app protection type - add as no assignments
+                    [void]$allSearchResults.Add([PSCustomObject]@{
+                        Category       = "App Protection Policy"
+                        PolicyName     = $policyName
+                        PolicyId       = $policy.id
+                        AssignmentType = "None"
+                        TargetName     = "No assignments"
+                        TargetGroupId  = ""
+                    })
+                }
+            }
+
+            # --- 5. App Configuration Policies ---
+            $currentCategory++
+            Write-Host "[$currentCategory/$totalCategories] Searching App Configuration Policies..." -ForegroundColor Yellow
+            $searchAppConfigPolicies = Get-IntuneEntities -EntityType "deviceAppManagement/mobileAppConfigurations"
+            $matchedAppConfigPolicies = $searchAppConfigPolicies | Where-Object { $_.displayName -like "*$searchTerm*" -or $_.name -like "*$searchTerm*" }
+            foreach ($policy in $matchedAppConfigPolicies) {
+                $policyName = if (-not [string]::IsNullOrWhiteSpace($policy.displayName)) { $policy.displayName } else { $policy.name }
+                $assignments = Get-IntuneAssignments -EntityType "mobileAppConfigurations" -EntityId $policy.id
+                Resolve-SearchAssignments -Assignments $assignments -CategoryLabel "App Configuration Policy" -PolicyName $policyName -PolicyId $policy.id -Results $allSearchResults -GroupCache $groupNameCache
+            }
+
+            # --- 6. Applications ---
+            $currentCategory++
+            Write-Host "[$currentCategory/$totalCategories] Searching Applications..." -ForegroundColor Yellow
+            $searchAppUri = "$GraphEndpoint/beta/deviceAppManagement/mobileApps?`$filter=isAssigned eq true"
+            $searchAppResponse = Invoke-MgGraphRequest -Uri $searchAppUri -Method Get
+            $searchAllApps = $searchAppResponse.value
+            while ($searchAppResponse.'@odata.nextLink') {
+                $searchAppResponse = Invoke-MgGraphRequest -Uri $searchAppResponse.'@odata.nextLink' -Method Get
+                $searchAllApps += $searchAppResponse.value
+            }
+            $matchedApps = $searchAllApps | Where-Object {
+                -not ($_.isFeatured -or $_.isBuiltIn) -and
+                ($_.displayName -like "*$searchTerm*" -or $_.name -like "*$searchTerm*")
+            }
+            foreach ($app in $matchedApps) {
+                $appName = if (-not [string]::IsNullOrWhiteSpace($app.displayName)) { $app.displayName } else { $app.name }
+                $appId = $app.id
+                try {
+                    $assignmentsUri = "$GraphEndpoint/beta/deviceAppManagement/mobileApps('$appId')/assignments"
+                    $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
+
+                    if ($null -eq $assignmentResponse.value -or $assignmentResponse.value.Count -eq 0) {
+                        [void]$allSearchResults.Add([PSCustomObject]@{
+                            Category       = "Application"
+                            PolicyName     = $appName
+                            PolicyId       = $appId
+                            AssignmentType = "None"
+                            TargetName     = "No assignments"
+                            TargetGroupId  = ""
+                        })
+                    }
+                    else {
+                        foreach ($assignment in $assignmentResponse.value) {
+                            $assignmentType = "Include"
+                            $targetName = ""
+                            $targetGroupId = ""
+                            $intentLabel = if ($assignment.intent) { " ($($assignment.intent))" } else { "" }
+
+                            switch ($assignment.target.'@odata.type') {
+                                '#microsoft.graph.allLicensedUsersAssignmentTarget' {
+                                    $targetName = "All Users$intentLabel"
+                                }
+                                '#microsoft.graph.allDevicesAssignmentTarget' {
+                                    $targetName = "All Devices$intentLabel"
+                                }
+                                '#microsoft.graph.groupAssignmentTarget' {
+                                    $targetGroupId = $assignment.target.groupId
+                                    if ($groupNameCache.ContainsKey($targetGroupId)) {
+                                        $targetName = $groupNameCache[$targetGroupId]
+                                    }
+                                    else {
+                                        $groupInfo = Get-GroupInfo -GroupId $targetGroupId
+                                        $targetName = if ($groupInfo.Success) { $groupInfo.DisplayName } else { "Unknown Group" }
+                                        $groupNameCache[$targetGroupId] = $targetName
+                                    }
+                                    $targetName = "$targetName$intentLabel"
+                                }
+                                '#microsoft.graph.exclusionGroupAssignmentTarget' {
+                                    $assignmentType = "Exclude"
+                                    $targetGroupId = $assignment.target.groupId
+                                    if ($groupNameCache.ContainsKey($targetGroupId)) {
+                                        $targetName = $groupNameCache[$targetGroupId]
+                                    }
+                                    else {
+                                        $groupInfo = Get-GroupInfo -GroupId $targetGroupId
+                                        $targetName = if ($groupInfo.Success) { $groupInfo.DisplayName } else { "Unknown Group" }
+                                        $groupNameCache[$targetGroupId] = $targetName
+                                    }
+                                }
+                                default { continue }
+                            }
+
+                            [void]$allSearchResults.Add([PSCustomObject]@{
+                                Category       = "Application"
+                                PolicyName     = $appName
+                                PolicyId       = $appId
+                                AssignmentType = $assignmentType
+                                TargetName     = $targetName
+                                TargetGroupId  = $targetGroupId
+                            })
+                        }
+                    }
+                }
+                catch {
+                    Write-Host "Error fetching assignments for app $($appName): $($_.Exception.Message)" -ForegroundColor Red
+                }
+            }
+
+            # --- 7. Platform Scripts ---
+            $currentCategory++
+            Write-Host "[$currentCategory/$totalCategories] Searching Platform Scripts..." -ForegroundColor Yellow
+            $searchPlatformScripts = Get-IntuneEntities -EntityType "deviceManagementScripts"
+            $matchedPlatformScripts = $searchPlatformScripts | Where-Object { $_.displayName -like "*$searchTerm*" -or $_.name -like "*$searchTerm*" }
+            foreach ($policy in $matchedPlatformScripts) {
+                $policyName = if (-not [string]::IsNullOrWhiteSpace($policy.displayName)) { $policy.displayName } else { $policy.name }
+                $assignments = Get-IntuneAssignments -EntityType "deviceManagementScripts" -EntityId $policy.id
+                Resolve-SearchAssignments -Assignments $assignments -CategoryLabel "Platform Script" -PolicyName $policyName -PolicyId $policy.id -Results $allSearchResults -GroupCache $groupNameCache
+            }
+
+            # --- 8. Proactive Remediation Scripts ---
+            $currentCategory++
+            Write-Host "[$currentCategory/$totalCategories] Searching Proactive Remediation Scripts..." -ForegroundColor Yellow
+            $searchHealthScripts = Get-IntuneEntities -EntityType "deviceHealthScripts"
+            $matchedHealthScripts = $searchHealthScripts | Where-Object { $_.displayName -like "*$searchTerm*" -or $_.name -like "*$searchTerm*" }
+            foreach ($policy in $matchedHealthScripts) {
+                $policyName = if (-not [string]::IsNullOrWhiteSpace($policy.displayName)) { $policy.displayName } else { $policy.name }
+                $assignments = Get-IntuneAssignments -EntityType "deviceHealthScripts" -EntityId $policy.id
+                Resolve-SearchAssignments -Assignments $assignments -CategoryLabel "Proactive Remediation Script" -PolicyName $policyName -PolicyId $policy.id -Results $allSearchResults -GroupCache $groupNameCache
+            }
+
+            # --- 9-14. Endpoint Security (fetch configurationPolicies and intents once, filter for all 6 subtypes) ---
+            $searchConfigPolicies = Get-IntuneEntities -EntityType "configurationPolicies"
+            $searchAllIntents = Get-IntuneEntities -EntityType "deviceManagement/intents"
+            Add-IntentTemplateFamilyInfo -IntentPolicies $searchAllIntents
+
+            $endpointSecurityFamilies = @(
+                @{ Family = "endpointSecurityAntivirus";                      Label = "Endpoint Security - Antivirus" }
+                @{ Family = "endpointSecurityDiskEncryption";                 Label = "Endpoint Security - Disk Encryption" }
+                @{ Family = "endpointSecurityFirewall";                       Label = "Endpoint Security - Firewall" }
+                @{ Family = "endpointSecurityEndpointDetectionAndResponse";   Label = "Endpoint Security - EDR" }
+                @{ Family = "endpointSecurityAttackSurfaceReduction";         Label = "Endpoint Security - ASR" }
+                @{ Family = "endpointSecurityAccountProtection";              Label = "Endpoint Security - Account Protection" }
+            )
+
+            $searchProcessedESIds = [System.Collections.Generic.HashSet[string]]::new()
+
+            foreach ($esFamily in $endpointSecurityFamilies) {
+                $currentCategory++
+                Write-Host "[$currentCategory/$totalCategories] Searching $($esFamily.Label)..." -ForegroundColor Yellow
+
+                # Check configurationPolicies
+                $matchingConfigES = $searchConfigPolicies | Where-Object {
+                    $_.templateReference -and $_.templateReference.templateFamily -eq $esFamily.Family -and
+                    ($_.displayName -like "*$searchTerm*" -or $_.name -like "*$searchTerm*")
+                }
+                foreach ($policy in $matchingConfigES) {
+                    if ($searchProcessedESIds.Add($policy.id)) {
+                        $policyName = if (-not [string]::IsNullOrWhiteSpace($policy.displayName)) { $policy.displayName } else { $policy.name }
+                        $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
+                        Resolve-SearchAssignments -Assignments $assignments -CategoryLabel $esFamily.Label -PolicyName $policyName -PolicyId $policy.id -Results $allSearchResults -GroupCache $groupNameCache
+                    }
+                }
+
+                # Check intents (legacy)
+                $matchingIntentsES = $searchAllIntents | Where-Object {
+                    $_.templateReference -and $_.templateReference.templateFamily -eq $esFamily.Family -and
+                    ($_.displayName -like "*$searchTerm*" -or $_.name -like "*$searchTerm*")
+                }
+                foreach ($policy in $matchingIntentsES) {
+                    if ($searchProcessedESIds.Add($policy.id)) {
+                        $policyName = if (-not [string]::IsNullOrWhiteSpace($policy.displayName)) { $policy.displayName } else { $policy.name }
+                        try {
+                            $assignmentsResponse = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
+                            $intentAssignments = foreach ($assignment in $assignmentsResponse.value) {
+                                [PSCustomObject]@{
+                                    Reason  = switch ($assignment.target.'@odata.type') {
+                                        '#microsoft.graph.allLicensedUsersAssignmentTarget' { "All Users" }
+                                        '#microsoft.graph.allDevicesAssignmentTarget' { "All Devices" }
+                                        '#microsoft.graph.groupAssignmentTarget' { "Group Assignment" }
+                                        '#microsoft.graph.exclusionGroupAssignmentTarget' { "Group Exclusion" }
+                                        default { "Unknown" }
+                                    }
+                                    GroupId = if ($assignment.target.'@odata.type' -match "groupAssignmentTarget") { $assignment.target.groupId } else { $null }
+                                }
+                            }
+                            Resolve-SearchAssignments -Assignments $intentAssignments -CategoryLabel $esFamily.Label -PolicyName $policyName -PolicyId $policy.id -Results $allSearchResults -GroupCache $groupNameCache
+                        }
+                        catch {
+                            Write-Host "Error fetching assignments for intent policy $($policyName): $($_.Exception.Message)" -ForegroundColor Red
+                        }
+                    }
+                }
+            }
+
+            # --- 15. Autopilot Deployment Profiles ---
+            $currentCategory++
+            Write-Host "[$currentCategory/$totalCategories] Searching Autopilot Deployment Profiles..." -ForegroundColor Yellow
+            $searchAutopilotProfiles = Get-IntuneEntities -EntityType "windowsAutopilotDeploymentProfiles"
+            $matchedAutopilotProfiles = $searchAutopilotProfiles | Where-Object { $_.displayName -like "*$searchTerm*" -or $_.name -like "*$searchTerm*" }
+            foreach ($policy in $matchedAutopilotProfiles) {
+                $policyName = if (-not [string]::IsNullOrWhiteSpace($policy.displayName)) { $policy.displayName } else { $policy.name }
+                $assignments = Get-IntuneAssignments -EntityType "windowsAutopilotDeploymentProfiles" -EntityId $policy.id
+                Resolve-SearchAssignments -Assignments $assignments -CategoryLabel "Autopilot Deployment Profile" -PolicyName $policyName -PolicyId $policy.id -Results $allSearchResults -GroupCache $groupNameCache
+            }
+
+            # --- 16. Enrollment Status Page ---
+            $currentCategory++
+            Write-Host "[$currentCategory/$totalCategories] Searching Enrollment Status Page Profiles..." -ForegroundColor Yellow
+            $searchEnrollmentConfigs = Get-IntuneEntities -EntityType "deviceEnrollmentConfigurations"
+            $searchESPProfiles = $searchEnrollmentConfigs | Where-Object {
+                $_.'@odata.type' -match 'EnrollmentCompletionPageConfiguration' -and
+                ($_.displayName -like "*$searchTerm*" -or $_.name -like "*$searchTerm*")
+            }
+            foreach ($policy in $searchESPProfiles) {
+                $policyName = if (-not [string]::IsNullOrWhiteSpace($policy.displayName)) { $policy.displayName } else { $policy.name }
+                $assignments = Get-IntuneAssignments -EntityType "deviceEnrollmentConfigurations" -EntityId $policy.id
+                Resolve-SearchAssignments -Assignments $assignments -CategoryLabel "Enrollment Status Page" -PolicyName $policyName -PolicyId $policy.id -Results $allSearchResults -GroupCache $groupNameCache
+            }
+
+            # --- 17. Cloud PC Provisioning Policies ---
+            $currentCategory++
+            Write-Host "[$currentCategory/$totalCategories] Searching Cloud PC Provisioning Policies..." -ForegroundColor Yellow
+            try {
+                $searchCloudPCProvisioning = Get-IntuneEntities -EntityType "virtualEndpoint/provisioningPolicies"
+                $matchedCloudPCProvisioning = $searchCloudPCProvisioning | Where-Object { $_.displayName -like "*$searchTerm*" -or $_.name -like "*$searchTerm*" }
+                foreach ($policy in $matchedCloudPCProvisioning) {
+                    $policyName = if (-not [string]::IsNullOrWhiteSpace($policy.displayName)) { $policy.displayName } else { $policy.name }
+                    $assignments = Get-IntuneAssignments -EntityType "virtualEndpoint/provisioningPolicies" -EntityId $policy.id
+                    Resolve-SearchAssignments -Assignments $assignments -CategoryLabel "Cloud PC Provisioning Policy" -PolicyName $policyName -PolicyId $policy.id -Results $allSearchResults -GroupCache $groupNameCache
+                }
+            }
+            catch {
+                Write-Warning "Unable to fetch Cloud PC Provisioning Policies: $($_.Exception.Message)"
+            }
+
+            # --- 18. Cloud PC User Settings ---
+            $currentCategory++
+            Write-Host "[$currentCategory/$totalCategories] Searching Cloud PC User Settings..." -ForegroundColor Yellow
+            try {
+                $searchCloudPCUserSettings = Get-IntuneEntities -EntityType "virtualEndpoint/userSettings"
+                $matchedCloudPCUserSettings = $searchCloudPCUserSettings | Where-Object { $_.displayName -like "*$searchTerm*" -or $_.name -like "*$searchTerm*" }
+                foreach ($policy in $matchedCloudPCUserSettings) {
+                    $policyName = if (-not [string]::IsNullOrWhiteSpace($policy.displayName)) { $policy.displayName } else { $policy.name }
+                    $assignments = Get-IntuneAssignments -EntityType "virtualEndpoint/userSettings" -EntityId $policy.id
+                    Resolve-SearchAssignments -Assignments $assignments -CategoryLabel "Cloud PC User Setting" -PolicyName $policyName -PolicyId $policy.id -Results $allSearchResults -GroupCache $groupNameCache
+                }
+            }
+            catch {
+                Write-Warning "Unable to fetch Cloud PC User Settings: $($_.Exception.Message)"
+            }
+
+            # --- Display Results ---
+            $uniquePolicies = $allSearchResults | Select-Object -Property PolicyId -Unique
+            $totalMatches = $uniquePolicies.Count
+
+            if ($totalMatches -eq 0) {
+                Write-Host "`nNo policies found matching '$searchTerm'." -ForegroundColor Yellow
+            }
+            else {
+                Write-Host ""
+                Write-Host (Get-Separator -Character "=") -ForegroundColor Cyan
+                Write-Host "  POLICY SEARCH RESULTS" -ForegroundColor Cyan
+                Write-Host "  Search term: '$searchTerm'" -ForegroundColor White
+                Write-Host "  Found $totalMatches matching $(if ($totalMatches -eq 1) { 'policy' } else { 'policies' })" -ForegroundColor White
+                Write-Host (Get-Separator -Character "=") -ForegroundColor Cyan
+
+                $groupedResults = $allSearchResults | Group-Object -Property PolicyId
+
+                foreach ($policyGroup in $groupedResults) {
+                    $first = $policyGroup.Group[0]
+                    $policyName = $first.PolicyName
+                    if (-not $policyName) { $policyName = "Unnamed Policy" }
+
+                    Write-Host "`n===== $policyName =====" -ForegroundColor White
+                    Write-Host "Category: $($first.Category) | Policy ID: $($first.PolicyId)" -ForegroundColor Gray
+
+                    $separator = Get-Separator
+                    Write-Host $separator -ForegroundColor Gray
+                    Write-Host "Assignment Targets:" -ForegroundColor Yellow
+
+                    foreach ($result in $policyGroup.Group) {
+                        if ($result.AssignmentType -eq "None") {
+                            Write-Host "  No assignments" -ForegroundColor DarkGray
+                        }
+                        elseif ($result.AssignmentType -eq "Exclude") {
+                            $target = if ($result.TargetGroupId) { "Group: $($result.TargetName) (ID: $($result.TargetGroupId))" } else { $result.TargetName }
+                            Write-Host "  [EXCLUDE] $target" -ForegroundColor Red
+                        }
+                        else {
+                            $target = if ($result.TargetGroupId) { "Group: $($result.TargetName) (ID: $($result.TargetGroupId))" } else { $result.TargetName }
+                            Write-Host "  [INCLUDE] $target" -ForegroundColor Green
+                        }
+                    }
+                    Write-Host $separator -ForegroundColor Gray
+                }
+
+                # Summary
+                $totalTargets = ($allSearchResults | Where-Object { $_.AssignmentType -ne "None" }).Count
+                Write-Host "`n=== Search Summary ===" -ForegroundColor Cyan
+                Write-Host "  Found $totalMatches $(if ($totalMatches -eq 1) { 'policy' } else { 'policies' }) matching '$searchTerm'" -ForegroundColor White
+                Write-Host "  Total assignment targets: $totalTargets" -ForegroundColor White
+            }
+
+            # --- Export ---
+            $exportData = [System.Collections.ArrayList]::new()
+            $null = $exportData.Add([PSCustomObject]@{
+                Category         = "Search Info"
+                Item             = "Search term: $searchTerm"
+                ScopeTags        = ""
+                AssignmentReason = "Found $totalMatches policies"
+            })
+
+            foreach ($result in $allSearchResults) {
+                $null = $exportData.Add([PSCustomObject]@{
+                    Category         = $result.Category
+                    Item             = "$($result.PolicyName) (ID: $($result.PolicyId))"
+                    ScopeTags        = ""
+                    AssignmentReason = "[$($result.AssignmentType)] $($result.TargetName)$(if ($result.TargetGroupId) { " (ID: $($result.TargetGroupId))" })"
+                })
+            }
+
+            Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntunePolicySearch.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath
         }
 
         '0' {
@@ -8518,7 +11029,7 @@ do {
             Start-Process "https://github.com/ugurkocde/IntuneAssignmentChecker"
         }
         default {
-            Write-Host "Invalid choice, please select 1-12, 98, 99, or 0." -ForegroundColor Red
+            Write-Host "Invalid choice, please select 1-15, 98, 99, or 0." -ForegroundColor Red
         }
     }
 
