@@ -30,6 +30,27 @@ function Search-IntuneSetting {
         return
     }
 
+    # ── Expand common abbreviations ────────────────────────────────────
+    $abbreviations = @{
+        'psso'     = 'platform sso'
+        'mdatp'    = 'defender for endpoint'
+        'wdac'     = 'application control'
+        'asr'      = 'attack surface reduction'
+        'edr'      = 'endpoint detection'
+        'av'       = 'antivirus'
+        'laps'     = 'local administrator password'
+        'whfb'     = 'windows hello for business'
+        'wufb'     = 'windows update for business'
+        'esp'      = 'enrollment status page'
+        'mfa'      = 'multi-factor authentication'
+    }
+
+    $expandedKeyword = $null
+    if ($abbreviations.ContainsKey($Keyword.ToLower())) {
+        $expandedKeyword = $abbreviations[$Keyword.ToLower()]
+        Write-Host "Expanding '$Keyword' to '$expandedKeyword'" -ForegroundColor DarkGray
+    }
+
     # ── Load setting definitions ─────────────────────────────────────────
     $dataPath = Join-Path $PSScriptRoot ".." "Data" "SettingDefinitions.json"
     if (-not (Test-Path $dataPath)) {
@@ -48,28 +69,52 @@ function Search-IntuneSetting {
     }
 
     # ── Search definitions by keyword ────────────────────────────────────
-    $searchLower = $Keyword.ToLower()
+    # Build list of search terms: original keyword + expanded abbreviation (if any)
+    $searchTerms = @($Keyword.ToLower())
+    if ($expandedKeyword) { $searchTerms += $expandedKeyword.ToLower() }
+
     $matchedDefinitions = [System.Collections.ArrayList]::new()
 
     foreach ($def in $definitions) {
         $match = $false
 
-        # Check displayName
-        if ($def.displayName -and $def.displayName.ToLower().Contains($searchLower)) {
-            $match = $true
-        }
+        foreach ($term in $searchTerms) {
+            if ($match) { break }
+            $termNormalized = ($term -replace '[_\-\.\s]', '')
 
-        # Check id
-        if (-not $match -and $def.id -and $def.id.ToLower().Contains($searchLower)) {
-            $match = $true
-        }
+            # Check displayName (exact substring)
+            if ($def.displayName -and $def.displayName.ToLower().Contains($term)) {
+                $match = $true
+            }
 
-        # Check keywords array
-        if (-not $match -and $def.keywords) {
-            foreach ($kw in $def.keywords) {
-                if ($kw -and $kw.ToLower().Contains($searchLower)) {
+            # Check id (exact substring)
+            if (-not $match -and $def.id -and $def.id.ToLower().Contains($term)) {
+                $match = $true
+            }
+
+            # Check id with normalized form (spaces/separators removed)
+            if (-not $match -and $def.id) {
+                $idNormalized = ($def.id.ToLower() -replace '[_\-\.\s]', '')
+                if ($idNormalized.Contains($termNormalized)) {
                     $match = $true
-                    break
+                }
+            }
+
+            # Check displayName with normalized form
+            if (-not $match -and $def.displayName) {
+                $nameNormalized = ($def.displayName.ToLower() -replace '[_\-\.\s]', '')
+                if ($nameNormalized.Contains($termNormalized)) {
+                    $match = $true
+                }
+            }
+
+            # Check keywords array
+            if (-not $match -and $def.keywords) {
+                foreach ($kw in $def.keywords) {
+                    if ($kw -and $kw.ToLower().Contains($term)) {
+                        $match = $true
+                        break
+                    }
                 }
             }
         }
