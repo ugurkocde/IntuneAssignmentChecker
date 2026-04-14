@@ -11,6 +11,22 @@ function Get-PolicyPlatform {
         return "Unknown"
     }
 
+    # macOS must be checked before ios/windows because strings like "macOSOfficeSuiteApp"
+    # could otherwise be matched by other branches.
+    if ($odataType -match "macOS|osxApp|\.mac[A-Z]") {
+        return "macOS"
+    }
+
+    # Windows app types that don't contain the literal "windows" substring.
+    if ($odataType -match "win32LobApp|winGetApp|microsoftStoreForBusinessApp|officeSuiteApp") {
+        return "Windows"
+    }
+
+    # Cross-platform app types (web links, managed Play Store web apps).
+    if ($odataType -match "^#microsoft\.graph\.webApp$") {
+        return "Web App"
+    }
+
     switch -Regex ($odataType) {
         "android" {
             if ($odataType -like "*WorkProfile*") {
@@ -24,26 +40,15 @@ function Get-PolicyPlatform {
             }
         }
         "ios|iPad|iPhone" {
-            if ($odataType -like "*macOS*") {
-                return "macOS"
-            }
-            else {
-                return "iOS/iPadOS"
-            }
+            return "iOS/iPadOS"
         }
         "windows" {
-            if ($odataType -like "*windows10*" -or $odataType -like "*windows81*") {
-                return "Windows"
-            }
-            elseif ($odataType -like "*windowsPhone*") {
+            if ($odataType -like "*windowsPhone*") {
                 return "Windows Phone"
             }
             else {
                 return "Windows"
             }
-        }
-        "macOS|mac" {
-            return "macOS"
         }
         "aosp" {
             return "Android (AOSP)"
