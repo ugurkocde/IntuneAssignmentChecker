@@ -1,0 +1,28 @@
+name: Publish PowerShell Module
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  test-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate module loads
+        shell: pwsh
+        run: |
+          Import-Module ./Module/IntuneAssignmentChecker -Force -ErrorAction Stop
+          $commands = Get-Command -Module IntuneAssignmentChecker
+          Write-Host "Module loaded successfully with $($commands.Count) exported commands"
+          $commands | Sort-Object Name | ForEach-Object { Write-Host "  - $($_.Name)" }
+
+      - name: Publish to PowerShell Gallery
+        shell: pwsh
+        env:
+          PS_GALLERY_API_KEY: ${{ secrets.NUGET_KEY }}
+        run: |
+          Publish-Module -Path ./Module/IntuneAssignmentChecker -Repository PSGallery -NuGetApiKey $env:PS_GALLERY_API_KEY
