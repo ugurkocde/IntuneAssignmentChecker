@@ -24,7 +24,7 @@ function Connect-IntuneAssignmentChecker {
     Write-Host "INTUNE ASSIGNMENT CHECKER" -ForegroundColor Cyan
     Write-Host "Made by Ugur Koc" -NoNewline
     Write-Host " | Version" -NoNewline; Write-Host " $localVersion" -ForegroundColor Yellow -NoNewline
-    Write-Host " | Last updated: " -NoNewline; Write-Host "2026-03-30" -ForegroundColor Magenta
+    Write-Host " | Last updated: " -NoNewline; Write-Host "2026-04-14" -ForegroundColor Magenta
     Write-Host ""
     Write-Host "Feedback & Issues: " -NoNewline -ForegroundColor Cyan
     Write-Host "https://github.com/ugurkocde/IntuneAssignmentChecker/issues" -ForegroundColor White
