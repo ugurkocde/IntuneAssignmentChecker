@@ -35,7 +35,9 @@
 
 > **Important**: All commands must be run in a PowerShell 7 session. The module will not work in PowerShell 5.1 or earlier versions.
 
-### Option 1: Install from PowerShell Gallery (Recommended)
+> **Heads-up for v4.0:** PowerShell Gallery is in the process of freeing the `IntuneAssignmentChecker` namespace for the new module (previously published as a script). Until that completes, use **Option 2** below to install directly from the GitHub release. The `Install-PSResource` path will resume once PSGallery is updated.
+
+### Option 1: Install from PowerShell Gallery (Recommended, available once PSGallery is updated)
 
 ```powershell
 # Install from PowerShell Gallery
@@ -59,7 +61,29 @@ To update to the latest version:
 Update-PSResource IntuneAssignmentChecker
 ```
 
-### Option 2: Manual Installation (from a local clone)
+### Option 2: Install from the GitHub release (available now)
+
+```powershell
+# Install required Microsoft Graph SDK
+Install-Module Microsoft.Graph.Authentication -Scope CurrentUser
+
+# Download and extract the v4.0.0 source release
+$version = '4.0.0'
+$zipUrl = "https://github.com/ugurkocde/IntuneAssignmentChecker/archive/refs/tags/v$version.zip"
+$tempZip = Join-Path $env:TEMP "IntuneAssignmentChecker-$version.zip"
+$tempDir = Join-Path $env:TEMP "IntuneAssignmentChecker-$version"
+
+Invoke-WebRequest -Uri $zipUrl -OutFile $tempZip
+Expand-Archive -Path $tempZip -DestinationPath $tempDir -Force
+
+# Import the module
+Import-Module (Join-Path $tempDir "IntuneAssignmentChecker-$version/Module/IntuneAssignmentChecker") -Force
+
+# Launch the interactive menu
+IntuneAssignmentChecker
+```
+
+### Option 3: Manual Installation (from a local clone)
 
 ```powershell
 # Install required Microsoft Graph SDK
