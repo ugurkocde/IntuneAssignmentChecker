@@ -45,12 +45,13 @@
 Version 4.0.0:
 - BREAKING: Converted from script to PowerShell module (use Install-Module instead of Install-Script)
 - Add Option 12: Simulate Group Membership Impact
-- Add Option 14: Simulate Removing User from Group
-- Add Option 15: Search Policy Assignments (reverse lookup)
-- Add Option 16: Search Setting Values Across Policies (new)
+- Add Option 13: Simulate Removing User from Group
+- Add Option 14: Search Policy Assignments (reverse lookup)
+- Add Option 15: Search for Specific Settings (across Settings Catalog and Endpoint Security)
 - Add terminal-width-aware separators
 - Add UPN format validation before network calls
 - Normalize y/n prompts to accept Y/y/Yes/yes
+- Fix app platform detection showing Windows apps (win32LobApp, winGetApp, microsoftStoreForBusinessApp, officeSuiteApp) as Multi-Platform in HTML report
 - Remove deprecated groupPolicyConfigurations (Administrative Templates) policy type
 - Migrate deviceStatuses API endpoints
 - Fix hardcoded Graph URLs to use dynamic GraphEndpoint
