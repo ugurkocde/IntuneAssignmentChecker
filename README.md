@@ -33,7 +33,7 @@
 
 ## Quick Start
 
-> **Important**: All commands must be run in a PowerShell 7 session. The script will not work in PowerShell 5.1 or earlier versions.
+> **Important**: All commands must be run in a PowerShell 7 session. The module will not work in PowerShell 5.1 or earlier versions.
 
 ### Option 1: Install from PowerShell Gallery (Recommended)
 
@@ -41,9 +41,11 @@
 # Install from PowerShell Gallery
 Install-PSResource IntuneAssignmentChecker
 
-# Open a new PowerShell 7 session to run the script with
+# Launch the interactive menu
 IntuneAssignmentChecker
 ```
+
+The `IntuneAssignmentChecker` alias opens the menu-driven interface. Each feature is also available as a standalone cmdlet (see [Usage](#-usage)).
 
 If you encounter any issues during installation, try reinstalling:
 
@@ -57,15 +59,20 @@ To update to the latest version:
 Update-PSResource IntuneAssignmentChecker
 ```
 
-### Option 2: Manual Installation
+### Option 2: Manual Installation (from a local clone)
 
 ```powershell
-# Install Microsoft Graph PowerShell SDK
+# Install required Microsoft Graph SDK
 Install-Module Microsoft.Graph.Authentication -Scope CurrentUser
 
-# Download and run the script
-.\IntuneAssignmentChecker.ps1
+# Import the module from your clone
+Import-Module ./Module/IntuneAssignmentChecker -Force
+
+# Launch the interactive menu
+IntuneAssignmentChecker
 ```
+
+> **Migrating from v3.x?** v3.x shipped as a single script installed via `Install-Script`. v4.0 is a PowerShell module installed via `Install-PSResource` (or `Install-Module`). If you previously used `Install-Script IntuneAssignmentChecker`, uninstall it first: `Uninstall-Script IntuneAssignmentChecker`.
 
 ## ✨ Features
 
@@ -92,7 +99,7 @@ Install-Module Microsoft.Graph.Authentication -Scope CurrentUser
 ### Required PowerShell Version
 
 - **PowerShell 7.0 or higher is required**
-  - The script will not work with PowerShell 5.1 or earlier versions
+  - The module will not work with PowerShell 5.1 or earlier versions
   - You can check your PowerShell version by running: `$PSVersionTable.PSVersion`
   - Download PowerShell 7 from: https://aka.ms/powershell-release?tag=stable
 
@@ -162,12 +169,15 @@ Follow these steps if you want to use certificate authentication with an app reg
    - Click "Upload certificate"
    - Upload the .cer file you exported (C:\temp\IntuneAssignmentChecker.cer)
 
-5. Configure the script with your app details:
+5. Connect using certificate authentication:
    ```powershell
-   # Update these values in the script
-   $appid = '<YourAppIdHere>'           # Application (Client) ID
-   $tenantid = '<YourTenantIdHere>'     # Directory (Tenant) ID
-   $certThumbprint = '<YourThumbprint>' # Certificate Thumbprint
+   Connect-IntuneAssignmentChecker `
+       -AppId '<YourAppIdHere>' `
+       -TenantId '<YourTenantIdHere>' `
+       -CertificateThumbprint '<YourThumbprint>'
+
+   # Then run any cmdlet, or launch the menu
+   IntuneAssignmentChecker
    ```
 
 ### Option 2: Client Secret Authentication
@@ -186,9 +196,12 @@ If you prefer a simpler setup than certificates but still need non-interactive a
    - Click "Add"
    - **Copy the secret value immediately** -- it will not be shown again
 
-3. Run the script with the client secret:
+3. Connect using the client secret:
    ```powershell
-   .\IntuneAssignmentChecker.ps1 -AppId "your-app-id" -TenantId "your-tenant-id" -ClientSecret "your-client-secret"
+   Connect-IntuneAssignmentChecker `
+       -AppId 'your-app-id' `
+       -TenantId 'your-tenant-id' `
+       -ClientSecret 'your-client-secret'
    ```
 
 > **Security Note**: Never hard-code client secrets in scripts or commit them to source control. Use secure methods such as Azure Key Vault, environment variables, or secure parameter input to manage secrets.
@@ -197,9 +210,15 @@ If you prefer a simpler setup than certificates but still need non-interactive a
 
 If you prefer not to set up an app registration, you can use interactive authentication:
 
-You can just run the script without any changes. It will ask for the intune environment you wish to connect (Global, USGov, or USGovDoD) and if you want to use interactive authentication where you will type "y" and press enter.
+```powershell
+# Opens a browser sign-in prompt using delegated permissions
+Connect-IntuneAssignmentChecker
 
-This will prompt you to sign in with your credentials when running the script. The permissions will be based on your user account's roles and permissions in Entra ID.
+# Or just launch the menu and pick interactive auth when prompted
+IntuneAssignmentChecker
+```
+
+You'll be asked for the Intune environment (Global, USGov, or USGovDoD). The permissions will be based on your user account's roles in Entra ID.
 
 ### Which Option Should I Choose?
 
@@ -252,77 +271,94 @@ Entra ID → App registrations → Your App → API permissions → "Grant admin
 
 ## 📖 Usage
 
-The script can be used in two ways:
+The module can be used in two ways:
 
-1. **Interactive Mode**: Menu-driven interface for manual exploration
-2. **Command-Line Mode**: Parameter-based execution for automation and scripting
+1. **Interactive Mode**: Menu-driven interface for manual exploration (`IntuneAssignmentChecker`)
+2. **Cmdlet Mode**: Individual cmdlets for automation and scripting
 
-### 🖥️ Command-Line Parameters
+### 🖥️ Cmdlet Reference
 
-You can run the script with parameters to automate tasks without user interaction:
+Connect once, then call any cmdlet:
 
 ```powershell
+# Sign in (interactive, certificate, or client secret)
+Connect-IntuneAssignmentChecker -AppId '<id>' -TenantId '<id>' -CertificateThumbprint '<thumbprint>'
+
 # Check assignments for a specific user and export to CSV
-.\IntuneAssignmentChecker.ps1 -CheckUser -UserPrincipalNames "user@contoso.com" -ExportToCSV -ExportPath "C:\Temp\UserAssignments.csv"
+Get-IntuneUserAssignment -UserPrincipalNames "user@contoso.com" -ExportToCSV -ExportPath "C:\Temp\UserAssignments.csv"
 
 # Check assignments for multiple users
-.\IntuneAssignmentChecker.ps1 -CheckUser -UserPrincipalNames "user1@contoso.com,user2@contoso.com"
+Get-IntuneUserAssignment -UserPrincipalNames "user1@contoso.com,user2@contoso.com"
 
 # Check assignments for a specific group
-.\IntuneAssignmentChecker.ps1 -CheckGroup -GroupNames "Marketing Team"
+Get-IntuneGroupAssignment -GroupNames "Marketing Team"
 
 # Check assignments for a specific device
-.\IntuneAssignmentChecker.ps1 -CheckDevice -DeviceNames "Laptop123"
+Get-IntuneDeviceAssignment -DeviceNames "Laptop123"
 
 # Show all policies with 'All Users' assignments
-.\IntuneAssignmentChecker.ps1 -ShowAllUsersAssignments -ExportToCSV
+Get-IntuneAllUsersAssignment -ExportToCSV
 
 # Generate HTML report
-.\IntuneAssignmentChecker.ps1 -GenerateHTMLReport
+New-IntuneHTMLReport -HTMLReportPath "C:\Temp\IntuneAssignmentReport.html"
 
-# Specify environment (Global, USGov, USGovDoD)
-.\IntuneAssignmentChecker.ps1 -CheckUser -UserPrincipalNames "user@contoso.com" -Environment "USGov"
+# Simulate what policies a user would receive if added to a group
+Test-IntuneGroupMembership -UserPrincipalNames "user@contoso.com" -SimulateTargetGroup "Marketing Team"
 
-# Use with certificate authentication
-.\IntuneAssignmentChecker.ps1 -CheckUser -UserPrincipalNames "user@contoso.com" -AppId "your-app-id" -TenantId "your-tenant-id" -CertificateThumbprint "your-cert-thumbprint"
+# Simulate what policies a user would lose if removed from a group
+Test-IntuneGroupRemoval -UserPrincipalNames "user@contoso.com" -SimulateRemoveTargetGroup "Marketing Team"
 
-# Use with client secret authentication
-.\IntuneAssignmentChecker.ps1 -CheckUser -UserPrincipalNames "user@contoso.com" -AppId "your-app-id" -TenantId "your-tenant-id" -ClientSecret "your-client-secret"
+# Reverse lookup: find all assignment targets for a policy name
+Search-IntunePolicy -PolicySearchTerm "BitLocker"
+
+# Search configured settings across policies (Settings Catalog + Endpoint Security)
+Search-IntuneSetting -SearchTerm "BitLocker"
 ```
 
-Available parameters:
+Available cmdlets:
 
-| Parameter                         | Description                                                |
-| --------------------------------- | ---------------------------------------------------------- |
-| `-CheckUser`                      | Check assignments for specific users                       |
-| `-UserPrincipalNames`             | User Principal Names to check (comma-separated)            |
-| `-CheckGroup`                     | Check assignments for specific groups                      |
-| `-GroupNames`                     | Group names or IDs to check (comma-separated)              |
-| `-CheckDevice`                    | Check assignments for specific devices                     |
-| `-DeviceNames`                    | Device names to check (comma-separated)                    |
-| `-ShowAllPolicies`                | Show all policies and their assignments                    |
-| `-ShowAllUsersAssignments`        | Show all 'All Users' assignments                           |
-| `-ShowAllDevicesAssignments`      | Show all 'All Devices' assignments                         |
-| `-GenerateHTMLReport`             | Generate HTML report                                       |
-| `-ShowPoliciesWithoutAssignments` | Show policies without assignments                          |
-| `-CheckEmptyGroups`               | Check for empty groups in assignments                      |
-| `-ShowFailedAssignments`          | Show all failed policy assignments                         |
-| `-CompareGroups`                  | Compare assignments between groups                         |
-| `-CompareGroupNames`              | Groups to compare assignments between (comma-separated)    |
-| `-ExportToCSV`                    | Export results to CSV                                      |
-| `-ExportPath`                     | Path to export the CSV file                                |
-| `-AppId`                          | Application ID for authentication                          |
-| `-TenantId`                       | Tenant ID for authentication                               |
-| `-CertificateThumbprint`          | Certificate Thumbprint for authentication                  |
-| `-ClientSecret`                   | Client Secret for authentication                           |
-| `-Environment`                    | Environment (Global, USGov, USGovDoD) - defaults to Global |
-| `-HTMLReportPath`                 | Path for the exported HTML report file                     |
-| `-IncludeNestedGroups`            | Include assignments inherited from parent groups           |
-| `-ScopeTagFilter`                 | Filter results by scope tag name                           |
+| Cmdlet                             | Description                                                           |
+| ---------------------------------- | --------------------------------------------------------------------- |
+| `Connect-IntuneAssignmentChecker`  | Sign in (interactive, certificate, or client secret)                  |
+| `Get-IntuneUserAssignment`         | Check assignments for specific users                                  |
+| `Get-IntuneGroupAssignment`        | Check assignments for specific groups                                 |
+| `Get-IntuneDeviceAssignment`       | Check assignments for specific devices                                |
+| `Get-IntuneAllPolicies`            | Show all policies and their assignments                               |
+| `Get-IntuneAllUsersAssignment`     | Show all 'All Users' assignments                                      |
+| `Get-IntuneAllDevicesAssignment`   | Show all 'All Devices' assignments                                    |
+| `New-IntuneHTMLReport`             | Generate interactive HTML report                                      |
+| `Get-IntuneUnassignedPolicy`       | Show policies without assignments                                     |
+| `Get-IntuneEmptyGroup`             | Check for empty groups used in assignments                            |
+| `Get-IntuneFailedAssignment`       | Show all failed policy assignments                                    |
+| `Compare-IntuneGroupAssignment`    | Compare assignments between two or more groups                        |
+| `Test-IntuneGroupMembership`       | Simulate adding a user to a group and show resulting policies         |
+| `Test-IntuneGroupRemoval`          | Simulate removing a user from a group and show lost policies          |
+| `Search-IntunePolicy`              | Reverse lookup: find all assignment targets for a policy name         |
+| `Search-IntuneSetting`             | Search configured settings across all policies                        |
+| `Update-IntuneSettingDefinition`   | Refresh the local Settings Catalog definition cache                   |
+| `Invoke-IntuneAssignmentChecker`   | Launch the interactive menu (aliased as `IntuneAssignmentChecker`)    |
+
+Common parameters on assignment cmdlets:
+
+| Parameter                | Description                                                |
+| ------------------------ | ---------------------------------------------------------- |
+| `-ExportToCSV`           | Export results to CSV                                      |
+| `-ExportPath`            | Path to export the CSV file                                |
+| `-ScopeTagFilter`        | Filter results by scope tag name                           |
+
+Common parameters on `Connect-IntuneAssignmentChecker`:
+
+| Parameter                | Description                                                |
+| ------------------------ | ---------------------------------------------------------- |
+| `-AppId`                 | Application ID for authentication                          |
+| `-TenantId`              | Tenant ID for authentication                               |
+| `-CertificateThumbprint` | Certificate Thumbprint for authentication                  |
+| `-ClientSecret`          | Client Secret for authentication                           |
+| `-Environment`           | Environment (Global, USGov, USGovDoD) — defaults to Global |
 
 ### 📋 Interactive Menu Options
 
-The script provides a comprehensive menu-driven interface with the following options:
+Running `IntuneAssignmentChecker` opens a menu-driven interface with the following options:
 
 ### 🎯 Assignment Checks
 
@@ -395,20 +431,42 @@ The script provides a comprehensive menu-driven interface with the following opt
     - Helps identify configuration issues
     - Supports CSV export of findings
 
+12. **Simulate Group Membership Impact**
+
+    - Preview what policies and apps a user would receive if added to a group
+    - Shows deltas vs. the user's current assignments
+    - Useful for validating planned group changes before applying them
+
+13. **Simulate Removing User from Group**
+
+    - Preview what policies and apps a user would lose if removed from a group
+    - Helps evaluate the impact of offboarding or group cleanup
+
+14. **Search Policy Assignments**
+
+    - Reverse lookup: search by policy name and see every assignment target
+    - Works across Configuration Profiles, Compliance, Apps, and Endpoint Security
+
+15. **Search for Specific Settings**
+
+    - Search 17,000+ setting definitions across Settings Catalog and Endpoint Security policies
+    - Shows which policies configure a given setting and the configured value
+    - Supports abbreviation expansion and fuzzy matching
+
 ### 🛠️ System Options
 
-- **Switch Tenant (12)**: Disconnect and connect to a different tenant without restarting
-- **Exit (0)**: Safely disconnect and close
-- **Report Bug (99)**: Opens GitHub issues page
+- **[T] Switch Tenant**: Disconnect and connect to a different tenant without restarting
+- **[0] Exit**: Safely disconnect and close
+- **[98] Support the Project / [99] Report a Bug**: Opens the matching GitHub page
 
 All operations support CSV export for detailed analysis and reporting.
 
 ## 🏃‍♂️ Example Runbook
 
-The script can also be executed from an Azure Automation runbook. Below is a
-minimal example that installs the script from the PowerShell Gallery (if it is
-not already present) and then generates an HTML report using certificate based
-authentication.
+The module can also be executed from an Azure Automation runbook. Below is a
+minimal example that installs the module from the PowerShell Gallery (if it is
+not already present) and then generates an HTML report using certificate-based
+or client secret authentication.
 
 ```powershell
 param(
@@ -416,20 +474,19 @@ param(
     [string]$TenantId,
     [string]$CertificateThumbprint,
     [string]$ClientSecret,
-    [string]$HTMLReportPath = "C:\\Temp\\IntuneAssignmentReport.html"
+    [string]$HTMLReportPath = "C:\Temp\IntuneAssignmentReport.html"
 )
 
 # Ensure IntuneAssignmentChecker is available
-if (-not (Get-Command IntuneAssignmentChecker -ErrorAction SilentlyContinue)) {
-    Install-PSResource IntuneAssignmentChecker -Force -AcceptLicense
+if (-not (Get-Module -ListAvailable -Name IntuneAssignmentChecker)) {
+    Install-PSResource IntuneAssignmentChecker -TrustRepository
 }
+Import-Module IntuneAssignmentChecker
 
-# Use certificate or client secret authentication
+# Build auth params
 $authParams = @{
-    GenerateHTMLReport = $true
-    AppId              = $AppId
-    TenantId           = $TenantId
-    HTMLReportPath     = $HTMLReportPath
+    AppId    = $AppId
+    TenantId = $TenantId
 }
 
 if ($CertificateThumbprint) {
@@ -439,7 +496,9 @@ elseif ($ClientSecret) {
     $authParams['ClientSecret'] = $ClientSecret
 }
 
-IntuneAssignmentChecker @authParams
+# Connect, then generate the report
+Connect-IntuneAssignmentChecker @authParams
+New-IntuneHTMLReport -HTMLReportPath $HTMLReportPath
 ```
 
 This runbook supports both certificate and client secret authentication. You can
