@@ -39,7 +39,7 @@
 
 ```powershell
 # Install from PowerShell Gallery
-Install-PSResource IntuneAssignmentChecker
+Install-Module IntuneAssignmentChecker -Scope CurrentUser
 
 # Launch the interactive menu
 IntuneAssignmentChecker
@@ -50,13 +50,13 @@ The `IntuneAssignmentChecker` alias opens the menu-driven interface. Each featur
 If you encounter any issues during installation, try reinstalling:
 
 ```powershell
-Install-PSResource IntuneAssignmentChecker -Reinstall
+Install-Module IntuneAssignmentChecker -Scope CurrentUser -Force
 ```
 
 To update to the latest version:
 
 ```powershell
-Update-PSResource IntuneAssignmentChecker
+Update-Module IntuneAssignmentChecker
 ```
 
 ### Option 2: Manual Installation (from a local clone)
@@ -72,7 +72,7 @@ Import-Module ./Module/IntuneAssignmentChecker -Force
 IntuneAssignmentChecker
 ```
 
-> **Migrating from v3.x?** v3.x shipped as a single script installed via `Install-Script`. v4.x is a PowerShell module installed via `Install-PSResource` (or `Install-Module`). If you previously used `Install-Script IntuneAssignmentChecker`, uninstall it first: `Uninstall-Script IntuneAssignmentChecker`.
+> **Migrating from v3.x?** v3.x shipped as a single script installed via `Install-Script`. v4.x is a PowerShell module installed via `Install-Module`. If you previously used `Install-Script IntuneAssignmentChecker`, uninstall it first: `Uninstall-Script IntuneAssignmentChecker`.
 
 ## ✨ Features
 
@@ -480,7 +480,7 @@ param(
 
 # Ensure IntuneAssignmentChecker is available
 if (-not (Get-Module -ListAvailable -Name IntuneAssignmentChecker)) {
-    Install-PSResource IntuneAssignmentChecker -TrustRepository
+    Install-Module IntuneAssignmentChecker -Scope CurrentUser -Force
 }
 Import-Module IntuneAssignmentChecker
 
