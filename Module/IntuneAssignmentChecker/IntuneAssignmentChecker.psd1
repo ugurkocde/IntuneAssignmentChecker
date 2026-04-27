@@ -1,6 +1,6 @@
 @{
     RootModule        = 'IntuneAssignmentChecker.psm1'
-    ModuleVersion     = '4.0.0'
+    ModuleVersion     = '4.1.0'
     GUID              = 'c6e25ec6-5787-45ef-95af-8abeb8a17daf'
     Author            = 'Ugur Koc'
     CompanyName       = 'Community'
@@ -42,6 +42,10 @@
             ProjectUri   = 'https://github.com/ugurkocde/IntuneAssignmentChecker'
             IconUri      = ''
             ReleaseNotes = @'
+Version 4.1.0:
+- Show Intune assignment filters on all assignments (issue #122). Filter name and include/exclude type now appear in console output, CSV exports, and HTML reports across all assignment, simulation, and search cmdlets.
+- Add Get-AssignmentFilterLookup to cache filter metadata at connection time.
+
 Version 4.0.0:
 - BREAKING: Converted from script to PowerShell module (use Install-Module instead of Install-Script)
 - Add Option 12: Simulate Group Membership Impact

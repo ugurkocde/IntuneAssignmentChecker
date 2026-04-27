@@ -1,0 +1,64 @@
+name: Pester Unit Tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Module/**'
+      - 'Tests/**'
+      - '.github/workflows/pester.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'Module/**'
+      - 'Tests/**'
+      - '.github/workflows/pester.yml'
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Pester on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Pester 5
+        shell: pwsh
+        run: |
+          $existing = Get-Module -ListAvailable -Name Pester | Where-Object { $_.Version.Major -ge 5 } | Select-Object -First 1
+          if (-not $existing) {
+              Install-Module Pester -MinimumVersion 5.0.0 -Scope CurrentUser -Force -SkipPublisherCheck
+          }
+          Import-Module Pester -MinimumVersion 5.0.0
+          Get-Module Pester | Format-List Name, Version
+
+      - name: Run unit tests
+        shell: pwsh
+        run: |
+          $config = New-PesterConfiguration
+          $config.Run.Path = './Tests/Unit'
+          $config.Run.PassThru = $true
+          $config.Output.Verbosity = 'Detailed'
+          $config.TestResult.Enabled = $true
+          $config.TestResult.OutputFormat = 'NUnitXml'
+          $config.TestResult.OutputPath = './Tests/TestResults.xml'
+          $result = Invoke-Pester -Configuration $config
+          if ($result.FailedCount -gt 0) {
+              Write-Error "Pester: $($result.FailedCount) test(s) failed."
+              exit 1
+          }
+          Write-Host "Pester: $($result.PassedCount) test(s) passed."
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pester-results-${{ matrix.os }}
+          path: Tests/TestResults.xml
+          if-no-files-found: warn

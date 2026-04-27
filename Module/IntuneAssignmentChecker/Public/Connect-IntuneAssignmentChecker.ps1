@@ -19,7 +19,7 @@ function Connect-IntuneAssignmentChecker {
     )
 
     # ── Banner ────────────────────────────────────────────────────────────
-    $localVersion = "4.0.0"
+    $localVersion = "4.1.0"
 
     Write-Host "INTUNE ASSIGNMENT CHECKER" -ForegroundColor Cyan
     Write-Host "Made by Ugur Koc" -NoNewline
@@ -207,4 +207,7 @@ function Connect-IntuneAssignmentChecker {
 
     # ── Initialize scope tag lookup ───────────────────────────────────────
     $script:ScopeTagLookup = Get-ScopeTagLookup
+
+    # ── Initialize assignment filter lookup ───────────────────────────────
+    $script:AssignmentFilterLookup = Get-AssignmentFilterLookup
 }

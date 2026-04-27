@@ -276,21 +276,26 @@ function Get-IntuneGroupAssignment {
                             $assignmentReasons = @()
                             foreach ($intentAssignment in $allIntentAssignments) {
                                 $targetGid = $intentAssignment.target.groupId
+                                $reasonText = $null
                                 if ($intentAssignment.target.'@odata.type' -eq '#microsoft.graph.exclusionGroupAssignmentTarget' -and $allGroupIds -contains $targetGid) {
                                     if ($targetGid -eq $groupId) {
-                                        $assignmentReasons += "Direct Exclusion"
+                                        $reasonText = "Direct Exclusion"
                                     }
                                     elseif ($parentGroupMap.ContainsKey($targetGid)) {
-                                        $assignmentReasons += "Inherited Exclusion (via $($parentGroupMap[$targetGid]))"
+                                        $reasonText = "Inherited Exclusion (via $($parentGroupMap[$targetGid]))"
                                     }
                                 }
                                 elseif ($intentAssignment.target.'@odata.type' -eq '#microsoft.graph.groupAssignmentTarget' -and $allGroupIds -contains $targetGid) {
                                     if ($targetGid -eq $groupId) {
-                                        $assignmentReasons += "Direct Assignment"
+                                        $reasonText = "Direct Assignment"
                                     }
                                     elseif ($parentGroupMap.ContainsKey($targetGid)) {
-                                        $assignmentReasons += "Inherited (via $($parentGroupMap[$targetGid]))"
+                                        $reasonText = "Inherited (via $($parentGroupMap[$targetGid]))"
                                     }
+                                }
+                                if ($reasonText) {
+                                    $suffix = Format-AssignmentFilter -FilterId $intentAssignment.target.deviceAndAppManagementAssignmentFilterId -FilterType $intentAssignment.target.deviceAndAppManagementAssignmentFilterType
+                                    $assignmentReasons += "$reasonText$suffix"
                                 }
                             }
 
@@ -340,22 +345,27 @@ function Get-IntuneGroupAssignment {
 
             foreach ($assignmentItem in $allAppAssignments) {
                 $appTargetGid = $assignmentItem.target.groupId
+                $reasonText = $null
                 if ($assignmentItem.target.'@odata.type' -eq '#microsoft.graph.groupAssignmentTarget' -and $allGroupIds -contains $appTargetGid) {
                     if ($appTargetGid -eq $groupId) {
-                        $relevantAppAssignmentReasons += "Direct Assignment"
+                        $reasonText = "Direct Assignment"
                     }
                     elseif ($parentGroupMap.ContainsKey($appTargetGid)) {
-                        $relevantAppAssignmentReasons += "Inherited (via $($parentGroupMap[$appTargetGid]))"
+                        $reasonText = "Inherited (via $($parentGroupMap[$appTargetGid]))"
                     }
                     if (-not $intentForGroup) { $intentForGroup = $assignmentItem.intent }
                 }
                 elseif ($assignmentItem.target.'@odata.type' -eq '#microsoft.graph.exclusionGroupAssignmentTarget' -and $allGroupIds -contains $appTargetGid) {
                     if ($appTargetGid -eq $groupId) {
-                        $relevantAppAssignmentReasons += "Group Exclusion"
+                        $reasonText = "Group Exclusion"
                     }
                     elseif ($parentGroupMap.ContainsKey($appTargetGid)) {
-                        $relevantAppAssignmentReasons += "Inherited Exclusion (via $($parentGroupMap[$appTargetGid]))"
+                        $reasonText = "Inherited Exclusion (via $($parentGroupMap[$appTargetGid]))"
                     }
+                }
+                if ($reasonText) {
+                    $suffix = Format-AssignmentFilter -FilterId $assignmentItem.target.deviceAndAppManagementAssignmentFilterId -FilterType $assignmentItem.target.deviceAndAppManagementAssignmentFilterType
+                    $relevantAppAssignmentReasons += "$reasonText$suffix"
                 }
             }
 

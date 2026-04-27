@@ -23,11 +23,15 @@ function Get-AssignmentInfo {
 
     $types = @()
     $targets = @()
+    $filterNames = @()
+    $filterTypes = @()
 
     foreach ($assignment in $Assignments) {
         $type = "None"
         $target = "Not Assigned"
         $groupId = $null
+        $filterId = $null
+        $filterType = $null
 
         # Handle Graph API format (with target object)
         if ($assignment.target) {
@@ -49,6 +53,12 @@ function Get-AssignmentInfo {
                     $groupId = $assignment.target.groupId
                 }
             }
+            $rawFilterId   = $assignment.target.deviceAndAppManagementAssignmentFilterId
+            $rawFilterType = $assignment.target.deviceAndAppManagementAssignmentFilterType
+            if ($rawFilterType -and $rawFilterType -ne 'none' -and $rawFilterId -and $rawFilterId -ne '00000000-0000-0000-0000-000000000000') {
+                $filterId   = $rawFilterId
+                $filterType = $rawFilterType
+            }
         }
         # Handle standard format (with Reason and GroupId)
         else {
@@ -60,6 +70,10 @@ function Get-AssignmentInfo {
                 default { "None" }
             }
             $groupId = $assignment.GroupId
+            if ($assignment.FilterId -and $assignment.FilterType -and $assignment.FilterType -ne 'none') {
+                $filterId   = $assignment.FilterId
+                $filterType = $assignment.FilterType
+            }
         }
 
         # Get group name if we have a group ID
@@ -68,8 +82,26 @@ function Get-AssignmentInfo {
             $target = $groupInfo.DisplayName
         }
 
+        $filterName = ''
+        $filterTypeLabel = ''
+        if ($filterId) {
+            if ($script:AssignmentFilterLookup -and $script:AssignmentFilterLookup.ContainsKey($filterId)) {
+                $filterName = $script:AssignmentFilterLookup[$filterId].Name
+            }
+            else {
+                $filterName = "Unknown Filter ($filterId)"
+            }
+            $filterTypeLabel = switch ($filterType) {
+                'include' { 'Include' }
+                'exclude' { 'Exclude' }
+                default   { $filterType }
+            }
+        }
+
         $types += $type
         $targets += $target
+        $filterNames += $filterName
+        $filterTypes += $filterTypeLabel
     }
 
     # Determine the primary type (prioritize All Users/Devices over Group)
@@ -89,9 +121,17 @@ function Get-AssignmentInfo {
         "None"
     }
 
+    $filterDisplay = ($filterNames | Where-Object { $_ } | ForEach-Object -Begin { $i = 0 } -Process {
+        $lbl = $filterTypes[$i]; $i++
+        "$_ [$lbl]"
+    }) -join "; "
+
     return @{
-        Type   = $primaryType
-        Target = ($targets -join "; ")
+        Type       = $primaryType
+        Target     = ($targets -join "; ")
+        FilterName = ($filterNames -join "; ").TrimEnd(';', ' ')
+        FilterType = ($filterTypes -join "; ").TrimEnd(';', ' ')
+        Filter     = $filterDisplay
     }
 }
 
@@ -634,6 +674,7 @@ function Export-HTMLReport {
             ScopeTags      = Get-ScopeTagNames -ScopeTagIds $config.roleScopeTagIds -ScopeTagLookup $script:ScopeTagLookup
             AssignmentType = $assignmentInfo.Type
             AssignedTo     = $assignmentInfo.Target
+            Filter         = $assignmentInfo.Filter
         }
     }
 
@@ -654,6 +695,7 @@ function Export-HTMLReport {
             ScopeTags      = Get-ScopeTagNames -ScopeTagIds $policy.roleScopeTagIds -ScopeTagLookup $script:ScopeTagLookup
             AssignmentType = $assignmentInfo.Type
             AssignedTo     = $assignmentInfo.Target
+            Filter         = $assignmentInfo.Filter
         }
     }
 
@@ -672,6 +714,7 @@ function Export-HTMLReport {
             ScopeTags      = Get-ScopeTagNames -ScopeTagIds $policy.roleScopeTagIds -ScopeTagLookup $script:ScopeTagLookup
             AssignmentType = $assignmentInfo.Type
             AssignedTo     = $assignmentInfo.Target
+            Filter         = $assignmentInfo.Filter
         }
     }
 
@@ -706,6 +749,7 @@ function Export-HTMLReport {
                     ScopeTags      = Get-ScopeTagNames -ScopeTagIds $policy.roleScopeTagIds -ScopeTagLookup $script:ScopeTagLookup
                     AssignmentType = $assignmentInfo.Type
                     AssignedTo     = $assignmentInfo.Target
+                    Filter         = $assignmentInfo.Filter
                 }
             }
             catch {
@@ -728,6 +772,7 @@ function Export-HTMLReport {
             ScopeTags      = Get-ScopeTagNames -ScopeTagIds $script.roleScopeTagIds -ScopeTagLookup $script:ScopeTagLookup
             AssignmentType = $assignmentInfo.Type
             AssignedTo     = $assignmentInfo.Target
+            Filter         = $assignmentInfo.Filter
         }
     }
 
@@ -745,6 +790,7 @@ function Export-HTMLReport {
             ScopeTags      = Get-ScopeTagNames -ScopeTagIds $script.roleScopeTagIds -ScopeTagLookup $script:ScopeTagLookup
             AssignmentType = $assignmentInfo.Type
             AssignedTo     = $assignmentInfo.Target
+            Filter         = $assignmentInfo.Filter
         }
     }
 
@@ -762,6 +808,7 @@ function Export-HTMLReport {
             ScopeTags      = Get-ScopeTagNames -ScopeTagIds $profile.roleScopeTagIds -ScopeTagLookup $script:ScopeTagLookup
             AssignmentType = $assignmentInfo.Type
             AssignedTo     = $assignmentInfo.Target
+            Filter         = $assignmentInfo.Filter
         }
     }
 
@@ -780,6 +827,7 @@ function Export-HTMLReport {
             ScopeTags      = Get-ScopeTagNames -ScopeTagIds $esp.roleScopeTagIds -ScopeTagLookup $script:ScopeTagLookup
             AssignmentType = $assignmentInfo.Type
             AssignedTo     = $assignmentInfo.Target
+            Filter         = $assignmentInfo.Filter
         }
     }
 
@@ -798,6 +846,7 @@ function Export-HTMLReport {
                 ScopeTags      = Get-ScopeTagNames -ScopeTagIds $policy.roleScopeTagIds -ScopeTagLookup $script:ScopeTagLookup
                 AssignmentType = $assignmentInfo.Type
                 AssignedTo     = $assignmentInfo.Target
+                Filter         = $assignmentInfo.Filter
             }
         }
     }
@@ -820,6 +869,7 @@ function Export-HTMLReport {
                 ScopeTags      = Get-ScopeTagNames -ScopeTagIds $setting.roleScopeTagIds -ScopeTagLookup $script:ScopeTagLookup
                 AssignmentType = $assignmentInfo.Type
                 AssignedTo     = $assignmentInfo.Target
+                Filter         = $assignmentInfo.Filter
             }
         }
     }
@@ -857,6 +907,7 @@ function Export-HTMLReport {
                         ScopeTags      = Get-ScopeTagNames -ScopeTagIds $policy.roleScopeTagIds -ScopeTagLookup $script:ScopeTagLookup
                         AssignmentType = $assignmentInfo.Type
                         AssignedTo     = $assignmentInfo.Target
+                        Filter         = $assignmentInfo.Filter
                     }
                 }
             }
@@ -880,6 +931,7 @@ function Export-HTMLReport {
                             ScopeTags      = Get-ScopeTagNames -ScopeTagIds $policy.roleScopeTagIds -ScopeTagLookup $script:ScopeTagLookup
                             AssignmentType = $assignmentInfo.Type
                             AssignedTo     = $assignmentInfo.Target
+                            Filter         = $assignmentInfo.Filter
                         }
                     } 
                     catch {
@@ -925,6 +977,7 @@ function Export-HTMLReport {
                 ScopeTags      = Get-ScopeTagNames -ScopeTagIds $app.roleScopeTagIds -ScopeTagLookup $script:ScopeTagLookup
                 AssignmentType = $assignmentInfo.Type
                 AssignedTo     = $assignmentInfo.Target
+                Filter         = $assignmentInfo.Filter
             }
 
             switch ($assignment.intent) {
@@ -1055,6 +1108,7 @@ function Export-HTMLReport {
                                 <td>$($p.ScopeTags)</td>
                                 <td><span class='badge $badgeClass'>$($p.AssignmentType)</span></td>
                                 <td>$($p.AssignedTo)</td>
+                                <td>$($p.Filter)</td>
                             </tr>"
                         }
                     }
@@ -1074,6 +1128,7 @@ function Export-HTMLReport {
                     <th>Scope Tags</th>
                     <th>Assignment Type</th>
                     <th>Assigned To</th>
+                    <th>Filter</th>
                 </tr>
             </thead>
             <tbody>
@@ -1103,6 +1158,7 @@ function Export-HTMLReport {
                             <td>$($p.ScopeTags)</td>
                             <td><span class='badge $badgeClass'>$($p.AssignmentType)</span></td>
                             <td>$($p.AssignedTo)</td>
+                            <td>$($p.Filter)</td>
                         </tr>"
                     }
                 }
@@ -1111,7 +1167,8 @@ function Export-HTMLReport {
                     <th>Platform</th>
                     <th>Scope Tags</th>
                     <th>Assignment Type</th>
-                    <th>Assigned To</th>"
+                    <th>Assigned To</th>
+                    <th>Filter</th>"
             $tabContent += @"
 <div class='tab-pane fade$(if($isActive -and $category.Key -ne 'all'){ ' show active' } else { '' })'
      id='$categoryId'

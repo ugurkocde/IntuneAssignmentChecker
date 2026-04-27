@@ -15,17 +15,22 @@ function Get-GroupAssignmentReasons {
     $reasons = @()
     foreach ($assignment in $Assignments) {
         if ($assignment.Reason -eq "Direct Assignment" -or $assignment.Reason -eq "Direct Exclusion") {
+            $reasonText = $null
             if ($assignment.GroupId -eq $DirectGroupId) {
-                $reasons += $assignment.Reason
+                $reasonText = $assignment.Reason
             }
             elseif ($ParentGroupMap.ContainsKey($assignment.GroupId)) {
                 $parentName = $ParentGroupMap[$assignment.GroupId]
                 if ($assignment.Reason -eq "Direct Assignment") {
-                    $reasons += "Inherited (via $parentName)"
+                    $reasonText = "Inherited (via $parentName)"
                 }
                 else {
-                    $reasons += "Inherited Exclusion (via $parentName)"
+                    $reasonText = "Inherited Exclusion (via $parentName)"
                 }
+            }
+            if ($reasonText) {
+                $suffix = Format-AssignmentFilter -FilterId $assignment.FilterId -FilterType $assignment.FilterType
+                $reasons += "$reasonText$suffix"
             }
         }
     }

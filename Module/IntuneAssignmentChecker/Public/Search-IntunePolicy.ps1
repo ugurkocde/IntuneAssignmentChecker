@@ -52,6 +52,8 @@ function Search-IntunePolicy {
                 AssignmentType = "None"
                 TargetName     = "No assignments"
                 TargetGroupId  = ""
+                FilterName     = ""
+                FilterType     = ""
             })
             return
         }
@@ -94,6 +96,22 @@ function Search-IntunePolicy {
                 continue
             }
 
+            $filterName = ''
+            $filterType = ''
+            if ($assignment.FilterId -and $assignment.FilterType -and $assignment.FilterType -ne 'none') {
+                if ($script:AssignmentFilterLookup -and $script:AssignmentFilterLookup.ContainsKey($assignment.FilterId)) {
+                    $filterName = $script:AssignmentFilterLookup[$assignment.FilterId].Name
+                }
+                else {
+                    $filterName = "Unknown Filter ($($assignment.FilterId))"
+                }
+                $filterType = switch ($assignment.FilterType) {
+                    'include' { 'Include' }
+                    'exclude' { 'Exclude' }
+                    default   { $assignment.FilterType }
+                }
+            }
+
             [void]$Results.Add([PSCustomObject]@{
                 Category       = $CategoryLabel
                 PolicyName     = $PolicyName
@@ -101,6 +119,8 @@ function Search-IntunePolicy {
                 AssignmentType = $assignmentType
                 TargetName     = $targetName
                 TargetGroupId  = $targetGroupId
+                FilterName     = $filterName
+                FilterType     = $filterType
             })
         }
     }
@@ -471,16 +491,20 @@ function Search-IntunePolicy {
             Write-Host "Assignment Targets:" -ForegroundColor Yellow
 
             foreach ($result in $policyGroup.Group) {
+                $filterDisplay = ''
+                if ($result.FilterName) {
+                    $filterDisplay = " (Filter: $($result.FilterName) [$($result.FilterType)])"
+                }
                 if ($result.AssignmentType -eq "None") {
                     Write-Host "  No assignments" -ForegroundColor DarkGray
                 }
                 elseif ($result.AssignmentType -eq "Exclude") {
                     $target = if ($result.TargetGroupId) { "Group: $($result.TargetName) (ID: $($result.TargetGroupId))" } else { $result.TargetName }
-                    Write-Host "  [EXCLUDE] $target" -ForegroundColor Red
+                    Write-Host "  [EXCLUDE] $target$filterDisplay" -ForegroundColor Red
                 }
                 else {
                     $target = if ($result.TargetGroupId) { "Group: $($result.TargetName) (ID: $($result.TargetGroupId))" } else { $result.TargetName }
-                    Write-Host "  [INCLUDE] $target" -ForegroundColor Green
+                    Write-Host "  [INCLUDE] $target$filterDisplay" -ForegroundColor Green
                 }
             }
             Write-Host $separator -ForegroundColor Gray
@@ -500,14 +524,19 @@ function Search-IntunePolicy {
         Item             = "Search term: $searchTerm"
         ScopeTags        = ""
         AssignmentReason = "Found $totalMatches policies"
+        FilterName       = ""
+        FilterType       = ""
     })
 
     foreach ($result in $allSearchResults) {
+        $filterLabel = if ($result.FilterName) { " (Filter: $($result.FilterName) [$($result.FilterType)])" } else { "" }
         $null = $exportData.Add([PSCustomObject]@{
             Category         = $result.Category
             Item             = "$($result.PolicyName) (ID: $($result.PolicyId))"
             ScopeTags        = ""
-            AssignmentReason = "[$($result.AssignmentType)] $($result.TargetName)$(if ($result.TargetGroupId) { " (ID: $($result.TargetGroupId))" })"
+            AssignmentReason = "[$($result.AssignmentType)] $($result.TargetName)$(if ($result.TargetGroupId) { " (ID: $($result.TargetGroupId))" })$filterLabel"
+            FilterName       = $result.FilterName
+            FilterType       = $result.FilterType
         })
     }
 

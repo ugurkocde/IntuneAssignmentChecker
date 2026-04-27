@@ -238,7 +238,20 @@ function Test-IntuneGroupRemoval {
                         '#microsoft.graph.exclusionGroupAssignmentTarget' { $assignmentReason = "Group Exclusion" }
                     }
                     if ($assignmentReason) {
-                        $assignments += @{ Reason = $assignmentReason; GroupId = $assignment.target.groupId }
+                        $rawFilterId   = $assignment.target.deviceAndAppManagementAssignmentFilterId
+                        $rawFilterType = $assignment.target.deviceAndAppManagementAssignmentFilterType
+                        $effFilterId   = $null
+                        $effFilterType = $null
+                        if ($rawFilterType -and $rawFilterType -ne 'none' -and $rawFilterId -and $rawFilterId -ne '00000000-0000-0000-0000-000000000000') {
+                            $effFilterId   = $rawFilterId
+                            $effFilterType = $rawFilterType
+                        }
+                        $assignments += @{
+                            Reason     = $assignmentReason
+                            GroupId    = $assignment.target.groupId
+                            FilterId   = $effFilterId
+                            FilterType = $effFilterType
+                        }
                     }
                 }
 
@@ -305,6 +318,7 @@ function Test-IntuneGroupRemoval {
             $simExcluded = $false
             $simIncluded = $false
             $currentAppIntent = $null
+            $currentWinningTarget = $null
 
             foreach ($assignment in $assignmentResponse.value) {
                 $targetType = $assignment.target.'@odata.type'
@@ -318,9 +332,14 @@ function Test-IntuneGroupRemoval {
                     $currentIncluded = $true
                     $simIncluded = $true
                     $currentAppIntent = $assignment.intent
+                    if (-not $currentWinningTarget) { $currentWinningTarget = $assignment.target }
                 }
                 elseif ($targetType -eq '#microsoft.graph.groupAssignmentTarget') {
-                    if ($simCurrentGroupIds -contains $targetGroupId) { $currentIncluded = $true; $currentAppIntent = $assignment.intent }
+                    if ($simCurrentGroupIds -contains $targetGroupId) {
+                        $currentIncluded = $true
+                        $currentAppIntent = $assignment.intent
+                        if (-not $currentWinningTarget) { $currentWinningTarget = $assignment.target }
+                    }
                     if ($simSimulatedGroupIds -contains $targetGroupId) { $simIncluded = $true }
                 }
             }
@@ -329,8 +348,12 @@ function Test-IntuneGroupRemoval {
             $simHasApp = $simIncluded -and -not $simExcluded
 
             if ($currentHasApp -and -not $simHasApp) {
+                $filterSuffix = ''
+                if ($currentWinningTarget) {
+                    $filterSuffix = Format-AssignmentFilter -FilterId $currentWinningTarget.deviceAndAppManagementAssignmentFilterId -FilterType $currentWinningTarget.deviceAndAppManagementAssignmentFilterType
+                }
                 $appWithReason = $app.PSObject.Copy()
-                $appWithReason | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Group Assignment" -Force
+                $appWithReason | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Group Assignment$filterSuffix" -Force
                 $appWithReason | Add-Member -NotePropertyName 'AssignmentIntent' -NotePropertyValue $currentAppIntent -Force
                 switch ($currentAppIntent) {
                     "required" { [void]$deltaPolicies.AppsRequired.Add($appWithReason) }

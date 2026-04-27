@@ -232,22 +232,26 @@ function Get-IntuneDeviceAssignment {
                         }
 
                         if ($assignmentReason -and $assignmentReason -ne "All Users") {
+                            $rawFilterId   = $assignment.target.deviceAndAppManagementAssignmentFilterId
+                            $rawFilterType = $assignment.target.deviceAndAppManagementAssignmentFilterType
+                            $effFilterId   = $null
+                            $effFilterType = $null
+                            if ($rawFilterType -and $rawFilterType -ne 'none' -and $rawFilterId -and $rawFilterId -ne '00000000-0000-0000-0000-000000000000') {
+                                $effFilterId   = $rawFilterId
+                                $effFilterType = $rawFilterType
+                            }
                             $assignments += @{
-                                Reason  = $assignmentReason
-                                GroupId = $assignment.target.groupId
+                                Reason     = $assignmentReason
+                                GroupId    = $assignment.target.groupId
+                                FilterId   = $effFilterId
+                                FilterType = $effFilterType
                             }
                         }
                     }
 
                     if ($assignments.Count -gt 0) {
                         $assignmentSummary = $assignments | Where-Object { $_.Reason -ne "All Users" } | ForEach-Object {
-                            if ($_.Reason -eq "Group Assignment") {
-                                $groupInfo = Get-GroupInfo -GroupId $_.GroupId
-                                "$($_.Reason) - $($groupInfo.DisplayName)"
-                            }
-                            else {
-                                $_.Reason
-                            }
+                            Format-AssignmentSummaryLine -Assignment ([PSCustomObject]$_)
                         }
                         $policy | Add-Member -NotePropertyName 'AssignmentSummary' -NotePropertyValue ($assignmentSummary -join "; ") -Force
                         $relevantPolicies.AppProtectionPolicies += $policy
@@ -304,12 +308,14 @@ function Get-IntuneDeviceAssignment {
                 foreach ($assignment in $assignments) {
                     if (($assignment.Reason -eq "All Devices") -or
                         ($assignment.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignment.GroupId)) {
-                        $policyProfile | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignment.Reason -Force
+                        $suffix = Format-AssignmentFilter -FilterId $assignment.FilterId -FilterType $assignment.FilterType
+                        $policyProfile | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "$($assignment.Reason)$suffix" -Force
                         $relevantPolicies.DeploymentProfiles += $policyProfile
                         break
                     }
                     elseif ($assignment.Reason -eq "Group Exclusion" -and $groupMemberships.id -contains $assignment.GroupId) {
-                        $policyProfile | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Excluded" -Force
+                        $suffix = Format-AssignmentFilter -FilterId $assignment.FilterId -FilterType $assignment.FilterType
+                        $policyProfile | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Excluded$suffix" -Force
                         $relevantPolicies.DeploymentProfiles += $policyProfile
                         break
                     }
@@ -327,12 +333,14 @@ function Get-IntuneDeviceAssignment {
                 foreach ($assignment in $assignments) {
                     if (($assignment.Reason -eq "All Devices") -or
                         ($assignment.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignment.GroupId)) {
-                        $esp | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignment.Reason -Force
+                        $suffix = Format-AssignmentFilter -FilterId $assignment.FilterId -FilterType $assignment.FilterType
+                        $esp | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "$($assignment.Reason)$suffix" -Force
                         $relevantPolicies.ESPProfiles += $esp
                         break
                     }
                     elseif ($assignment.Reason -eq "Group Exclusion" -and $groupMemberships.id -contains $assignment.GroupId) {
-                        $esp | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Excluded" -Force
+                        $suffix = Format-AssignmentFilter -FilterId $assignment.FilterId -FilterType $assignment.FilterType
+                        $esp | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Excluded$suffix" -Force
                         $relevantPolicies.ESPProfiles += $esp
                         break
                     }
@@ -350,12 +358,14 @@ function Get-IntuneDeviceAssignment {
                     foreach ($assignment in $assignments) {
                         if (($assignment.Reason -eq "All Devices") -or
                             ($assignment.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignment.GroupId)) {
-                            $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignment.Reason -Force
+                            $suffix = Format-AssignmentFilter -FilterId $assignment.FilterId -FilterType $assignment.FilterType
+                            $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "$($assignment.Reason)$suffix" -Force
                             $relevantPolicies.CloudPCProvisioningPolicies += $policy
                             break
                         }
                         elseif ($assignment.Reason -eq "Group Exclusion" -and $groupMemberships.id -contains $assignment.GroupId) {
-                            $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Excluded" -Force
+                            $suffix = Format-AssignmentFilter -FilterId $assignment.FilterId -FilterType $assignment.FilterType
+                            $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Excluded$suffix" -Force
                             $relevantPolicies.CloudPCProvisioningPolicies += $policy
                             break
                         }
@@ -377,12 +387,14 @@ function Get-IntuneDeviceAssignment {
                     foreach ($assignment in $assignments) {
                         if (($assignment.Reason -eq "All Devices") -or
                             ($assignment.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignment.GroupId)) {
-                            $setting | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignment.Reason -Force
+                            $suffix = Format-AssignmentFilter -FilterId $assignment.FilterId -FilterType $assignment.FilterType
+                            $setting | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "$($assignment.Reason)$suffix" -Force
                             $relevantPolicies.CloudPCUserSettings += $setting
                             break
                         }
                         elseif ($assignment.Reason -eq "Group Exclusion" -and $groupMemberships.id -contains $assignment.GroupId) {
-                            $setting | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Excluded" -Force
+                            $suffix = Format-AssignmentFilter -FilterId $assignment.FilterId -FilterType $assignment.FilterType
+                            $setting | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Excluded$suffix" -Force
                             $relevantPolicies.CloudPCUserSettings += $setting
                             break
                         }
@@ -742,6 +754,8 @@ function Get-IntuneDeviceAssignment {
             $isIncluded = $false
             $inclusionReason = ""
             $exclusionReason = ""
+            $inclusionAssignment = $null
+            $exclusionAssignment = $null
 
             foreach ($assignment in $assignmentResponse.value) {
                 if ($assignment.target.'@odata.type' -eq '#microsoft.graph.exclusionGroupAssignmentTarget' -and
@@ -749,14 +763,17 @@ function Get-IntuneDeviceAssignment {
                     $isExcluded = $true
                     $groupInfo = Get-GroupInfo -GroupId $assignment.target.groupId
                     $exclusionReason = "Excluded via group: $($groupInfo.DisplayName)"
+                    $exclusionAssignment = $assignment
                     break
                 }
                 elseif ($assignment.target.'@odata.type' -eq '#microsoft.graph.allDevicesAssignmentTarget') {
+                    if (-not $isIncluded) { $inclusionAssignment = $assignment }
                     $isIncluded = $true
                     $inclusionReason = "All Devices"
                 }
                 elseif ($assignment.target.'@odata.type' -eq '#microsoft.graph.groupAssignmentTarget' -and
                     $groupMemberships.id -contains $assignment.target.groupId) {
+                    if (-not $isIncluded) { $inclusionAssignment = $assignment }
                     $isIncluded = $true
                     $groupInfo = Get-GroupInfo -GroupId $assignment.target.groupId
                     $inclusionReason = "Group Assignment - $($groupInfo.DisplayName)"
@@ -764,8 +781,11 @@ function Get-IntuneDeviceAssignment {
             }
 
             if ($isExcluded) {
+                $suffix = Format-AssignmentFilter `
+                    -FilterId   $exclusionAssignment.target.deviceAndAppManagementAssignmentFilterId `
+                    -FilterType $exclusionAssignment.target.deviceAndAppManagementAssignmentFilterType
                 $appWithReason = $app.PSObject.Copy()
-                $appWithReason | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $exclusionReason -Force
+                $appWithReason | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "$exclusionReason$suffix" -Force
                 switch ($assignment.intent) {
                     "required" { $relevantPolicies.AppsRequired += $appWithReason; break }
                     "available" { $relevantPolicies.AppsAvailable += $appWithReason; break }
@@ -773,8 +793,14 @@ function Get-IntuneDeviceAssignment {
                 }
             }
             elseif ($isIncluded) {
+                $suffix = ''
+                if ($inclusionAssignment) {
+                    $suffix = Format-AssignmentFilter `
+                        -FilterId   $inclusionAssignment.target.deviceAndAppManagementAssignmentFilterId `
+                        -FilterType $inclusionAssignment.target.deviceAndAppManagementAssignmentFilterType
+                }
                 $appWithReason = $app.PSObject.Copy()
-                $appWithReason | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $inclusionReason -Force
+                $appWithReason | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "$inclusionReason$suffix" -Force
                 switch ($assignment.intent) {
                     "required" { $relevantPolicies.AppsRequired += $appWithReason; break }
                     "available" { $relevantPolicies.AppsAvailable += $appWithReason; break }
@@ -843,7 +869,7 @@ function Get-IntuneDeviceAssignment {
                 }
 
                 $rowFormat = "{0,-45} {1,-20} {2,-35} {3,-30}" -f $name, $scopeTags, $id, $assignment
-                if ($assignment -eq "Excluded" -or $assignment -like "*Exclusion*") {
+                if ($assignment -like "Excluded*" -or $assignment -like "*Exclusion*") {
                     Write-Host $rowFormat -ForegroundColor Red
                 }
                 else {

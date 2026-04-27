@@ -8,11 +8,22 @@ function Add-AppExportData {
 
     foreach ($app in $Apps) {
         $appName = if ($app.displayName) { $app.displayName } else { $app.name }
+        $reason = "$AssignmentReason - $($app.AssignmentIntent)"
+
+        $filterName = ''
+        $filterType = ''
+        if ($AssignmentReason -match ' \(Filter: (?<name>.+?) \[(?<type>Include|Exclude)\]\)') {
+            $filterName = $Matches['name']
+            $filterType = $Matches['type']
+        }
+
         $null = $ExportData.Add([PSCustomObject]@{
                 Category         = $Category
                 Item             = "$appName (ID: $($app.id))"
                 ScopeTags        = Get-ScopeTagNames -ScopeTagIds $app.roleScopeTagIds -ScopeTagLookup $script:ScopeTagLookup
-                AssignmentReason = "$AssignmentReason - $($app.AssignmentIntent)"
+                AssignmentReason = $reason
+                FilterName       = $filterName
+                FilterType       = $filterType
             })
     }
 }

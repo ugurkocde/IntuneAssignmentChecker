@@ -133,10 +133,23 @@ function Get-IntuneAssignments {
             }
 
             if ($currentAssignmentReason) {
+                $filterId   = $null
+                $filterType = $null
+                if ($assignment.target) {
+                    $rawFilterId   = $assignment.target.deviceAndAppManagementAssignmentFilterId
+                    $rawFilterType = $assignment.target.deviceAndAppManagementAssignmentFilterType
+                    if ($rawFilterType -and $rawFilterType -ne 'none' -and $rawFilterId -and $rawFilterId -ne '00000000-0000-0000-0000-000000000000') {
+                        $filterId   = $rawFilterId
+                        $filterType = $rawFilterType
+                    }
+                }
+
                 $null = $assignmentsToReturn.Add([PSCustomObject]@{
-                        Reason  = $currentAssignmentReason
-                        GroupId = $currentTargetGroupId
-                        Apps    = $null # 'Apps' property is not directly available from general assignments endpoint
+                        Reason     = $currentAssignmentReason
+                        GroupId    = $currentTargetGroupId
+                        Apps       = $null # 'Apps' property is not directly available from general assignments endpoint
+                        FilterId   = $filterId
+                        FilterType = $filterType
                     })
             }
         }

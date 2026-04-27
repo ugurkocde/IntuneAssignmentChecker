@@ -24,11 +24,20 @@ function Add-ExportData {
             $AssignmentReason
         }
 
+        $filterName = ''
+        $filterType = ''
+        if ($reason -is [string] -and $reason -match ' \(Filter: (?<name>.+?) \[(?<type>Include|Exclude)\]\)') {
+            $filterName = $Matches['name']
+            $filterType = $Matches['type']
+        }
+
         $null = $ExportData.Add([PSCustomObject]@{
                 Category         = $Category
                 Item             = "$itemName (ID: $($item.id))"
                 ScopeTags        = Get-ScopeTagNames -ScopeTagIds $item.roleScopeTagIds -ScopeTagLookup $script:ScopeTagLookup
                 AssignmentReason = $reason
+                FilterName       = $filterName
+                FilterType       = $filterType
             })
     }
 }

@@ -10,16 +10,19 @@ function Resolve-SimulatedAssignmentDelta {
     $currentStatus = Resolve-AssignmentReason -Assignments $Assignments -GroupMembershipIds $CurrentGroupIds -IncludeReasons $IncludeReasons
     $simulatedStatus = Resolve-AssignmentReason -Assignments $Assignments -GroupMembershipIds $SimulatedGroupIds -IncludeReasons $IncludeReasons
 
+    $isCurrentExcluded   = $currentStatus   -like "Excluded*"
+    $isSimulatedExcluded = $simulatedStatus -like "Excluded*"
+
     $isNewPolicy = $false
     $isConflict = $false
 
     # New policy: user doesn't currently receive it (null or excluded), but would after simulation (non-null, non-excluded)
-    if ((-not $currentStatus -or $currentStatus -eq "Excluded") -and $simulatedStatus -and $simulatedStatus -ne "Excluded") {
+    if ((-not $currentStatus -or $isCurrentExcluded) -and $simulatedStatus -and -not $isSimulatedExcluded) {
         $isNewPolicy = $true
     }
 
     # Conflict: user is currently excluded, and the target group specifically includes it (but exclusion still wins in Intune)
-    if ($currentStatus -eq "Excluded" -and $simulatedStatus -eq "Excluded" -and $TargetGroupIds.Count -gt 0) {
+    if ($isCurrentExcluded -and $isSimulatedExcluded -and $TargetGroupIds.Count -gt 0) {
         foreach ($a in $Assignments) {
             if ($a.Reason -eq "Group Assignment" -and $TargetGroupIds -contains $a.GroupId) {
                 $isConflict = $true
@@ -30,7 +33,7 @@ function Resolve-SimulatedAssignmentDelta {
 
     # Lost policy: user currently receives it, but would not after simulation
     $isLostPolicy = $false
-    if ($currentStatus -and $currentStatus -ne "Excluded" -and (-not $simulatedStatus -or $simulatedStatus -eq "Excluded")) {
+    if ($currentStatus -and -not $isCurrentExcluded -and (-not $simulatedStatus -or $isSimulatedExcluded)) {
         $isLostPolicy = $true
     }
 

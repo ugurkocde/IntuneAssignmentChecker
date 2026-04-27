@@ -304,6 +304,7 @@ function Test-IntuneGroupMembership {
             $simExcluded = $false
             $simIncluded = $false
             $appIntent = $null
+            $simWinningTarget = $null
 
             foreach ($assignment in $assignmentResponse.value) {
                 $targetType = $assignment.target.'@odata.type'
@@ -317,10 +318,15 @@ function Test-IntuneGroupMembership {
                     $currentIncluded = $true
                     $simIncluded = $true
                     $appIntent = $assignment.intent
+                    if (-not $simWinningTarget) { $simWinningTarget = $assignment.target }
                 }
                 elseif ($targetType -eq '#microsoft.graph.groupAssignmentTarget') {
                     if ($simCurrentGroupIds -contains $targetGroupId) { $currentIncluded = $true; $appIntent = $assignment.intent }
-                    if ($simSimulatedGroupIds -contains $targetGroupId) { $simIncluded = $true; $appIntent = $assignment.intent }
+                    if ($simSimulatedGroupIds -contains $targetGroupId) {
+                        $simIncluded = $true
+                        $appIntent = $assignment.intent
+                        if (-not $simWinningTarget) { $simWinningTarget = $assignment.target }
+                    }
                 }
             }
 
@@ -328,8 +334,12 @@ function Test-IntuneGroupMembership {
             $simHasApp = $simIncluded -and -not $simExcluded
 
             if ($simHasApp -and -not $currentHasApp) {
+                $filterSuffix = ''
+                if ($simWinningTarget) {
+                    $filterSuffix = Format-AssignmentFilter -FilterId $simWinningTarget.deviceAndAppManagementAssignmentFilterId -FilterType $simWinningTarget.deviceAndAppManagementAssignmentFilterType
+                }
                 $appWithReason = $app.PSObject.Copy()
-                $appWithReason | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Group Assignment" -Force
+                $appWithReason | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Group Assignment$filterSuffix" -Force
                 $appWithReason | Add-Member -NotePropertyName 'AssignmentIntent' -NotePropertyValue $appIntent -Force
                 switch ($appIntent) {
                     "required" { [void]$deltaPolicies.AppsRequired.Add($appWithReason) }

@@ -73,13 +73,7 @@ function Get-IntuneAllPolicies {
     foreach ($config in $deviceConfigs) {
         $assignments = Get-IntuneAssignments -EntityType "deviceConfigurations" -EntityId $config.id
         $assignmentSummary = $assignments | ForEach-Object {
-            if ($_.Reason -eq "Group Assignment" -or $_.Reason -eq "Group Exclusion") {
-                $groupInfo = Get-GroupInfo -GroupId $_.GroupId
-                "$($_.Reason) - $($groupInfo.DisplayName)"
-            }
-            else {
-                $_.Reason
-            }
+            Format-AssignmentSummaryLine -Assignment $_
         }
         $config | Add-Member -NotePropertyName 'AssignmentSummary' -NotePropertyValue ($assignmentSummary -join "; ") -Force
         $allPolicies.DeviceConfigs += $config
@@ -91,13 +85,7 @@ function Get-IntuneAllPolicies {
     foreach ($policy in $settingsCatalog) {
         $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
         $assignmentSummary = $assignments | ForEach-Object {
-            if ($_.Reason -eq "Group Assignment" -or $_.Reason -eq "Group Exclusion") {
-                $groupInfo = Get-GroupInfo -GroupId $_.GroupId
-                "$($_.Reason) - $($groupInfo.DisplayName)"
-            }
-            else {
-                $_.Reason
-            }
+            Format-AssignmentSummaryLine -Assignment $_
         }
         $policy | Add-Member -NotePropertyName 'AssignmentSummary' -NotePropertyValue ($assignmentSummary -join "; ") -Force
         $allPolicies.SettingsCatalog += $policy
@@ -109,13 +97,7 @@ function Get-IntuneAllPolicies {
     foreach ($policy in $compliancePolicies) {
         $assignments = Get-IntuneAssignments -EntityType "deviceCompliancePolicies" -EntityId $policy.id
         $assignmentSummary = $assignments | ForEach-Object {
-            if ($_.Reason -eq "Group Assignment" -or $_.Reason -eq "Group Exclusion") {
-                $groupInfo = Get-GroupInfo -GroupId $_.GroupId
-                "$($_.Reason) - $($groupInfo.DisplayName)"
-            }
-            else {
-                $_.Reason
-            }
+            Format-AssignmentSummaryLine -Assignment $_
         }
         $policy | Add-Member -NotePropertyName 'AssignmentSummary' -NotePropertyValue ($assignmentSummary -join "; ") -Force
         $allPolicies.CompliancePolicies += $policy
@@ -182,13 +164,7 @@ function Get-IntuneAllPolicies {
     foreach ($policy in $appConfigPolicies) {
         $assignments = Get-IntuneAssignments -EntityType "mobileAppConfigurations" -EntityId $policy.id
         $assignmentSummary = $assignments | ForEach-Object {
-            if ($_.Reason -eq "Group Assignment" -or $_.Reason -eq "Group Exclusion") {
-                $groupInfo = Get-GroupInfo -GroupId $_.GroupId
-                "$($_.Reason) - $($groupInfo.DisplayName)"
-            }
-            else {
-                $_.Reason
-            }
+            Format-AssignmentSummaryLine -Assignment $_
         }
         $policy | Add-Member -NotePropertyName 'AssignmentSummary' -NotePropertyValue ($assignmentSummary -join "; ") -Force
         $allPolicies.AppConfigurationPolicies += $policy
@@ -200,13 +176,7 @@ function Get-IntuneAllPolicies {
     foreach ($script in $platformScripts) {
         $assignments = Get-IntuneAssignments -EntityType "deviceManagementScripts" -EntityId $script.id
         $assignmentSummary = $assignments | ForEach-Object {
-            if ($_.Reason -eq "Group Assignment" -or $_.Reason -eq "Group Exclusion") {
-                $groupInfo = Get-GroupInfo -GroupId $_.GroupId
-                "$($_.Reason) - $($groupInfo.DisplayName)"
-            }
-            else {
-                $_.Reason
-            }
+            Format-AssignmentSummaryLine -Assignment $_
         }
         $script | Add-Member -NotePropertyName 'AssignmentSummary' -NotePropertyValue ($assignmentSummary -join "; ") -Force
         $allPolicies.PlatformScripts += $script
@@ -218,13 +188,7 @@ function Get-IntuneAllPolicies {
     foreach ($script in $healthScripts) {
         $assignments = Get-IntuneAssignments -EntityType "deviceHealthScripts" -EntityId $script.id
         $assignmentSummary = $assignments | ForEach-Object {
-            if ($_.Reason -eq "Group Assignment" -or $_.Reason -eq "Group Exclusion") {
-                $groupInfo = Get-GroupInfo -GroupId $_.GroupId
-                "$($_.Reason) - $($groupInfo.DisplayName)"
-            }
-            else {
-                $_.Reason
-            }
+            Format-AssignmentSummaryLine -Assignment $_
         }
         $script | Add-Member -NotePropertyName 'AssignmentSummary' -NotePropertyValue ($assignmentSummary -join "; ") -Force
         $allPolicies.HealthScripts += $script
@@ -319,11 +283,7 @@ function Get-IntuneAllPolicies {
             if ($processedAntivirusIdsAll.Add($policy.id)) {
                 $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
                 $assignmentSummary = $assignments | ForEach-Object {
-                    if ($_.Reason -eq "Group Assignment" -or $_.Reason -eq "Group Exclusion") {
-                        $groupInfo = Get-GroupInfo -GroupId $_.GroupId
-                        "$($_.Reason) - $($groupInfo.DisplayName)"
-                    }
-                    else { $_.Reason }
+                    Format-AssignmentSummaryLine -Assignment $_
                 }
                 $policy | Add-Member -NotePropertyName 'AssignmentSummary' -NotePropertyValue ($assignmentSummary -join "; ") -Force
                 [void]$antivirusPoliciesFoundAll.Add($policy)
@@ -348,7 +308,8 @@ function Get-IntuneAllPolicies {
                         '#microsoft.graph.exclusionGroupAssignmentTarget' { "Exclude Group: " + (Get-GroupInfo -GroupId $_.target.groupId).DisplayName }
                         default { "Unknown" }
                     }
-                    $reasonText
+                    $suffix = Format-AssignmentFilter -FilterId $_.target.deviceAndAppManagementAssignmentFilterId -FilterType $_.target.deviceAndAppManagementAssignmentFilterType
+                    "$reasonText$suffix"
                 }
                 $policy | Add-Member -NotePropertyName 'AssignmentSummary' -NotePropertyValue ($assignmentSummary -join "; ") -Force
                 [void]$antivirusPoliciesFoundAll.Add($policy)
@@ -371,11 +332,7 @@ function Get-IntuneAllPolicies {
             if ($processedDiskEncryptionIdsAll.Add($policy.id)) {
                 $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
                 $assignmentSummary = $assignments | ForEach-Object {
-                    if ($_.Reason -eq "Group Assignment" -or $_.Reason -eq "Group Exclusion") {
-                        $groupInfo = Get-GroupInfo -GroupId $_.GroupId
-                        "$($_.Reason) - $($groupInfo.DisplayName)"
-                    }
-                    else { $_.Reason }
+                    Format-AssignmentSummaryLine -Assignment $_
                 }
                 $policy | Add-Member -NotePropertyName 'AssignmentSummary' -NotePropertyValue ($assignmentSummary -join "; ") -Force
                 [void]$diskEncryptionPoliciesFoundAll.Add($policy)
@@ -400,7 +357,8 @@ function Get-IntuneAllPolicies {
                         '#microsoft.graph.exclusionGroupAssignmentTarget' { "Exclude Group: " + (Get-GroupInfo -GroupId $_.target.groupId).DisplayName }
                         default { "Unknown" }
                     }
-                    $reasonText
+                    $suffix = Format-AssignmentFilter -FilterId $_.target.deviceAndAppManagementAssignmentFilterId -FilterType $_.target.deviceAndAppManagementAssignmentFilterType
+                    "$reasonText$suffix"
                 }
                 $policy | Add-Member -NotePropertyName 'AssignmentSummary' -NotePropertyValue ($assignmentSummary -join "; ") -Force
                 [void]$diskEncryptionPoliciesFoundAll.Add($policy)
@@ -423,11 +381,7 @@ function Get-IntuneAllPolicies {
             if ($processedFirewallIdsAll.Add($policy.id)) {
                 $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
                 $assignmentSummary = $assignments | ForEach-Object {
-                    if ($_.Reason -eq "Group Assignment" -or $_.Reason -eq "Group Exclusion") {
-                        $groupInfo = Get-GroupInfo -GroupId $_.GroupId
-                        "$($_.Reason) - $($groupInfo.DisplayName)"
-                    }
-                    else { $_.Reason }
+                    Format-AssignmentSummaryLine -Assignment $_
                 }
                 $policy | Add-Member -NotePropertyName 'AssignmentSummary' -NotePropertyValue ($assignmentSummary -join "; ") -Force
                 [void]$firewallPoliciesFoundAll.Add($policy)
@@ -452,7 +406,8 @@ function Get-IntuneAllPolicies {
                         '#microsoft.graph.exclusionGroupAssignmentTarget' { "Exclude Group: " + (Get-GroupInfo -GroupId $_.target.groupId).DisplayName }
                         default { "Unknown" }
                     }
-                    $reasonText
+                    $suffix = Format-AssignmentFilter -FilterId $_.target.deviceAndAppManagementAssignmentFilterId -FilterType $_.target.deviceAndAppManagementAssignmentFilterType
+                    "$reasonText$suffix"
                 }
                 $policy | Add-Member -NotePropertyName 'AssignmentSummary' -NotePropertyValue ($assignmentSummary -join "; ") -Force
                 [void]$firewallPoliciesFoundAll.Add($policy)
@@ -475,11 +430,7 @@ function Get-IntuneAllPolicies {
             if ($processedEDRIdsAll.Add($policy.id)) {
                 $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
                 $assignmentSummary = $assignments | ForEach-Object {
-                    if ($_.Reason -eq "Group Assignment" -or $_.Reason -eq "Group Exclusion") {
-                        $groupInfo = Get-GroupInfo -GroupId $_.GroupId
-                        "$($_.Reason) - $($groupInfo.DisplayName)"
-                    }
-                    else { $_.Reason }
+                    Format-AssignmentSummaryLine -Assignment $_
                 }
                 $policy | Add-Member -NotePropertyName 'AssignmentSummary' -NotePropertyValue ($assignmentSummary -join "; ") -Force
                 [void]$edrPoliciesFoundAll.Add($policy)
@@ -504,7 +455,8 @@ function Get-IntuneAllPolicies {
                         '#microsoft.graph.exclusionGroupAssignmentTarget' { "Exclude Group: " + (Get-GroupInfo -GroupId $_.target.groupId).DisplayName }
                         default { "Unknown" }
                     }
-                    $reasonText
+                    $suffix = Format-AssignmentFilter -FilterId $_.target.deviceAndAppManagementAssignmentFilterId -FilterType $_.target.deviceAndAppManagementAssignmentFilterType
+                    "$reasonText$suffix"
                 }
                 $policy | Add-Member -NotePropertyName 'AssignmentSummary' -NotePropertyValue ($assignmentSummary -join "; ") -Force
                 [void]$edrPoliciesFoundAll.Add($policy)
@@ -527,11 +479,7 @@ function Get-IntuneAllPolicies {
             if ($processedASRIdsAll.Add($policy.id)) {
                 $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
                 $assignmentSummary = $assignments | ForEach-Object {
-                    if ($_.Reason -eq "Group Assignment" -or $_.Reason -eq "Group Exclusion") {
-                        $groupInfo = Get-GroupInfo -GroupId $_.GroupId
-                        "$($_.Reason) - $($groupInfo.DisplayName)"
-                    }
-                    else { $_.Reason }
+                    Format-AssignmentSummaryLine -Assignment $_
                 }
                 $policy | Add-Member -NotePropertyName 'AssignmentSummary' -NotePropertyValue ($assignmentSummary -join "; ") -Force
                 [void]$asrPoliciesFoundAll.Add($policy)
@@ -556,7 +504,8 @@ function Get-IntuneAllPolicies {
                         '#microsoft.graph.exclusionGroupAssignmentTarget' { "Exclude Group: " + (Get-GroupInfo -GroupId $_.target.groupId).DisplayName }
                         default { "Unknown" }
                     }
-                    $reasonText
+                    $suffix = Format-AssignmentFilter -FilterId $_.target.deviceAndAppManagementAssignmentFilterId -FilterType $_.target.deviceAndAppManagementAssignmentFilterType
+                    "$reasonText$suffix"
                 }
                 $policy | Add-Member -NotePropertyName 'AssignmentSummary' -NotePropertyValue ($assignmentSummary -join "; ") -Force
                 [void]$asrPoliciesFoundAll.Add($policy)
@@ -579,11 +528,7 @@ function Get-IntuneAllPolicies {
             if ($processedAccountProtectionIdsAll.Add($policy.id)) {
                 $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
                 $assignmentSummary = $assignments | ForEach-Object {
-                    if ($_.Reason -eq "Group Assignment" -or $_.Reason -eq "Group Exclusion") {
-                        $groupInfo = Get-GroupInfo -GroupId $_.GroupId
-                        "$($_.Reason) - $($groupInfo.DisplayName)"
-                    }
-                    else { $_.Reason }
+                    Format-AssignmentSummaryLine -Assignment $_
                 }
                 $policy | Add-Member -NotePropertyName 'AssignmentSummary' -NotePropertyValue ($assignmentSummary -join "; ") -Force
                 [void]$accountProtectionPoliciesFoundAll.Add($policy)
@@ -608,7 +553,8 @@ function Get-IntuneAllPolicies {
                         '#microsoft.graph.exclusionGroupAssignmentTarget'   { "Exclude Group: " + (Get-GroupInfo -GroupId $_.target.groupId).DisplayName }
                         default { "Unknown" }
                     }
-                    $reasonText
+                    $suffix = Format-AssignmentFilter -FilterId $_.target.deviceAndAppManagementAssignmentFilterId -FilterType $_.target.deviceAndAppManagementAssignmentFilterType
+                    "$reasonText$suffix"
                 }
                 $policy | Add-Member -NotePropertyName 'AssignmentSummary' -NotePropertyValue ($assignmentSummary -join "; ") -Force
                 [void]$accountProtectionPoliciesFoundAll.Add($policy)

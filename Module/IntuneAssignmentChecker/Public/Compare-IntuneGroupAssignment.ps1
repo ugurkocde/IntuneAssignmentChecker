@@ -198,6 +198,10 @@ function Compare-IntuneGroupAssignment {
                 $suffix = ""
                 if ($isExclusion) { $suffix += " [EXCLUDED]" }
                 if ($isInherited) { $suffix += " [INHERITED]" }
+                $filterMatch = $hasAssignment | Where-Object { $_.target.deviceAndAppManagementAssignmentFilterType -and $_.target.deviceAndAppManagementAssignmentFilterType -ne 'none' } | Select-Object -First 1
+                if ($filterMatch) {
+                    $suffix += (Format-AssignmentFilter -FilterId $filterMatch.target.deviceAndAppManagementAssignmentFilterId -FilterType $filterMatch.target.deviceAndAppManagementAssignmentFilterType)
+                }
                 $displayName = "$($config.displayName)$suffix"
                 [void]$groupAssignments[$groupName].DeviceConfigs.Add($displayName)
             }
@@ -231,6 +235,10 @@ function Compare-IntuneGroupAssignment {
                 $suffix = ""
                 if ($isExclusion) { $suffix += " [EXCLUDED]" }
                 if ($isInherited) { $suffix += " [INHERITED]" }
+                $filterMatch = $hasAssignment | Where-Object { $_.target.deviceAndAppManagementAssignmentFilterType -and $_.target.deviceAndAppManagementAssignmentFilterType -ne 'none' } | Select-Object -First 1
+                if ($filterMatch) {
+                    $suffix += (Format-AssignmentFilter -FilterId $filterMatch.target.deviceAndAppManagementAssignmentFilterId -FilterType $filterMatch.target.deviceAndAppManagementAssignmentFilterType)
+                }
                 $displayName = "$($policy.name)$suffix"
                 [void]$groupAssignments[$groupName].SettingsCatalog.Add($displayName)
             }
@@ -261,6 +269,10 @@ function Compare-IntuneGroupAssignment {
                 $suffix = ""
                 if ($isExclusion) { $suffix += " [EXCLUDED]" }
                 if ($isInherited) { $suffix += " [INHERITED]" }
+                $filterMatch = $hasAssignment | Where-Object { $_.target.deviceAndAppManagementAssignmentFilterType -and $_.target.deviceAndAppManagementAssignmentFilterType -ne 'none' } | Select-Object -First 1
+                if ($filterMatch) {
+                    $suffix += (Format-AssignmentFilter -FilterId $filterMatch.target.deviceAndAppManagementAssignmentFilterId -FilterType $filterMatch.target.deviceAndAppManagementAssignmentFilterType)
+                }
                 $displayName = "$($policy.displayName)$suffix"
                 [void]$groupAssignments[$groupName].CompliancePolicies.Add($displayName)
             }
@@ -283,10 +295,12 @@ function Compare-IntuneGroupAssignment {
             foreach ($assignment in $assignmentResponse.value) {
                 if ($allGroupIds -contains $assignment.target.groupId) {
                     $inheritedSuffix = if ($assignment.target.groupId -ne $groupId) { " [INHERITED]" } else { "" }
+                    $filterSuffix = Format-AssignmentFilter -FilterId $assignment.target.deviceAndAppManagementAssignmentFilterId -FilterType $assignment.target.deviceAndAppManagementAssignmentFilterType
+                    $combinedSuffix = "$inheritedSuffix$filterSuffix"
                     switch ($assignment.intent) {
-                        "required" { [void]$groupAssignments[$groupName].RequiredApps.Add("$($app.displayName)$inheritedSuffix") }
-                        "available" { [void]$groupAssignments[$groupName].AvailableApps.Add("$($app.displayName)$inheritedSuffix") }
-                        "uninstall" { [void]$groupAssignments[$groupName].UninstallApps.Add("$($app.displayName)$inheritedSuffix") }
+                        "required" { [void]$groupAssignments[$groupName].RequiredApps.Add("$($app.displayName)$combinedSuffix") }
+                        "available" { [void]$groupAssignments[$groupName].AvailableApps.Add("$($app.displayName)$combinedSuffix") }
+                        "uninstall" { [void]$groupAssignments[$groupName].UninstallApps.Add("$($app.displayName)$combinedSuffix") }
                     }
                 }
             }

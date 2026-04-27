@@ -181,22 +181,26 @@ function Get-IntuneUserAssignment {
                         }
 
                         if ($assignmentReason) {
+                            $rawFilterId   = $assignment.target.deviceAndAppManagementAssignmentFilterId
+                            $rawFilterType = $assignment.target.deviceAndAppManagementAssignmentFilterType
+                            $effFilterId   = $null
+                            $effFilterType = $null
+                            if ($rawFilterType -and $rawFilterType -ne 'none' -and $rawFilterId -and $rawFilterId -ne '00000000-0000-0000-0000-000000000000') {
+                                $effFilterId   = $rawFilterId
+                                $effFilterType = $rawFilterType
+                            }
                             $assignments += @{
-                                Reason  = $assignmentReason
-                                GroupId = $assignment.target.groupId
+                                Reason     = $assignmentReason
+                                GroupId    = $assignment.target.groupId
+                                FilterId   = $effFilterId
+                                FilterType = $effFilterType
                             }
                         }
                     }
 
                     if ($assignments.Count -gt 0) {
                         $assignmentSummary = $assignments | ForEach-Object {
-                            if ($_.Reason -eq "Group Assignment" -or $_.Reason -eq "Group Exclusion") {
-                                $groupInfo = Get-GroupInfo -GroupId $_.GroupId
-                                "$($_.Reason) - $($groupInfo.DisplayName)"
-                            }
-                            else {
-                                $_.Reason
-                            }
+                            Format-AssignmentSummaryLine -Assignment ([PSCustomObject]$_)
                         }
                         $policy | Add-Member -NotePropertyName 'AssignmentSummary' -NotePropertyValue ($assignmentSummary -join "; ") -Force
                         $relevantPolicies.AppProtectionPolicies += $policy
@@ -248,23 +252,33 @@ function Get-IntuneUserAssignment {
 
             $isExcluded = $false
             $isIncluded = $false
+            $winningAssignment = $null
 
             foreach ($assignment in $assignmentResponse.value) {
                 if ($assignment.target.'@odata.type' -eq '#microsoft.graph.exclusionGroupAssignmentTarget' -and
                     $groupMemberships.id -contains $assignment.target.groupId) {
                     $isExcluded = $true
+                    $winningAssignment = $assignment
                     break
                 }
                 elseif ($assignment.target.'@odata.type' -eq '#microsoft.graph.allLicensedUsersAssignmentTarget' -or
                     ($assignment.target.'@odata.type' -eq '#microsoft.graph.groupAssignmentTarget' -and
                     $groupMemberships.id -contains $assignment.target.groupId)) {
+                    if (-not $isIncluded) { $winningAssignment = $assignment }
                     $isIncluded = $true
                 }
             }
 
+            $filterSuffix = ''
+            if ($winningAssignment) {
+                $filterSuffix = Format-AssignmentFilter `
+                    -FilterId   $winningAssignment.target.deviceAndAppManagementAssignmentFilterId `
+                    -FilterType $winningAssignment.target.deviceAndAppManagementAssignmentFilterType
+            }
+
             if ($isIncluded -and -not $isExcluded) {
                 $appWithReason = $app.PSObject.Copy()
-                $appWithReason | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Included" -Force
+                $appWithReason | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Included$filterSuffix" -Force
                 switch ($assignment.intent) {
                     "required" { $relevantPolicies.AppsRequired += $appWithReason; break }
                     "available" { $relevantPolicies.AppsAvailable += $appWithReason; break }
@@ -273,7 +287,7 @@ function Get-IntuneUserAssignment {
             }
             elseif ($isExcluded) {
                 $appWithReason = $app.PSObject.Copy()
-                $appWithReason | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Excluded" -Force
+                $appWithReason | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Excluded$filterSuffix" -Force
                 switch ($assignment.intent) {
                     "required" { $relevantPolicies.AppsRequired += $appWithReason; break }
                     "available" { $relevantPolicies.AppsAvailable += $appWithReason; break }
@@ -651,12 +665,14 @@ function Get-IntuneUserAssignment {
                 foreach ($assignment in $assignments) {
                     if ($assignment.Reason -eq "All Users" -or
                         ($assignment.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignment.GroupId)) {
-                        $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignment.Reason -Force
+                        $suffix = Format-AssignmentFilter -FilterId $assignment.FilterId -FilterType $assignment.FilterType
+                        $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "$($assignment.Reason)$suffix" -Force
                         $relevantPolicies.CloudPCProvisioningPolicies += $policy
                         break
                     }
                     elseif ($assignment.Reason -eq "Group Exclusion" -and $groupMemberships.id -contains $assignment.GroupId) {
-                        $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Excluded" -Force
+                        $suffix = Format-AssignmentFilter -FilterId $assignment.FilterId -FilterType $assignment.FilterType
+                        $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Excluded$suffix" -Force
                         $relevantPolicies.CloudPCProvisioningPolicies += $policy
                         break
                     }
@@ -677,12 +693,14 @@ function Get-IntuneUserAssignment {
                 foreach ($assignment in $assignments) {
                     if ($assignment.Reason -eq "All Users" -or
                         ($assignment.Reason -eq "Group Assignment" -and $groupMemberships.id -contains $assignment.GroupId)) {
-                        $setting | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $assignment.Reason -Force
+                        $suffix = Format-AssignmentFilter -FilterId $assignment.FilterId -FilterType $assignment.FilterType
+                        $setting | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "$($assignment.Reason)$suffix" -Force
                         $relevantPolicies.CloudPCUserSettings += $setting
                         break
                     }
                     elseif ($assignment.Reason -eq "Group Exclusion" -and $groupMemberships.id -contains $assignment.GroupId) {
-                        $setting | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Excluded" -Force
+                        $suffix = Format-AssignmentFilter -FilterId $assignment.FilterId -FilterType $assignment.FilterType
+                        $setting | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "Excluded$suffix" -Force
                         $relevantPolicies.CloudPCUserSettings += $setting
                         break
                     }
@@ -741,7 +759,7 @@ function Get-IntuneUserAssignment {
                 }
 
                 $rowFormat = "{0,-45} {1,-20} {2,-35} {3,-20}" -f $configName, $platform, $configId, $assignment
-                if ($assignment -eq "Excluded") {
+                if ($assignment -like "Excluded*") {
                     Write-Host $rowFormat -ForegroundColor Red
                 }
                 else {
@@ -778,7 +796,7 @@ function Get-IntuneUserAssignment {
                 }
 
                 $rowFormat = "{0,-50} {1,-40} {2,-30}" -f $policyName, $policyId, $assignment
-                if ($assignment -eq "Excluded") {
+                if ($assignment -like "Excluded*") {
                     Write-Host $rowFormat -ForegroundColor Red
                 }
                 else {
@@ -815,7 +833,7 @@ function Get-IntuneUserAssignment {
                 }
 
                 $rowFormat = "{0,-50} {1,-40} {2,-30}" -f $policyName, $policyId, $assignment
-                if ($assignment -eq "Excluded") {
+                if ($assignment -like "Excluded*") {
                     Write-Host $rowFormat -ForegroundColor Red
                 }
                 else {
@@ -859,7 +877,7 @@ function Get-IntuneUserAssignment {
                 }
 
                 $rowFormat = "{0,-40} {1,-30} {2,-20} {3,-30}" -f $policyName, $policyId, $policyType, $assignment
-                if ($assignment -eq "Excluded") {
+                if ($assignment -like "Excluded*") {
                     Write-Host $rowFormat -ForegroundColor Red
                 }
                 else {
@@ -896,7 +914,7 @@ function Get-IntuneUserAssignment {
                 }
 
                 $rowFormat = "{0,-50} {1,-40} {2,-30}" -f $policyName, $policyId, $assignment
-                if ($assignment -eq "Excluded") {
+                if ($assignment -like "Excluded*") {
                     Write-Host $rowFormat -ForegroundColor Red
                 }
                 else {
@@ -933,7 +951,7 @@ function Get-IntuneUserAssignment {
                 }
 
                 $rowFormat = "{0,-50} {1,-40} {2,-30}" -f $scriptName, $scriptId, $assignment
-                if ($assignment -eq "Excluded") {
+                if ($assignment -like "Excluded*") {
                     Write-Host $rowFormat -ForegroundColor Red
                 }
                 else {
@@ -970,7 +988,7 @@ function Get-IntuneUserAssignment {
                 }
 
                 $rowFormat = "{0,-50} {1,-40} {2,-30}" -f $scriptName, $scriptId, $assignment
-                if ($assignment -eq "Excluded") {
+                if ($assignment -like "Excluded*") {
                     Write-Host $rowFormat -ForegroundColor Red
                 }
                 else {
@@ -1118,7 +1136,7 @@ function Get-IntuneUserAssignment {
                 }
 
                 $rowFormat = "{0,-50} {1,-40} {2,-30}" -f $profileName, $profileId, $assignment
-                if ($assignment -eq "Excluded") {
+                if ($assignment -like "Excluded*") {
                     Write-Host $rowFormat -ForegroundColor Red
                 }
                 else {
@@ -1155,7 +1173,7 @@ function Get-IntuneUserAssignment {
                 }
 
                 $rowFormat = "{0,-50} {1,-40} {2,-30}" -f $profileName, $profileId, $assignment
-                if ($assignment -eq "Excluded") {
+                if ($assignment -like "Excluded*") {
                     Write-Host $rowFormat -ForegroundColor Red
                 }
                 else {
@@ -1192,7 +1210,7 @@ function Get-IntuneUserAssignment {
                 }
 
                 $rowFormat = "{0,-50} {1,-40} {2,-30}" -f $profileName, $profileId, $assignment
-                if ($assignment -eq "Excluded") {
+                if ($assignment -like "Excluded*") {
                     Write-Host $rowFormat -ForegroundColor Red
                 }
                 else {
@@ -1229,7 +1247,7 @@ function Get-IntuneUserAssignment {
                 }
 
                 $rowFormat = "{0,-50} {1,-40} {2,-30}" -f $profileName, $profileId, $assignment
-                if ($assignment -eq "Excluded") {
+                if ($assignment -like "Excluded*") {
                     Write-Host $rowFormat -ForegroundColor Red
                 }
                 else {
@@ -1266,7 +1284,7 @@ function Get-IntuneUserAssignment {
                 }
 
                 $rowFormat = "{0,-50} {1,-40} {2,-30}" -f $profileName, $profileId, $assignment
-                if ($assignment -eq "Excluded") {
+                if ($assignment -like "Excluded*") {
                     Write-Host $rowFormat -ForegroundColor Red
                 }
                 else {
@@ -1303,7 +1321,7 @@ function Get-IntuneUserAssignment {
                 }
 
                 $rowFormat = "{0,-50} {1,-40} {2,-30}" -f $profileName, $profileId, $assignment
-                if ($assignment -eq "Excluded") {
+                if ($assignment -like "Excluded*") {
                     Write-Host $rowFormat -ForegroundColor Red
                 }
                 else {
@@ -1340,7 +1358,7 @@ function Get-IntuneUserAssignment {
                 }
 
                 $rowFormat = "{0,-50} {1,-40} {2,-30}" -f $policyName, $policyId, $assignment
-                if ($assignment -eq "Excluded") {
+                if ($assignment -like "Excluded*") {
                     Write-Host $rowFormat -ForegroundColor Red
                 }
                 else {
@@ -1377,7 +1395,7 @@ function Get-IntuneUserAssignment {
                 }
 
                 $rowFormat = "{0,-50} {1,-40} {2,-30}" -f $settingName, $settingId, $assignment
-                if ($assignment -eq "Excluded") {
+                if ($assignment -like "Excluded*") {
                     Write-Host $rowFormat -ForegroundColor Red
                 }
                 else {

@@ -7,8 +7,11 @@ function Get-AssignmentInfo {
 
     if ($null -eq $Assignments -or $Assignments.Count -eq 0) {
         return @{
-            Type   = "None"
-            Target = "Not Assigned"
+            Type       = "None"
+            Target     = "Not Assigned"
+            FilterId   = $null
+            FilterType = $null
+            FilterName = $null
         }
     }
 
@@ -35,8 +38,19 @@ function Get-AssignmentInfo {
         default { "Not Assigned" }
     }
 
+    $filterSuffix = Format-AssignmentFilter -FilterId $assignment.FilterId -FilterType $assignment.FilterType
+    if ($filterSuffix) { $target = "$target$filterSuffix" }
+
+    $filterName = $null
+    if ($assignment.FilterId -and $script:AssignmentFilterLookup -and $script:AssignmentFilterLookup.ContainsKey($assignment.FilterId)) {
+        $filterName = $script:AssignmentFilterLookup[$assignment.FilterId].Name
+    }
+
     return @{
-        Type   = $type
-        Target = $target
+        Type       = $type
+        Target     = $target
+        FilterId   = $assignment.FilterId
+        FilterType = $assignment.FilterType
+        FilterName = $filterName
     }
 }

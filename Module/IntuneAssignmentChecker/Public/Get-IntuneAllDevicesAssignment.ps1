@@ -41,8 +41,8 @@ function Get-IntuneAllDevicesAssignment {
     $deviceConfigs = Get-IntuneEntities -EntityType "deviceConfigurations"
     foreach ($config in $deviceConfigs) {
         $assignments = Get-IntuneAssignments -EntityType "deviceConfigurations" -EntityId $config.id
-        if ($assignments | Where-Object { $_.Reason -eq "All Devices" }) {
-            $config | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Devices" -Force
+        if (($reason = Get-AllTargetReason -Assignments $assignments -TargetReason "All Devices")) {
+            $config | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
             $allDevicesAssignments.DeviceConfigs += $config
         }
     }
@@ -52,8 +52,8 @@ function Get-IntuneAllDevicesAssignment {
     $settingsCatalog = Get-IntuneEntities -EntityType "configurationPolicies"
     foreach ($policy in $settingsCatalog) {
         $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
-        if ($assignments | Where-Object { $_.Reason -eq "All Devices" }) {
-            $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Devices" -Force
+        if (($reason = Get-AllTargetReason -Assignments $assignments -TargetReason "All Devices")) {
+            $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
             $allDevicesAssignments.SettingsCatalog += $policy
         }
     }
@@ -63,8 +63,8 @@ function Get-IntuneAllDevicesAssignment {
     $compliancePolicies = Get-IntuneEntities -EntityType "deviceCompliancePolicies"
     foreach ($policy in $compliancePolicies) {
         $assignments = Get-IntuneAssignments -EntityType "deviceCompliancePolicies" -EntityId $policy.id
-        if ($assignments | Where-Object { $_.Reason -eq "All Devices" }) {
-            $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Devices" -Force
+        if (($reason = Get-AllTargetReason -Assignments $assignments -TargetReason "All Devices")) {
+            $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
             $allDevicesAssignments.CompliancePolicies += $policy
         }
     }
@@ -84,15 +84,16 @@ function Get-IntuneAllDevicesAssignment {
         if ($assignmentsUri) {
             try {
                 $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
-                $hasAllDevices = $false
+                $allDevicesTarget = $null
                 foreach ($assignment in $assignmentResponse.value) {
                     if ($assignment.target.'@odata.type' -eq '#microsoft.graph.allDevicesAssignmentTarget') {
-                        $hasAllDevices = $true
+                        $allDevicesTarget = $assignment.target
                         break
                     }
                 }
-                if ($hasAllDevices) {
-                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Devices" -Force
+                if ($allDevicesTarget) {
+                    $suffix = Format-AssignmentFilter -FilterId $allDevicesTarget.deviceAndAppManagementAssignmentFilterId -FilterType $allDevicesTarget.deviceAndAppManagementAssignmentFilterType
+                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Devices$suffix" -Force
                     $allDevicesAssignments.AppProtectionPolicies += $policy
                 }
             }
@@ -107,8 +108,8 @@ function Get-IntuneAllDevicesAssignment {
     $appConfigPolicies = Get-IntuneEntities -EntityType "deviceAppManagement/mobileAppConfigurations"
     foreach ($policy in $appConfigPolicies) {
         $assignments = Get-IntuneAssignments -EntityType "mobileAppConfigurations" -EntityId $policy.id
-        if ($assignments | Where-Object { $_.Reason -eq "All Devices" }) {
-            $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Devices" -Force
+        if (($reason = Get-AllTargetReason -Assignments $assignments -TargetReason "All Devices")) {
+            $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
             $allDevicesAssignments.AppConfigurationPolicies += $policy
         }
     }
@@ -136,8 +137,9 @@ function Get-IntuneAllDevicesAssignment {
 
         foreach ($assignment in $assignmentResponse.value) {
             if ($assignment.target.'@odata.type' -eq '#microsoft.graph.allDevicesAssignmentTarget') {
+                $suffix = Format-AssignmentFilter -FilterId $assignment.target.deviceAndAppManagementAssignmentFilterId -FilterType $assignment.target.deviceAndAppManagementAssignmentFilterType
                 $appWithReason = $app.PSObject.Copy()
-                $appWithReason | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Devices" -Force
+                $appWithReason | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Devices$suffix" -Force
                 switch ($assignment.intent) {
                     "required" { $allDevicesAssignments.RequiredApps += $appWithReason; break }
                     "available" { $allDevicesAssignments.AvailableApps += $appWithReason; break }
@@ -153,8 +155,8 @@ function Get-IntuneAllDevicesAssignment {
     $platformScripts = Get-IntuneEntities -EntityType "deviceManagementScripts"
     foreach ($script in $platformScripts) {
         $assignments = Get-IntuneAssignments -EntityType "deviceManagementScripts" -EntityId $script.id
-        if ($assignments | Where-Object { $_.Reason -eq "All Devices" }) {
-            $script | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Devices" -Force
+        if (($reason = Get-AllTargetReason -Assignments $assignments -TargetReason "All Devices")) {
+            $script | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
             $allDevicesAssignments.PlatformScripts += $script
         }
     }
@@ -164,8 +166,8 @@ function Get-IntuneAllDevicesAssignment {
     $healthScripts = Get-IntuneEntities -EntityType "deviceHealthScripts"
     foreach ($script in $healthScripts) {
         $assignments = Get-IntuneAssignments -EntityType "deviceHealthScripts" -EntityId $script.id
-        if ($assignments | Where-Object { $_.Reason -eq "All Devices" }) {
-            $script | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Devices" -Force
+        if (($reason = Get-AllTargetReason -Assignments $assignments -TargetReason "All Devices")) {
+            $script | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
             $allDevicesAssignments.HealthScripts += $script
         }
     }
@@ -175,8 +177,8 @@ function Get-IntuneAllDevicesAssignment {
     $autoProfilesAD = Get-IntuneEntities -EntityType "windowsAutopilotDeploymentProfiles"
     foreach ($policyProfile in $autoProfilesAD) {
         $assignments = Get-IntuneAssignments -EntityType "windowsAutopilotDeploymentProfiles" -EntityId $policyProfile.id
-        if ($assignments | Where-Object { $_.Reason -eq "All Devices" }) {
-            $policyProfile | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Devices" -Force
+        if (($reason = Get-AllTargetReason -Assignments $assignments -TargetReason "All Devices")) {
+            $policyProfile | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
             $allDevicesAssignments.DeploymentProfiles += $policyProfile
         }
     }
@@ -187,8 +189,8 @@ function Get-IntuneAllDevicesAssignment {
     $espProfilesAD = $enrollmentConfigsAD | Where-Object { $_.'@odata.type' -match 'EnrollmentCompletionPageConfiguration' }
     foreach ($esp in $espProfilesAD) {
         $assignments = Get-IntuneAssignments -EntityType "deviceEnrollmentConfigurations" -EntityId $esp.id
-        if ($assignments | Where-Object { $_.Reason -eq "All Devices" }) {
-            $esp | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Devices" -Force
+        if (($reason = Get-AllTargetReason -Assignments $assignments -TargetReason "All Devices")) {
+            $esp | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
             $allDevicesAssignments.ESPProfiles += $esp
         }
     }
@@ -205,8 +207,8 @@ function Get-IntuneAllDevicesAssignment {
         foreach ($policy in $matchingConfigPoliciesAntivirus_AllDevices) {
             if ($processedAntivirusIds_AllDevices.Add($policy.id)) {
                 $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
-                if ($assignments | Where-Object { $_.Reason -eq "All Devices" }) {
-                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Devices" -Force
+                if (($reason = Get-AllTargetReason -Assignments $assignments -TargetReason "All Devices")) {
+                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
                     [void]$antivirusPoliciesFound_AllDevices.Add($policy)
                 }
             }
@@ -221,8 +223,10 @@ function Get-IntuneAllDevicesAssignment {
         foreach ($policy in $matchingIntentsAntivirus_AllDevices) {
             if ($processedAntivirusIds_AllDevices.Add($policy.id)) {
                 $assignmentsResponse = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
-                if ($assignmentsResponse.value | Where-Object { $_.target.'@odata.type' -eq '#microsoft.graph.allDevicesAssignmentTarget' }) {
-                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Devices" -Force
+                $allDevicesTarget = $assignmentsResponse.value | Where-Object { $_.target.'@odata.type' -eq '#microsoft.graph.allDevicesAssignmentTarget' } | Select-Object -First 1
+                if ($allDevicesTarget) {
+                    $intentSuffix = Format-AssignmentFilter -FilterId $allDevicesTarget.target.deviceAndAppManagementAssignmentFilterId -FilterType $allDevicesTarget.target.deviceAndAppManagementAssignmentFilterType
+                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Devices$intentSuffix" -Force
                     [void]$antivirusPoliciesFound_AllDevices.Add($policy)
                 }
             }
@@ -242,8 +246,8 @@ function Get-IntuneAllDevicesAssignment {
         foreach ($policy in $matchingConfigPoliciesDiskEnc_AllDevices) {
             if ($processedDiskEncryptionIds_AllDevices.Add($policy.id)) {
                 $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
-                if ($assignments | Where-Object { $_.Reason -eq "All Devices" }) {
-                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Devices" -Force
+                if (($reason = Get-AllTargetReason -Assignments $assignments -TargetReason "All Devices")) {
+                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
                     [void]$diskEncryptionPoliciesFound_AllDevices.Add($policy)
                 }
             }
@@ -258,8 +262,10 @@ function Get-IntuneAllDevicesAssignment {
         foreach ($policy in $matchingIntentsDiskEnc_AllDevices) {
             if ($processedDiskEncryptionIds_AllDevices.Add($policy.id)) {
                 $assignmentsResponse = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
-                if ($assignmentsResponse.value | Where-Object { $_.target.'@odata.type' -eq '#microsoft.graph.allDevicesAssignmentTarget' }) {
-                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Devices" -Force
+                $allDevicesTarget = $assignmentsResponse.value | Where-Object { $_.target.'@odata.type' -eq '#microsoft.graph.allDevicesAssignmentTarget' } | Select-Object -First 1
+                if ($allDevicesTarget) {
+                    $intentSuffix = Format-AssignmentFilter -FilterId $allDevicesTarget.target.deviceAndAppManagementAssignmentFilterId -FilterType $allDevicesTarget.target.deviceAndAppManagementAssignmentFilterType
+                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Devices$intentSuffix" -Force
                     [void]$diskEncryptionPoliciesFound_AllDevices.Add($policy)
                 }
             }
@@ -279,8 +285,8 @@ function Get-IntuneAllDevicesAssignment {
         foreach ($policy in $matchingConfigPoliciesFirewall_AllDevices) {
             if ($processedFirewallIds_AllDevices.Add($policy.id)) {
                 $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
-                if ($assignments | Where-Object { $_.Reason -eq "All Devices" }) {
-                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Devices" -Force
+                if (($reason = Get-AllTargetReason -Assignments $assignments -TargetReason "All Devices")) {
+                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
                     [void]$firewallPoliciesFound_AllDevices.Add($policy)
                 }
             }
@@ -295,8 +301,10 @@ function Get-IntuneAllDevicesAssignment {
         foreach ($policy in $matchingIntentsFirewall_AllDevices) {
             if ($processedFirewallIds_AllDevices.Add($policy.id)) {
                 $assignmentsResponse = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
-                if ($assignmentsResponse.value | Where-Object { $_.target.'@odata.type' -eq '#microsoft.graph.allDevicesAssignmentTarget' }) {
-                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Devices" -Force
+                $allDevicesTarget = $assignmentsResponse.value | Where-Object { $_.target.'@odata.type' -eq '#microsoft.graph.allDevicesAssignmentTarget' } | Select-Object -First 1
+                if ($allDevicesTarget) {
+                    $intentSuffix = Format-AssignmentFilter -FilterId $allDevicesTarget.target.deviceAndAppManagementAssignmentFilterId -FilterType $allDevicesTarget.target.deviceAndAppManagementAssignmentFilterType
+                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Devices$intentSuffix" -Force
                     [void]$firewallPoliciesFound_AllDevices.Add($policy)
                 }
             }
@@ -316,8 +324,8 @@ function Get-IntuneAllDevicesAssignment {
         foreach ($policy in $matchingConfigPoliciesEDR_AllDevices) {
             if ($processedEDRIds_AllDevices.Add($policy.id)) {
                 $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
-                if ($assignments | Where-Object { $_.Reason -eq "All Devices" }) {
-                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Devices" -Force
+                if (($reason = Get-AllTargetReason -Assignments $assignments -TargetReason "All Devices")) {
+                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
                     [void]$edrPoliciesFound_AllDevices.Add($policy)
                 }
             }
@@ -332,8 +340,10 @@ function Get-IntuneAllDevicesAssignment {
         foreach ($policy in $matchingIntentsEDR_AllDevices) {
             if ($processedEDRIds_AllDevices.Add($policy.id)) {
                 $assignmentsResponse = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
-                if ($assignmentsResponse.value | Where-Object { $_.target.'@odata.type' -eq '#microsoft.graph.allDevicesAssignmentTarget' }) {
-                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Devices" -Force
+                $allDevicesTarget = $assignmentsResponse.value | Where-Object { $_.target.'@odata.type' -eq '#microsoft.graph.allDevicesAssignmentTarget' } | Select-Object -First 1
+                if ($allDevicesTarget) {
+                    $intentSuffix = Format-AssignmentFilter -FilterId $allDevicesTarget.target.deviceAndAppManagementAssignmentFilterId -FilterType $allDevicesTarget.target.deviceAndAppManagementAssignmentFilterType
+                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Devices$intentSuffix" -Force
                     [void]$edrPoliciesFound_AllDevices.Add($policy)
                 }
             }
@@ -353,8 +363,8 @@ function Get-IntuneAllDevicesAssignment {
         foreach ($policy in $matchingConfigPoliciesASR_AllDevices) {
             if ($processedASRIds_AllDevices.Add($policy.id)) {
                 $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
-                if ($assignments | Where-Object { $_.Reason -eq "All Devices" }) {
-                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Devices" -Force
+                if (($reason = Get-AllTargetReason -Assignments $assignments -TargetReason "All Devices")) {
+                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
                     [void]$asrPoliciesFound_AllDevices.Add($policy)
                 }
             }
@@ -369,8 +379,10 @@ function Get-IntuneAllDevicesAssignment {
         foreach ($policy in $matchingIntentsASR_AllDevices) {
             if ($processedASRIds_AllDevices.Add($policy.id)) {
                 $assignmentsResponse = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
-                if ($assignmentsResponse.value | Where-Object { $_.target.'@odata.type' -eq '#microsoft.graph.allDevicesAssignmentTarget' }) {
-                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Devices" -Force
+                $allDevicesTarget = $assignmentsResponse.value | Where-Object { $_.target.'@odata.type' -eq '#microsoft.graph.allDevicesAssignmentTarget' } | Select-Object -First 1
+                if ($allDevicesTarget) {
+                    $intentSuffix = Format-AssignmentFilter -FilterId $allDevicesTarget.target.deviceAndAppManagementAssignmentFilterId -FilterType $allDevicesTarget.target.deviceAndAppManagementAssignmentFilterType
+                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Devices$intentSuffix" -Force
                     [void]$asrPoliciesFound_AllDevices.Add($policy)
                 }
             }
@@ -390,8 +402,8 @@ function Get-IntuneAllDevicesAssignment {
         foreach ($policy in $matchingConfigPoliciesAccountProtection_AllDevices) {
             if ($processedAccountProtectionIds_AllDevices.Add($policy.id)) {
                 $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
-                if ($assignments | Where-Object { $_.Reason -eq "All Devices" }) {
-                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Devices" -Force
+                if (($reason = Get-AllTargetReason -Assignments $assignments -TargetReason "All Devices")) {
+                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
                     [void]$accountProtectionPoliciesFound_AllDevices.Add($policy)
                 }
             }
@@ -406,8 +418,10 @@ function Get-IntuneAllDevicesAssignment {
         foreach ($policy in $matchingIntentsAccountProtection_AllDevices) {
             if ($processedAccountProtectionIds_AllDevices.Add($policy.id)) {
                 $assignmentsResponse = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
-                if ($assignmentsResponse.value | Where-Object { $_.target.'@odata.type' -eq '#microsoft.graph.allDevicesAssignmentTarget' }) {
-                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Devices" -Force
+                $allDevicesTarget = $assignmentsResponse.value | Where-Object { $_.target.'@odata.type' -eq '#microsoft.graph.allDevicesAssignmentTarget' } | Select-Object -First 1
+                if ($allDevicesTarget) {
+                    $intentSuffix = Format-AssignmentFilter -FilterId $allDevicesTarget.target.deviceAndAppManagementAssignmentFilterId -FilterType $allDevicesTarget.target.deviceAndAppManagementAssignmentFilterType
+                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Devices$intentSuffix" -Force
                     [void]$accountProtectionPoliciesFound_AllDevices.Add($policy)
                 }
             }
