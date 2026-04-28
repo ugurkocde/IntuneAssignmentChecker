@@ -1,6 +1,6 @@
 @{
     RootModule        = 'IntuneAssignmentChecker.psm1'
-    ModuleVersion     = '4.1.0'
+    ModuleVersion     = '4.2.0'
     GUID              = 'c6e25ec6-5787-45ef-95af-8abeb8a17daf'
     Author            = 'Ugur Koc'
     CompanyName       = 'Community'
@@ -14,6 +14,7 @@
         'Get-IntuneUserAssignment'
         'Get-IntuneGroupAssignment'
         'Get-IntuneDeviceAssignment'
+        'Get-IntuneUserDeviceAssignment'
         'Get-IntuneAllPolicies'
         'Get-IntuneAllUsersAssignment'
         'Get-IntuneAllDevicesAssignment'
@@ -42,6 +43,11 @@
             ProjectUri   = 'https://github.com/ugurkocde/IntuneAssignmentChecker'
             IconUri      = ''
             ReleaseNotes = @'
+Version 4.2.0:
+- Add -AccessToken (SecureString) parameter for non-interactive authentication using a pre-fetched Microsoft Graph token (Azure Automation managed identities, Azure Functions, federated credentials, parent-script Connect-MgGraph sessions).
+- Extend Test-IntuneGroupMembership and Test-IntuneGroupRemoval to accept a Device in addition to a User. The simulation now unions user-side and device-side group memberships.
+- Add Option 16: What-If for a User on a specific Device. Lists every policy and app that would apply to that user/device pair, with a Source column indicating whether each assignment came from the user, the device, or both.
+
 Version 4.1.0:
 - Show Intune assignment filters on all assignments (issue #122). Filter name and include/exclude type now appear in console output, CSV exports, and HTML reports across all assignment, simulation, and search cmdlets.
 - Add Get-AssignmentFilterLookup to cache filter metadata at connection time.

@@ -36,10 +36,11 @@ function Show-Menu {
     Write-Host "  [9] Check for Empty Groups in Assignments" -ForegroundColor White
     Write-Host "  [10] Compare Assignments Between Groups" -ForegroundColor White
     Write-Host "  [11] Show All Failed Assignments" -ForegroundColor White
-    Write-Host "  [12] Simulate Group Membership Impact" -ForegroundColor White
-    Write-Host "  [13] Simulate Removing User from Group" -ForegroundColor White
+    Write-Host "  [12] Simulate Group Membership Impact (User and/or Device)" -ForegroundColor White
+    Write-Host "  [13] Simulate Removing from Group (User and/or Device)" -ForegroundColor White
     Write-Host "  [14] Search Policy Assignments" -ForegroundColor White
     Write-Host "  [15] Search for Specific Settings" -ForegroundColor White
+    Write-Host "  [16] What-If: All Policies for a User on a Specific Device" -ForegroundColor White
     Write-Host ""
 
     Write-Host "System:" -ForegroundColor Cyan

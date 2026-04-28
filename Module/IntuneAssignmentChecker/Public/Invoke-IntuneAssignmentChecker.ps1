@@ -14,6 +14,9 @@ function Invoke-IntuneAssignmentChecker {
         [Parameter(Mandatory = $false, HelpMessage = "Client Secret for authentication")]
         [string]$ClientSecret,
 
+        [Parameter(Mandatory = $false, HelpMessage = "Pre-fetched Microsoft Graph access token (SecureString)")]
+        [SecureString]$AccessToken,
+
         [Parameter(Mandatory = $false, HelpMessage = "Environment (Global, USGov, USGovDoD)")]
         [ValidateSet("Global", "USGov", "USGovDoD")]
         [string]$Environment = "Global",
@@ -91,6 +94,9 @@ function Invoke-IntuneAssignmentChecker {
         [Parameter(Mandatory = $false, HelpMessage = "Setting keyword to search for")]
         [string]$SettingKeyword,
 
+        [Parameter(Mandatory = $false, HelpMessage = "Show all policies that would apply to a User on a specific Device")]
+        [switch]$CheckUserAndDevice,
+
         # ── Common output options ─────────────────────────────────────────
         [Parameter(Mandatory = $false, HelpMessage = "Export results to CSV")]
         [switch]$ExportToCSV,
@@ -124,6 +130,7 @@ function Invoke-IntuneAssignmentChecker {
     elseif ($SimulateRemoveFromGroup)  { $parameterMode = $true; $selectedOption = '13' }
     elseif ($SearchPolicy)             { $parameterMode = $true; $selectedOption = '14' }
     elseif ($SearchSetting)            { $parameterMode = $true; $selectedOption = '15' }
+    elseif ($CheckUserAndDevice)       { $parameterMode = $true; $selectedOption = '16' }
 
     # HTMLReportPath implies GenerateHTMLReport
     if (-not $parameterMode -and $HTMLReportPath) {
@@ -137,6 +144,7 @@ function Invoke-IntuneAssignmentChecker {
     if ($TenantId)              { $connectParams['TenantId']              = $TenantId }
     if ($CertificateThumbprint) { $connectParams['CertificateThumbprint'] = $CertificateThumbprint }
     if ($ClientSecret)          { $connectParams['ClientSecret']          = $ClientSecret }
+    if ($AccessToken -and $AccessToken.Length -gt 0) { $connectParams['AccessToken'] = $AccessToken }
     if ($Environment)           { $connectParams['Environment']           = $Environment }
 
     Connect-IntuneAssignmentChecker @connectParams
@@ -228,6 +236,7 @@ function Invoke-IntuneAssignmentChecker {
             '12' {
                 Test-IntuneGroupMembership `
                     -UserPrincipalNames $UserPrincipalNames `
+                    -DeviceNames $DeviceNames `
                     -SimulateTargetGroup $SimulateTargetGroup `
                     -GroupNames $GroupNames `
                     -ExportToCSV:$ExportToCSV `
@@ -237,6 +246,7 @@ function Invoke-IntuneAssignmentChecker {
             '13' {
                 Test-IntuneGroupRemoval `
                     -UserPrincipalNames $UserPrincipalNames `
+                    -DeviceNames $DeviceNames `
                     -SimulateRemoveTargetGroup $SimulateRemoveTargetGroup `
                     -GroupNames $GroupNames `
                     -ExportToCSV:$ExportToCSV `
@@ -254,6 +264,14 @@ function Invoke-IntuneAssignmentChecker {
                     -Keyword $SettingKeyword `
                     -ExportToCSV:$ExportToCSV `
                     -ExportPath $ExportPath
+            }
+            '16' {
+                Get-IntuneUserDeviceAssignment `
+                    -UserPrincipalName $UserPrincipalNames `
+                    -DeviceName $DeviceNames `
+                    -ExportToCSV:$ExportToCSV `
+                    -ExportPath $ExportPath `
+                    -ScopeTagFilter $ScopeTagFilter
             }
             {$_ -eq 'T' -or $_ -eq 't'} {
                 Switch-Tenant
@@ -277,7 +295,7 @@ function Invoke-IntuneAssignmentChecker {
                 Start-Process "https://github.com/ugurkocde/IntuneAssignmentChecker"
             }
             default {
-                Write-Host "Invalid choice, please select 1-15, T, 98, 99, or 0." -ForegroundColor Red
+                Write-Host "Invalid choice, please select 1-16, T, 98, 99, or 0." -ForegroundColor Red
             }
         }
 

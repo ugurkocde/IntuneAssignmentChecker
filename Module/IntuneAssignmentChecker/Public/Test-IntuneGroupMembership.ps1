@@ -5,6 +5,9 @@ function Test-IntuneGroupMembership {
         [string]$UserPrincipalNames,
 
         [Parameter()]
+        [string]$DeviceNames,
+
+        [Parameter()]
         [string]$SimulateTargetGroup,
 
         [Parameter()]
@@ -22,26 +25,35 @@ function Test-IntuneGroupMembership {
 
     Write-Host "Group Membership Impact Analysis selected" -ForegroundColor Green
 
-    # Get User Principal Name
-    if ($UserPrincipalNames) {
-        $simUpnInput = $UserPrincipalNames
-    }
-    else {
-        Write-Host "Please enter the User Principal Name: " -ForegroundColor Cyan
+    # Get User Principal Name and/or Device Name. At least one must be supplied.
+    $simUpnInput    = $UserPrincipalNames
+    $simDeviceInput = $DeviceNames
+
+    if (-not $simUpnInput -and -not $simDeviceInput) {
+        Write-Host "Enter a User Principal Name, a Device name, or both (leave one blank to skip)." -ForegroundColor Cyan
+        Write-Host "  User Principal Name: " -NoNewline -ForegroundColor Cyan
         $simUpnInput = Read-Host
+        Write-Host "  Device Name: " -NoNewline -ForegroundColor Cyan
+        $simDeviceInput = Read-Host
     }
 
-    if ([string]::IsNullOrWhiteSpace($simUpnInput)) {
-        Write-Host "No UPN provided. Please try again with a valid UPN." -ForegroundColor Red
+    if ([string]::IsNullOrWhiteSpace($simUpnInput) -and [string]::IsNullOrWhiteSpace($simDeviceInput)) {
+        Write-Host "No User or Device provided. Please supply at least one." -ForegroundColor Red
         return
     }
 
-    $simUpn = ($simUpnInput -split ',')[0].Trim()
+    $simUpn = $null
+    if (-not [string]::IsNullOrWhiteSpace($simUpnInput)) {
+        $simUpn = ($simUpnInput -split ',')[0].Trim()
+        if ($simUpn -notmatch '^[^@\s]+@[^@\s]+\.[^@\s]+$') {
+            Write-Host "Invalid UPN format: '$simUpn'. Expected: user@domain.com" -ForegroundColor Red
+            return
+        }
+    }
 
-    # Validate UPN format
-    if ($simUpn -notmatch '^[^@\s]+@[^@\s]+\.[^@\s]+$') {
-        Write-Host "Invalid UPN format: '$simUpn'. Expected: user@domain.com" -ForegroundColor Red
-        return
+    $simDeviceName = $null
+    if (-not [string]::IsNullOrWhiteSpace($simDeviceInput)) {
+        $simDeviceName = ($simDeviceInput -split ',')[0].Trim()
     }
 
     # Get Target Group - SimulateTargetGroup takes precedence over GroupNames
@@ -64,13 +76,41 @@ function Test-IntuneGroupMembership {
 
     $simGroupInput = ($simGroupInput -split ',')[0].Trim()
 
-    # Resolve user
-    Write-Host "Looking up user: $simUpn" -ForegroundColor Yellow
-    $simUserInfo = Get-UserInfo -UserPrincipalName $simUpn
-    if (-not $simUserInfo.Success) {
-        Write-Host "User not found: $simUpn" -ForegroundColor Red
-        return
+    # Resolve user (optional)
+    $simUserInfo = $null
+    if ($simUpn) {
+        Write-Host "Looking up user: $simUpn" -ForegroundColor Yellow
+        $simUserInfo = Get-UserInfo -UserPrincipalName $simUpn
+        if (-not $simUserInfo.Success) {
+            Write-Host "User not found: $simUpn" -ForegroundColor Red
+            return
+        }
     }
+
+    # Resolve device (optional)
+    $simDeviceInfo = $null
+    if ($simDeviceName) {
+        Write-Host "Looking up device: $simDeviceName" -ForegroundColor Yellow
+        $simDeviceInfo = Get-DeviceInfo -DeviceName $simDeviceName
+        if (-not $simDeviceInfo.Success) {
+            Write-Host "Device not found: $simDeviceName" -ForegroundColor Red
+            return
+        }
+        if ($simDeviceInfo.MultipleFound) {
+            Write-Host "Multiple devices match name '$simDeviceName'. Use a more specific name." -ForegroundColor Red
+            foreach ($d in $simDeviceInfo.AllDevices) {
+                Write-Host "  - $($d.displayName) (ID: $($d.id), OS: $($d.operatingSystem))" -ForegroundColor Yellow
+            }
+            return
+        }
+    }
+
+    # Determine simulation perspective
+    $hasUserPersp   = [bool]$simUserInfo
+    $hasDevicePersp = [bool]$simDeviceInfo
+    $includeReasons = @()
+    if ($hasUserPersp)   { $includeReasons += "All Users" }
+    if ($hasDevicePersp) { $includeReasons += "All Devices" }
 
     # Resolve target group
     Write-Host "Looking up group: $simGroupInput" -ForegroundColor Yellow
@@ -108,20 +148,28 @@ function Test-IntuneGroupMembership {
 
     Write-Host "Target group: $simTargetGroupName (ID: $simTargetGroupId)" -ForegroundColor Green
 
-    # Get user's current group memberships
+    # Get current group memberships (union of user and device, depending on what was supplied)
+    $simCurrentGroupIds = @()
     try {
-        $simUserGroups = Get-GroupMemberships -ObjectId $simUserInfo.Id -ObjectType "User"
-        $simCurrentGroupIds = @($simUserGroups | Where-Object { $_.id } | ForEach-Object { $_.id })
+        if ($hasUserPersp) {
+            $simUserGroups = Get-GroupMemberships -ObjectId $simUserInfo.Id -ObjectType "User"
+            $simCurrentGroupIds += @($simUserGroups | Where-Object { $_.id } | ForEach-Object { $_.id })
+        }
+        if ($hasDevicePersp) {
+            $simDeviceGroups = Get-GroupMemberships -ObjectId $simDeviceInfo.Id -ObjectType "Device"
+            $simCurrentGroupIds += @($simDeviceGroups | Where-Object { $_.id } | ForEach-Object { $_.id })
+        }
+        $simCurrentGroupIds = @($simCurrentGroupIds | Select-Object -Unique)
     }
     catch {
         Write-Host "Error fetching group memberships: $($_.Exception.Message)" -ForegroundColor Red
         return
     }
 
-    # Check if user is already in the target group
+    # Check if subject is already in the target group
     $alreadyMember = $simCurrentGroupIds -contains $simTargetGroupId
     if ($alreadyMember) {
-        Write-Host "`nNote: User is already a member of '$simTargetGroupName'. Showing policies received via this group." -ForegroundColor Yellow
+        Write-Host "`nNote: Subject is already a member of '$simTargetGroupName'. Showing policies received via this group." -ForegroundColor Yellow
     }
 
     # Get target group's parent groups (transitive)
@@ -170,7 +218,7 @@ function Test-IntuneGroupMembership {
     $simDeviceConfigs = Get-IntuneEntities -EntityType "deviceConfigurations"
     foreach ($config in $simDeviceConfigs) {
         $assignments = Get-IntuneAssignments -EntityType "deviceConfigurations" -EntityId $config.id
-        $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+        $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons $includeReasons
         if ($delta.IsNewPolicy) {
             $config | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.AssignmentReason -Force
             [void]$deltaPolicies.DeviceConfigs.Add($config)
@@ -186,7 +234,7 @@ function Test-IntuneGroupMembership {
     $simSettingsCatalog = Get-IntuneEntities -EntityType "configurationPolicies"
     foreach ($policy in $simSettingsCatalog) {
         $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
-        $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+        $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons $includeReasons
         if ($delta.IsNewPolicy) {
             $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.AssignmentReason -Force
             [void]$deltaPolicies.SettingsCatalog.Add($policy)
@@ -202,7 +250,7 @@ function Test-IntuneGroupMembership {
     $simCompliancePolicies = Get-IntuneEntities -EntityType "deviceCompliancePolicies"
     foreach ($policy in $simCompliancePolicies) {
         $assignments = Get-IntuneAssignments -EntityType "deviceCompliancePolicies" -EntityId $policy.id
-        $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+        $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons $includeReasons
         if ($delta.IsNewPolicy) {
             $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.AssignmentReason -Force
             [void]$deltaPolicies.CompliancePolicies.Add($policy)
@@ -242,7 +290,7 @@ function Test-IntuneGroupMembership {
                 }
 
                 if ($assignments.Count -gt 0) {
-                    $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+                    $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons $includeReasons
                     if ($delta.IsNewPolicy) {
                         $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.AssignmentReason -Force
                         [void]$deltaPolicies.AppProtectionPolicies.Add($policy)
@@ -264,7 +312,7 @@ function Test-IntuneGroupMembership {
     $simAppConfigPolicies = Get-IntuneEntities -EntityType "deviceAppManagement/mobileAppConfigurations"
     foreach ($policy in $simAppConfigPolicies) {
         $assignments = Get-IntuneAssignments -EntityType "mobileAppConfigurations" -EntityId $policy.id
-        $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+        $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons $includeReasons
         if ($delta.IsNewPolicy) {
             $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.AssignmentReason -Force
             [void]$deltaPolicies.AppConfigurationPolicies.Add($policy)
@@ -315,10 +363,20 @@ function Test-IntuneGroupMembership {
                     if ($simSimulatedGroupIds -contains $targetGroupId) { $simExcluded = $true }
                 }
                 elseif ($targetType -eq '#microsoft.graph.allLicensedUsersAssignmentTarget') {
-                    $currentIncluded = $true
-                    $simIncluded = $true
-                    $appIntent = $assignment.intent
-                    if (-not $simWinningTarget) { $simWinningTarget = $assignment.target }
+                    if ($includeReasons -contains "All Users") {
+                        $currentIncluded = $true
+                        $simIncluded = $true
+                        $appIntent = $assignment.intent
+                        if (-not $simWinningTarget) { $simWinningTarget = $assignment.target }
+                    }
+                }
+                elseif ($targetType -eq '#microsoft.graph.allDevicesAssignmentTarget') {
+                    if ($includeReasons -contains "All Devices") {
+                        $currentIncluded = $true
+                        $simIncluded = $true
+                        $appIntent = $assignment.intent
+                        if (-not $simWinningTarget) { $simWinningTarget = $assignment.target }
+                    }
                 }
                 elseif ($targetType -eq '#microsoft.graph.groupAssignmentTarget') {
                     if ($simCurrentGroupIds -contains $targetGroupId) { $currentIncluded = $true; $appIntent = $assignment.intent }
@@ -374,7 +432,7 @@ function Test-IntuneGroupMembership {
     $simPlatformScripts = Get-IntuneEntities -EntityType "deviceManagementScripts"
     foreach ($script in $simPlatformScripts) {
         $assignments = Get-IntuneAssignments -EntityType "deviceManagementScripts" -EntityId $script.id
-        $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+        $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons $includeReasons
         if ($delta.IsNewPolicy) {
             $script | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.AssignmentReason -Force
             [void]$deltaPolicies.PlatformScripts.Add($script)
@@ -390,7 +448,7 @@ function Test-IntuneGroupMembership {
     $simHealthScripts = Get-IntuneEntities -EntityType "deviceHealthScripts"
     foreach ($script in $simHealthScripts) {
         $assignments = Get-IntuneAssignments -EntityType "deviceHealthScripts" -EntityId $script.id
-        $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+        $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons $includeReasons
         if ($delta.IsNewPolicy) {
             $script | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.AssignmentReason -Force
             [void]$deltaPolicies.HealthScripts.Add($script)
@@ -411,7 +469,7 @@ function Test-IntuneGroupMembership {
         foreach ($policy in $simMatchingAntivirus) {
             if ($simProcessedAntivirusIds.Add($policy.id)) {
                 $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
-                $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+                $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons $includeReasons
                 if ($delta.IsNewPolicy) {
                     $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.AssignmentReason -Force
                     [void]$deltaPolicies.AntivirusProfiles.Add($policy)
@@ -442,7 +500,7 @@ function Test-IntuneGroupMembership {
                         GroupId = if ($assignment.target.'@odata.type' -match "groupAssignmentTarget") { $assignment.target.groupId } else { $null }
                     }
                 }
-                $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignmentDetailsList -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+                $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignmentDetailsList -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons $includeReasons
                 if ($delta.IsNewPolicy) {
                     $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.AssignmentReason -Force
                     [void]$deltaPolicies.AntivirusProfiles.Add($policy)
@@ -465,7 +523,7 @@ function Test-IntuneGroupMembership {
         foreach ($policy in $simMatchingDiskEnc) {
             if ($simProcessedDiskEncIds.Add($policy.id)) {
                 $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
-                $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+                $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons $includeReasons
                 if ($delta.IsNewPolicy) {
                     $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.AssignmentReason -Force
                     [void]$deltaPolicies.DiskEncryptionProfiles.Add($policy)
@@ -496,7 +554,7 @@ function Test-IntuneGroupMembership {
                         GroupId = if ($assignment.target.'@odata.type' -match "groupAssignmentTarget") { $assignment.target.groupId } else { $null }
                     }
                 }
-                $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignmentDetailsList -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+                $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignmentDetailsList -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons $includeReasons
                 if ($delta.IsNewPolicy) {
                     $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.AssignmentReason -Force
                     [void]$deltaPolicies.DiskEncryptionProfiles.Add($policy)
@@ -519,7 +577,7 @@ function Test-IntuneGroupMembership {
         foreach ($policy in $simMatchingFirewall) {
             if ($simProcessedFirewallIds.Add($policy.id)) {
                 $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
-                $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+                $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons $includeReasons
                 if ($delta.IsNewPolicy) {
                     $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.AssignmentReason -Force
                     [void]$deltaPolicies.FirewallProfiles.Add($policy)
@@ -550,7 +608,7 @@ function Test-IntuneGroupMembership {
                         GroupId = if ($assignment.target.'@odata.type' -match "groupAssignmentTarget") { $assignment.target.groupId } else { $null }
                     }
                 }
-                $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignmentDetailsList -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+                $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignmentDetailsList -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons $includeReasons
                 if ($delta.IsNewPolicy) {
                     $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.AssignmentReason -Force
                     [void]$deltaPolicies.FirewallProfiles.Add($policy)
@@ -573,7 +631,7 @@ function Test-IntuneGroupMembership {
         foreach ($policy in $simMatchingEDR) {
             if ($simProcessedEDRIds.Add($policy.id)) {
                 $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
-                $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+                $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons $includeReasons
                 if ($delta.IsNewPolicy) {
                     $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.AssignmentReason -Force
                     [void]$deltaPolicies.EndpointDetectionProfiles.Add($policy)
@@ -604,7 +662,7 @@ function Test-IntuneGroupMembership {
                         GroupId = if ($assignment.target.'@odata.type' -match "groupAssignmentTarget") { $assignment.target.groupId } else { $null }
                     }
                 }
-                $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignmentDetailsList -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+                $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignmentDetailsList -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons $includeReasons
                 if ($delta.IsNewPolicy) {
                     $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.AssignmentReason -Force
                     [void]$deltaPolicies.EndpointDetectionProfiles.Add($policy)
@@ -627,7 +685,7 @@ function Test-IntuneGroupMembership {
         foreach ($policy in $simMatchingASR) {
             if ($simProcessedASRIds.Add($policy.id)) {
                 $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
-                $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+                $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons $includeReasons
                 if ($delta.IsNewPolicy) {
                     $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.AssignmentReason -Force
                     [void]$deltaPolicies.AttackSurfaceProfiles.Add($policy)
@@ -658,7 +716,7 @@ function Test-IntuneGroupMembership {
                         GroupId = if ($assignment.target.'@odata.type' -match "groupAssignmentTarget") { $assignment.target.groupId } else { $null }
                     }
                 }
-                $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignmentDetailsList -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+                $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignmentDetailsList -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons $includeReasons
                 if ($delta.IsNewPolicy) {
                     $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.AssignmentReason -Force
                     [void]$deltaPolicies.AttackSurfaceProfiles.Add($policy)
@@ -681,7 +739,7 @@ function Test-IntuneGroupMembership {
         foreach ($policy in $simMatchingAcctProt) {
             if ($simProcessedAcctProtIds.Add($policy.id)) {
                 $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
-                $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+                $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons $includeReasons
                 if ($delta.IsNewPolicy) {
                     $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.AssignmentReason -Force
                     [void]$deltaPolicies.AccountProtectionProfiles.Add($policy)
@@ -712,7 +770,7 @@ function Test-IntuneGroupMembership {
                         GroupId = if ($assignment.target.'@odata.type' -match "groupAssignmentTarget") { $assignment.target.groupId } else { $null }
                     }
                 }
-                $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignmentDetailsList -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+                $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignmentDetailsList -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons $includeReasons
                 if ($delta.IsNewPolicy) {
                     $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.AssignmentReason -Force
                     [void]$deltaPolicies.AccountProtectionProfiles.Add($policy)
@@ -730,7 +788,7 @@ function Test-IntuneGroupMembership {
     $simAutoProfiles = Get-IntuneEntities -EntityType "windowsAutopilotDeploymentProfiles"
     foreach ($profile in $simAutoProfiles) {
         $assignments = Get-IntuneAssignments -EntityType "windowsAutopilotDeploymentProfiles" -EntityId $profile.id
-        $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+        $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons $includeReasons
         if ($delta.IsNewPolicy) {
             $profile | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.AssignmentReason -Force
             [void]$deltaPolicies.DeploymentProfiles.Add($profile)
@@ -747,7 +805,7 @@ function Test-IntuneGroupMembership {
     $simEspProfiles = $simEnrollmentConfigs | Where-Object { $_.'@odata.type' -match 'EnrollmentCompletionPageConfiguration' }
     foreach ($esp in $simEspProfiles) {
         $assignments = Get-IntuneAssignments -EntityType "deviceEnrollmentConfigurations" -EntityId $esp.id
-        $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+        $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons $includeReasons
         if ($delta.IsNewPolicy) {
             $esp | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.AssignmentReason -Force
             [void]$deltaPolicies.ESPProfiles.Add($esp)
@@ -764,7 +822,7 @@ function Test-IntuneGroupMembership {
         $simCloudPCProvisioning = Get-IntuneEntities -EntityType "virtualEndpoint/provisioningPolicies"
         foreach ($policy in $simCloudPCProvisioning) {
             $assignments = Get-IntuneAssignments -EntityType "virtualEndpoint/provisioningPolicies" -EntityId $policy.id
-            $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+            $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons $includeReasons
             if ($delta.IsNewPolicy) {
                 $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.AssignmentReason -Force
                 [void]$deltaPolicies.CloudPCProvisioningPolicies.Add($policy)
@@ -785,7 +843,7 @@ function Test-IntuneGroupMembership {
         $simCloudPCUserSettings = Get-IntuneEntities -EntityType "virtualEndpoint/userSettings"
         foreach ($setting in $simCloudPCUserSettings) {
             $assignments = Get-IntuneAssignments -EntityType "virtualEndpoint/userSettings" -EntityId $setting.id
-            $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons @("All Users")
+            $delta = Resolve-SimulatedAssignmentDelta -Assignments $assignments -CurrentGroupIds $simCurrentGroupIds -SimulatedGroupIds $simSimulatedGroupIds -TargetGroupIds $simTargetAllGroupIds -IncludeReasons $includeReasons
             if ($delta.IsNewPolicy) {
                 $setting | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $delta.AssignmentReason -Force
                 [void]$deltaPolicies.CloudPCUserSettings.Add($setting)
@@ -812,10 +870,11 @@ function Test-IntuneGroupMembership {
     Write-Host "  SIMULATION RESULTS - GROUP MEMBERSHIP IMPACT ANALYSIS" -ForegroundColor Yellow
     Write-Host "  (no changes were made)" -ForegroundColor DarkGray
     Write-Host (Get-Separator -Character "=") -ForegroundColor Yellow
-    Write-Host "  User: $simUpn" -ForegroundColor White
+    if ($hasUserPersp)   { Write-Host "  User:   $simUpn" -ForegroundColor White }
+    if ($hasDevicePersp) { Write-Host "  Device: $($simDeviceInfo.DisplayName) (ID: $($simDeviceInfo.Id))" -ForegroundColor White }
     Write-Host "  Target Group: $simTargetGroupName (ID: $simTargetGroupId)" -ForegroundColor White
     if ($alreadyMember) {
-        Write-Host "  Status: User is ALREADY a member of this group" -ForegroundColor Yellow
+        Write-Host "  Status: Subject is ALREADY a member of this group" -ForegroundColor Yellow
     }
     Write-Host (Get-Separator -Character "=") -ForegroundColor Yellow
 
@@ -895,14 +954,23 @@ function Test-IntuneGroupMembership {
         Write-Host $separator
     }
 
+    # Build a display label for the simulation subject(s)
+    $subjectLabel = if ($hasUserPersp -and $hasDevicePersp) {
+        "User '$simUpn' + Device '$($simDeviceInfo.DisplayName)'"
+    } elseif ($hasUserPersp) {
+        "User '$simUpn'"
+    } else {
+        "Device '$($simDeviceInfo.DisplayName)'"
+    }
+
     # Summary
     Write-Host "`n=== Impact Summary ===" -ForegroundColor Cyan
     if ($alreadyMember) {
-        Write-Host "User '$simUpn' is already a member of '$simTargetGroupName'." -ForegroundColor Yellow
+        Write-Host "$subjectLabel is already a member of '$simTargetGroupName'." -ForegroundColor Yellow
         Write-Host "The following shows policies currently received via this group:" -ForegroundColor Yellow
     }
     else {
-        Write-Host "Adding '$simUpn' to '$simTargetGroupName' would result in:" -ForegroundColor White
+        Write-Host "Adding $subjectLabel to '$simTargetGroupName' would result in:" -ForegroundColor White
     }
 
     $categoryCount = ($categoryDisplay.Keys | Where-Object { $deltaPolicies[$_].Count -gt 0 }).Count
@@ -926,7 +994,7 @@ function Test-IntuneGroupMembership {
     $exportData = [System.Collections.ArrayList]::new()
     $null = $exportData.Add([PSCustomObject]@{
         Category         = "Simulation Info"
-        Item             = "User: $simUpn -> Group: $simTargetGroupName (ID: $simTargetGroupId)"
+        Item             = "$subjectLabel -> Group: $simTargetGroupName (ID: $simTargetGroupId)"
         ScopeTags        = ""
         AssignmentReason = if ($alreadyMember) { "Already a member" } else { "Impact Analysis" }
     })

@@ -13,18 +13,21 @@ function Connect-IntuneAssignmentChecker {
         [Parameter(Mandatory = $false, HelpMessage = "Client Secret for authentication")]
         [string]$ClientSecret,
 
+        [Parameter(Mandatory = $false, HelpMessage = "Pre-fetched Microsoft Graph access token (SecureString)")]
+        [SecureString]$AccessToken,
+
         [Parameter(Mandatory = $false, HelpMessage = "Environment (Global, USGov, USGovDoD)")]
         [ValidateSet("Global", "USGov", "USGovDoD")]
         [string]$Environment = "Global"
     )
 
     # ── Banner ────────────────────────────────────────────────────────────
-    $localVersion = "4.1.0"
+    $localVersion = "4.2.0"
 
     Write-Host "INTUNE ASSIGNMENT CHECKER" -ForegroundColor Cyan
     Write-Host "Made by Ugur Koc" -NoNewline
     Write-Host " | Version" -NoNewline; Write-Host " $localVersion" -ForegroundColor Yellow -NoNewline
-    Write-Host " | Last updated: " -NoNewline; Write-Host "2026-04-14" -ForegroundColor Magenta
+    Write-Host " | Last updated: " -NoNewline; Write-Host "2026-04-28" -ForegroundColor Magenta
     Write-Host ""
     Write-Host "Feedback & Issues: " -NoNewline -ForegroundColor Cyan
     Write-Host "https://github.com/ugurkocde/IntuneAssignmentChecker/issues" -ForegroundColor White
@@ -62,7 +65,8 @@ function Connect-IntuneAssignmentChecker {
     $hasTenantId       = -not [string]::IsNullOrWhiteSpace($TenantId)
     $hasClientSecret   = -not [string]::IsNullOrWhiteSpace($ClientSecret)
     $hasCertThumbprint = -not [string]::IsNullOrWhiteSpace($CertificateThumbprint)
-    $parameterMode     = $hasAppId -or $hasTenantId -or $hasClientSecret -or $hasCertThumbprint
+    $hasAccessToken    = $null -ne $AccessToken -and $AccessToken.Length -gt 0
+    $parameterMode     = $hasAppId -or $hasTenantId -or $hasClientSecret -or $hasCertThumbprint -or $hasAccessToken
 
     # ── Required permissions ──────────────────────────────────────────────
     $requiredPermissions = @(
@@ -94,7 +98,13 @@ function Connect-IntuneAssignmentChecker {
         else {
             Write-Host "No existing Microsoft Graph connection found. Attempting connection..." -ForegroundColor Yellow
 
-            if ($hasAppId -and $hasTenantId -and $hasClientSecret) {
+            if ($hasAccessToken) {
+                # Pre-fetched access token authentication (managed identity, federated creds, parent-script tokens, etc.)
+                Write-Host "Connecting using pre-fetched access token..." -ForegroundColor Yellow
+                Set-Environment -EnvironmentName $Environment
+                $null = Connect-MgGraph -AccessToken $AccessToken -Environment $script:GraphEnvironment -NoWelcome -ErrorAction Stop
+            }
+            elseif ($hasAppId -and $hasTenantId -and $hasClientSecret) {
                 # Client Secret authentication
                 Write-Host "Connecting using Client Secret authentication..." -ForegroundColor Yellow
                 Set-Environment -EnvironmentName $Environment
