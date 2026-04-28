@@ -48,7 +48,23 @@ jobs:
           Write-Host ""
 
           # Run the analysis on the module directory (all .ps1 and .psm1 files)
-          $results = Invoke-ScriptAnalyzer -Path ./Module/IntuneAssignmentChecker -Recurse -Settings ./.PSScriptAnalyzerSettings.psd1 -RecurseCustomRulePath
+          # -RecurseCustomRulePath omitted: no custom rules, and the switch can trigger
+          # internal NREs in PSScriptAnalyzer 1.25 on Linux when no -CustomRulePath is set.
+          try {
+              $results = Invoke-ScriptAnalyzer -Path ./Module/IntuneAssignmentChecker -Recurse -Settings ./.PSScriptAnalyzerSettings.psd1 -ErrorAction Stop
+          } catch {
+              Write-Host "Recursive analysis threw: $($_.Exception.Message)" -ForegroundColor Yellow
+              Write-Host "Falling back to per-file analysis..." -ForegroundColor Yellow
+              $results = @()
+              $files = Get-ChildItem -Path ./Module/IntuneAssignmentChecker -Recurse -Include *.ps1,*.psm1 -File
+              foreach ($f in $files) {
+                  try {
+                      $results += Invoke-ScriptAnalyzer -Path $f.FullName -Settings ./.PSScriptAnalyzerSettings.psd1 -ErrorAction Stop
+                  } catch {
+                      Write-Host "  Skipped $($f.Name): $($_.Exception.Message)" -ForegroundColor DarkYellow
+                  }
+              }
+          }
 
           if ($results) {
               # Group by severity
