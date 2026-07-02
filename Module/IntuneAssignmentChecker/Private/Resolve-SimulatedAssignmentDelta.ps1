@@ -1,4 +1,5 @@
 function Resolve-SimulatedAssignmentDelta {
+    [CmdletBinding()]
     param (
         [object[]]$Assignments,
         [object[]]$CurrentGroupIds,

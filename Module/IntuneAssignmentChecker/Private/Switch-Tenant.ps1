@@ -1,4 +1,6 @@
 function Switch-Tenant {
+    [CmdletBinding()]
+    param()
     Write-Host "`nDisconnecting from current tenant..." -ForegroundColor Yellow
 
     try {

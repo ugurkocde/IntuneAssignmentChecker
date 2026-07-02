@@ -1,4 +1,5 @@
 function Get-UserInfo {
+    [CmdletBinding()]
     param (
         [Parameter(Mandatory = $true)]
         [string]$UserPrincipalName

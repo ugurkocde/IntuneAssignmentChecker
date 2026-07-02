@@ -1,4 +1,5 @@
 function Add-IntentTemplateFamilyInfo {
+    [CmdletBinding()]
     param (
         [Parameter(Mandatory = $false)]
         $IntentPolicies

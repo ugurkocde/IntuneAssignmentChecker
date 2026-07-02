@@ -1,4 +1,5 @@
 function Test-PlatformCompatibility {
+    [CmdletBinding()]
     param (
         [string]$DeviceOS,
         [PSObject]$Policy

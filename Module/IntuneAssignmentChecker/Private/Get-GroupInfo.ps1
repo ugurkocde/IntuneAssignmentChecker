@@ -1,4 +1,5 @@
 function Get-GroupInfo {
+    [CmdletBinding()]
     param (
         [Parameter(Mandatory = $true)]
         [string]$GroupId

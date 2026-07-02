@@ -1,4 +1,5 @@
 function Get-GroupMemberships {
+    [CmdletBinding()]
     param (
         [Parameter(Mandatory = $true)]
         [string]$ObjectId,

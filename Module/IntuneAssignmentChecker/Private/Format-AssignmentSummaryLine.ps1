@@ -1,4 +1,5 @@
 function Format-AssignmentSummaryLine {
+    [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
         [object]$Assignment

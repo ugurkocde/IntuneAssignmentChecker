@@ -1,4 +1,6 @@
 function Get-IntentTemplateFamilyLookup {
+    [CmdletBinding()]
+    param()
     if ($null -ne $script:TemplateIdToFamilyCache) {
         return $script:TemplateIdToFamilyCache
     }

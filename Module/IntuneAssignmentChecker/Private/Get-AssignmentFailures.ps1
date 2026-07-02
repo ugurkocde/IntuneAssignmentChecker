@@ -1,4 +1,6 @@
 function Get-AssignmentFailures {
+    [CmdletBinding()]
+    param()
     Write-Host "Fetching assignment failures..." -ForegroundColor Green
 
     $failedAssignments = [System.Collections.ArrayList]::new()

@@ -1,4 +1,5 @@
 function Get-GroupAssignmentReasons {
+    [CmdletBinding()]
     param (
         [Parameter(Mandatory = $true)]
         [AllowEmptyCollection()]

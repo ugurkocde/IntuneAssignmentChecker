@@ -1,4 +1,5 @@
 function Set-Environment {
+    [CmdletBinding()]
     param (
         [Parameter(Mandatory = $false)]
         [string]$EnvironmentName

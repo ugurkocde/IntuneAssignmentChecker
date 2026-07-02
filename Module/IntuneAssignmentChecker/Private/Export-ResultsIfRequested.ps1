@@ -1,4 +1,5 @@
 function Export-ResultsIfRequested {
+    [CmdletBinding()]
     param (
         [System.Collections.ArrayList]$ExportData,
         [string]$DefaultFileName,

@@ -1,4 +1,5 @@
 function Show-SaveFileDialog {
+    [CmdletBinding()]
     param (
         [string]$DefaultFileName
     )

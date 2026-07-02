@@ -1,4 +1,5 @@
 function Get-IntuneEntities {
+    [CmdletBinding()]
     param (
         [Parameter(Mandatory = $true)]
         [string]$EntityType,

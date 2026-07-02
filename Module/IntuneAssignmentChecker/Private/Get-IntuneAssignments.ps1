@@ -1,4 +1,5 @@
 function Get-IntuneAssignments {
+    [CmdletBinding()]
     param (
         [Parameter(Mandatory = $true)]
         [string]$EntityType,

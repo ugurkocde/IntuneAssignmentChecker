@@ -1,4 +1,5 @@
 function Get-AllTargetReason {
+    [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
         [AllowNull()]

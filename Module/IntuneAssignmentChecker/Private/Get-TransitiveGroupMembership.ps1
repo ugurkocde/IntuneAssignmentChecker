@@ -1,4 +1,5 @@
 function Get-TransitiveGroupMembership {
+    [CmdletBinding()]
     param (
         [Parameter(Mandatory = $true)]
         [string]$GroupId

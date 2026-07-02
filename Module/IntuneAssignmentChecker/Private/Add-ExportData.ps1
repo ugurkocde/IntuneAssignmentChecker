@@ -1,4 +1,5 @@
 function Add-ExportData {
+    [CmdletBinding()]
     param (
         [System.Collections.ArrayList]$ExportData,
         [string]$Category,
