@@ -28,18 +28,9 @@ function Get-IntuneAssignments {
         $policyDetailsUri = "$GraphEndpoint/beta/deviceAppManagement/managedAppPolicies/$EntityId"
         try {
             $policyDetailsResponse = Invoke-MgGraphRequest -Uri $policyDetailsUri -Method Get
-            $policyODataType = $policyDetailsResponse.'@odata.type'
-            $specificPolicyTypePath = switch ($policyODataType) {
-                "#microsoft.graph.androidManagedAppProtection" { "androidManagedAppProtections" }
-                "#microsoft.graph.iosManagedAppProtection" { "iosManagedAppProtections" }
-                "#microsoft.graph.windowsManagedAppProtection" { "windowsManagedAppProtections" }
-                default { $null }
-            }
-            if ($specificPolicyTypePath) {
-                $actualAssignmentsUri = "$GraphEndpoint/beta/deviceAppManagement/$specificPolicyTypePath('$EntityId')/assignments"
-            }
-            else {
-                Write-Warning "Could not determine specific App Protection Policy type for $EntityId from OData type '$policyODataType'."
+            $actualAssignmentsUri = Get-AppProtectionAssignmentUri -Policy $policyDetailsResponse
+            if (-not $actualAssignmentsUri) {
+                Write-Warning "Could not determine specific App Protection Policy type for $EntityId from OData type '$($policyDetailsResponse.'@odata.type')'."
                 return [System.Collections.ArrayList]::new() # Return empty ArrayList
             }
         }
