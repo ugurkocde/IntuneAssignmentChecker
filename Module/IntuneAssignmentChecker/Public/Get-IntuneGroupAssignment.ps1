@@ -343,6 +343,7 @@ function Get-IntuneGroupAssignment {
 
             $relevantAppAssignmentReasons = @()
             $intentForGroup = $null
+            $exclusionIntentForGroup = $null
 
             foreach ($assignmentItem in $allAppAssignments) {
                 $appTargetGid = $assignmentItem.target.groupId
@@ -363,6 +364,7 @@ function Get-IntuneGroupAssignment {
                     elseif ($parentGroupMap.ContainsKey($appTargetGid)) {
                         $reasonText = "Inherited Exclusion (via $($parentGroupMap[$appTargetGid]))"
                     }
+                    if ($reasonText -and -not $exclusionIntentForGroup) { $exclusionIntentForGroup = $assignmentItem.intent }
                 }
                 if ($reasonText) {
                     $suffix = Format-AssignmentFilter -FilterId $assignmentItem.target.deviceAndAppManagementAssignmentFilterId -FilterType $assignmentItem.target.deviceAndAppManagementAssignmentFilterType
@@ -373,6 +375,8 @@ function Get-IntuneGroupAssignment {
             if ($relevantAppAssignmentReasons.Count -gt 0) {
                 $appWithReason = $app.PSObject.Copy()
                 $appWithReason | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue ($relevantAppAssignmentReasons -join "; ") -Force
+                # Exclusion-only assignments carry the intent of the excluding assignment
+                if (-not $intentForGroup) { $intentForGroup = $exclusionIntentForGroup }
                 if ($intentForGroup) {
                     switch ($intentForGroup) {
                         "required" { $relevantPolicies.AppsRequired += $appWithReason }

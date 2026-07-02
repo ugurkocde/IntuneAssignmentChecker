@@ -313,9 +313,10 @@ function Compare-IntuneGroupAssignment {
 
             foreach ($assignment in $assignmentResponse.value) {
                 if ($allGroupIds -contains $assignment.target.groupId) {
+                    $exclusionSuffix = if ($assignment.target.'@odata.type' -eq '#microsoft.graph.exclusionGroupAssignmentTarget') { " [EXCLUDED]" } else { "" }
                     $inheritedSuffix = if ($assignment.target.groupId -ne $groupId) { " [INHERITED]" } else { "" }
                     $filterSuffix = Format-AssignmentFilter -FilterId $assignment.target.deviceAndAppManagementAssignmentFilterId -FilterType $assignment.target.deviceAndAppManagementAssignmentFilterType
-                    $combinedSuffix = "$inheritedSuffix$filterSuffix"
+                    $combinedSuffix = "$exclusionSuffix$inheritedSuffix$filterSuffix"
                     switch ($assignment.intent) {
                         "required" { [void]$groupAssignments[$groupName].RequiredApps.Add("$($app.displayName)$combinedSuffix") }
                         "available" { [void]$groupAssignments[$groupName].AvailableApps.Add("$($app.displayName)$combinedSuffix") }
