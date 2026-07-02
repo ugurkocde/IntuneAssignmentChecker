@@ -11,8 +11,11 @@ function Invoke-IntuneAssignmentChecker {
         [Parameter(Mandatory = $false, HelpMessage = "Certificate Thumbprint for authentication")]
         [string]$CertificateThumbprint,
 
-        [Parameter(Mandatory = $false, HelpMessage = "Client Secret for authentication")]
+        [Parameter(Mandatory = $false, HelpMessage = "Client Secret for authentication (plain text; retained for compatibility, prefer -ClientSecretCredential)")]
         [string]$ClientSecret,
+
+        [Parameter(Mandatory = $false, HelpMessage = "Client Secret as PSCredential (UserName = App ID, Password = client secret); preferred over -ClientSecret")]
+        [PSCredential]$ClientSecretCredential,
 
         [Parameter(Mandatory = $false, HelpMessage = "Pre-fetched Microsoft Graph access token (SecureString)")]
         [SecureString]$AccessToken,
@@ -144,6 +147,7 @@ function Invoke-IntuneAssignmentChecker {
     if ($TenantId)              { $connectParams['TenantId']              = $TenantId }
     if ($CertificateThumbprint) { $connectParams['CertificateThumbprint'] = $CertificateThumbprint }
     if ($ClientSecret)          { $connectParams['ClientSecret']          = $ClientSecret }
+    if ($ClientSecretCredential){ $connectParams['ClientSecretCredential'] = $ClientSecretCredential }
     if ($AccessToken -and $AccessToken.Length -gt 0) { $connectParams['AccessToken'] = $AccessToken }
     if ($Environment)           { $connectParams['Environment']           = $Environment }
 

@@ -10,8 +10,11 @@ function Connect-IntuneAssignmentChecker {
         [Parameter(Mandatory = $false, HelpMessage = "Certificate Thumbprint for authentication")]
         [string]$CertificateThumbprint,
 
-        [Parameter(Mandatory = $false, HelpMessage = "Client Secret for authentication")]
+        [Parameter(Mandatory = $false, HelpMessage = "Client Secret for authentication (plain text; retained for compatibility, prefer -ClientSecretCredential)")]
         [string]$ClientSecret,
+
+        [Parameter(Mandatory = $false, HelpMessage = "Client Secret as PSCredential (UserName = App ID, Password = client secret); preferred over -ClientSecret")]
+        [PSCredential]$ClientSecretCredential,
 
         [Parameter(Mandatory = $false, HelpMessage = "Pre-fetched Microsoft Graph access token (SecureString)")]
         [SecureString]$AccessToken,
@@ -22,7 +25,12 @@ function Connect-IntuneAssignmentChecker {
     )
 
     # ── Banner ────────────────────────────────────────────────────────────
-    $localVersion = "4.2.0"
+    $localVersion = if ($MyInvocation.MyCommand.Module) {
+        $MyInvocation.MyCommand.Module.Version.ToString()
+    }
+    else {
+        (Get-Module IntuneAssignmentChecker).Version.ToString()
+    }
 
     Write-Host "INTUNE ASSIGNMENT CHECKER" -ForegroundColor Cyan
     Write-Host "Made by Ugur Koc" -NoNewline
@@ -64,9 +72,10 @@ function Connect-IntuneAssignmentChecker {
     $hasAppId          = -not [string]::IsNullOrWhiteSpace($AppId)
     $hasTenantId       = -not [string]::IsNullOrWhiteSpace($TenantId)
     $hasClientSecret   = -not [string]::IsNullOrWhiteSpace($ClientSecret)
+    $hasClientSecretCredential = $null -ne $ClientSecretCredential
     $hasCertThumbprint = -not [string]::IsNullOrWhiteSpace($CertificateThumbprint)
     $hasAccessToken    = $null -ne $AccessToken -and $AccessToken.Length -gt 0
-    $parameterMode     = $hasAppId -or $hasTenantId -or $hasClientSecret -or $hasCertThumbprint -or $hasAccessToken
+    $parameterMode     = $hasAppId -or $hasTenantId -or $hasClientSecret -or $hasClientSecretCredential -or $hasCertThumbprint -or $hasAccessToken
 
     # ── Required permissions ──────────────────────────────────────────────
     $requiredPermissions = $script:RequiredPermissions
@@ -98,8 +107,18 @@ function Connect-IntuneAssignmentChecker {
                 }
                 $null = Connect-MgGraph -AccessToken $AccessToken -Environment $script:GraphEnvironment -NoWelcome -ErrorAction Stop
             }
+            elseif ($hasTenantId -and $hasClientSecretCredential) {
+                # Client Secret authentication (PSCredential, preferred over plain-text -ClientSecret)
+                Write-Host "Connecting using Client Secret authentication..." -ForegroundColor Yellow
+                $environmentResult = Set-Environment -EnvironmentName $Environment
+                if ($null -eq $environmentResult) {
+                    Write-Host "Connection cancelled by user." -ForegroundColor Red
+                    return
+                }
+                $null = Connect-MgGraph -TenantId $TenantId -ClientSecretCredential $ClientSecretCredential -Environment $script:GraphEnvironment -NoWelcome -ErrorAction Stop
+            }
             elseif ($hasAppId -and $hasTenantId -and $hasClientSecret) {
-                # Client Secret authentication
+                # Client Secret authentication (plain-text string, retained for compatibility)
                 Write-Host "Connecting using Client Secret authentication..." -ForegroundColor Yellow
                 $environmentResult = Set-Environment -EnvironmentName $Environment
                 if ($null -eq $environmentResult) {

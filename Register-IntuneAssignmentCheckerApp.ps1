@@ -83,8 +83,8 @@ $cert = New-SelfSignedCertificate `
     -KeySpec Signature `
     -KeyExportPolicy Exportable
 
-$exportFolder = "C:\temp\$shortTenantName"
-$exportPath = "$exportFolder\IntuneAssignmentChecker-$shortTenantName.cer"
+$exportFolder = Join-Path ([System.IO.Path]::GetTempPath()) $shortTenantName
+$exportPath = Join-Path $exportFolder "IntuneAssignmentChecker-$shortTenantName.cer"
 New-Item -Path $exportFolder -ItemType Directory -Force | Out-Null
 Export-Certificate -Cert $cert -FilePath $exportPath | Out-Null
 Write-Host "Certificate exported to: $exportPath" -ForegroundColor Green
@@ -92,8 +92,21 @@ Write-Host "Certificate exported to: $exportPath" -ForegroundColor Green
 $keyCreds = @(
     @{ "Type" = "AsymmetricX509Cert"; "Usage" = "Verify"; "Key" = $cert.RawData }
 )
-Update-MgApplication -ApplicationId $app.Id -KeyCredentials $keyCreds
-Write-Host "Certificate uploaded successfully." -ForegroundColor Green
+try {
+    Update-MgApplication -ApplicationId $app.Id -KeyCredentials $keyCreds
+    Write-Host "Certificate uploaded successfully." -ForegroundColor Green
+}
+catch {
+    Write-Host "Certificate upload failed. Removing temporary Client Secret..." -ForegroundColor Red
+    $passwords = (Get-MgApplication -ApplicationId $app.Id).PasswordCredentials
+    foreach ($secret in $passwords) {
+        if ($secret.DisplayName -eq "TemporaryClientSecret") {
+            Remove-MgApplicationPassword -ApplicationId $app.Id -KeyId $secret.KeyId
+            Write-Host "Temporary Client Secret removed." -ForegroundColor Green
+        }
+    }
+    throw
+}
 
 # STEP 6: Remove Temporary Client Secret
 $passwords = (Get-MgApplication -ApplicationId $app.Id).PasswordCredentials

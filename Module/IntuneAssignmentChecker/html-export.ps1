@@ -1,13 +1,8 @@
-$context = Get-MgContext
-$environment = $context.Environment
-
-$GraphEndpoint = switch ($environment) {
-    "Global" { "https://graph.microsoft.com" }
-    "USGov" { "https://graph.microsoft.us" }
-    "USGovDoD" { "https://dod-graph.microsoft.us" }
-}
-# Function to get assignment information
-function Get-AssignmentInfo {
+# Function to get assignment information for the HTML report.
+# Differs from the module's private Get-HtmlAssignmentInfo: aggregates all assignments
+# (not just the first), understands raw Graph API assignment objects (target with
+# @odata.type), and returns a combined Filter display string.
+function Get-HtmlAssignmentInfo {
     param (
         [Parameter(Mandatory = $true)]
         [AllowNull()]
@@ -135,58 +130,9 @@ function Get-AssignmentInfo {
     }
 }
 
-$script:IntentTemplateSubtypeToFamily = @{
-    'antivirus'                = 'endpointSecurityAntivirus'
-    'diskEncryption'           = 'endpointSecurityDiskEncryption'
-    'firewall'                 = 'endpointSecurityFirewall'
-    'endpointDetectionReponse' = 'endpointSecurityEndpointDetectionAndResponse'
-    'attackSurfaceReduction'   = 'endpointSecurityAttackSurfaceReduction'
-    'accountProtection'        = 'endpointSecurityAccountProtection'
-}
-$script:TemplateIdToFamilyCache = $null
-
-function Get-IntentTemplateFamilyLookup {
-    if ($null -ne $script:TemplateIdToFamilyCache) {
-        return $script:TemplateIdToFamilyCache
-    }
-
-    $script:TemplateIdToFamilyCache = @{}
-    try {
-        $templates = Get-IntuneEntities -EntityType "deviceManagement/templates"
-        foreach ($template in $templates) {
-            $subtype = $template.templateSubtype
-            if ($subtype -and $script:IntentTemplateSubtypeToFamily.ContainsKey($subtype)) {
-                $script:TemplateIdToFamilyCache[$template.id] = $script:IntentTemplateSubtypeToFamily[$subtype]
-            }
-        }
-    }
-    catch {
-        Write-Warning "Unable to fetch deviceManagement/templates for intent enrichment: $($_.Exception.Message)"
-    }
-
-    return $script:TemplateIdToFamilyCache
-}
-
-function Add-IntentTemplateFamilyInfo {
-    param (
-        [Parameter(Mandatory = $false)]
-        $IntentPolicies
-    )
-
-    if (-not $IntentPolicies) { return }
-
-    $lookup = Get-IntentTemplateFamilyLookup
-
-    foreach ($intent in $IntentPolicies) {
-        if ($intent.templateId -and $lookup.ContainsKey($intent.templateId)) {
-            if (-not $intent.templateReference) {
-                $intent | Add-Member -NotePropertyName 'templateReference' -NotePropertyValue @{
-                    templateFamily = $lookup[$intent.templateId]
-                }
-            }
-        }
-    }
-}
+# Intent template family enrichment ($script:IntentTemplateSubtypeToFamily,
+# Get-IntentTemplateFamilyLookup, Add-IntentTemplateFamilyInfo) comes from the
+# module scope, since this file is dot-sourced inside the module.
 
 function Export-HTMLReport {
     param (
@@ -665,7 +611,7 @@ function Export-HTMLReport {
     $deviceConfigs = Get-IntuneEntities -EntityType "deviceConfigurations"
     foreach ($config in $deviceConfigs) {
         $assignments = Get-IntuneAssignments -EntityType "deviceConfigurations" -EntityId $config.id
-        $assignmentInfo = Get-AssignmentInfo -Assignments $assignments
+        $assignmentInfo = Get-HtmlAssignmentInfo -Assignments $assignments
         $policies.DeviceConfigs += @{
             Name           = $config.displayName
             ID             = $config.id
@@ -686,7 +632,7 @@ function Export-HTMLReport {
             continue
         }
         $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
-        $assignmentInfo = Get-AssignmentInfo -Assignments $assignments
+        $assignmentInfo = Get-HtmlAssignmentInfo -Assignments $assignments
         $policies.SettingsCatalog += @{
             Name           = if (-not [string]::IsNullOrWhiteSpace($policy.displayName)) { $policy.displayName } else { $policy.name }
             ID             = $policy.id
@@ -705,7 +651,7 @@ function Export-HTMLReport {
     $compliancePolicies = Get-IntuneEntities -EntityType "deviceCompliancePolicies"
     foreach ($policy in $compliancePolicies) {
         $assignments = Get-IntuneAssignments -EntityType "deviceCompliancePolicies" -EntityId $policy.id
-        $assignmentInfo = Get-AssignmentInfo -Assignments $assignments
+        $assignmentInfo = Get-HtmlAssignmentInfo -Assignments $assignments
         $policies.CompliancePolicies += @{
             Name           = $policy.displayName
             ID             = $policy.id
@@ -724,13 +670,13 @@ function Export-HTMLReport {
         $policyType = $policy.'@odata.type'
         $assignmentsUri = switch ($policyType) {
             "#microsoft.graph.androidManagedAppProtection" {
-                "$GraphEndpoint/beta/deviceAppManagement/androidManagedAppProtections('$($policy.id)')/assignments"
+                "$script:GraphEndpoint/beta/deviceAppManagement/androidManagedAppProtections('$($policy.id)')/assignments"
             }
             "#microsoft.graph.iosManagedAppProtection" {
-                "$GraphEndpoint/beta/deviceAppManagement/iosManagedAppProtections('$($policy.id)')/assignments"
+                "$script:GraphEndpoint/beta/deviceAppManagement/iosManagedAppProtections('$($policy.id)')/assignments"
             }
             "#microsoft.graph.windowsManagedAppProtection" {
-                "$GraphEndpoint/beta/deviceAppManagement/windowsManagedAppProtections('$($policy.id)')/assignments"
+                "$script:GraphEndpoint/beta/deviceAppManagement/windowsManagedAppProtections('$($policy.id)')/assignments"
             }
             default { $null }
         }
@@ -738,8 +684,8 @@ function Export-HTMLReport {
         if ($assignmentsUri) {
             try {
                 $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
-                # Pass the raw .value to Get-AssignmentInfo as it expects an array of assignment objects
-                $assignmentInfo = Get-AssignmentInfo -Assignments $assignmentResponse.value 
+                # Pass the raw .value to Get-HtmlAssignmentInfo as it expects an array of assignment objects
+                $assignmentInfo = Get-HtmlAssignmentInfo -Assignments $assignmentResponse.value 
 
                 $policies.AppProtectionPolicies += @{
                     Name           = $policy.displayName
@@ -763,7 +709,7 @@ function Export-HTMLReport {
     $platformScripts = Get-IntuneEntities -EntityType "deviceManagementScripts"
     foreach ($script in $platformScripts) {
         $assignments = Get-IntuneAssignments -EntityType "deviceManagementScripts" -EntityId $script.id
-        $assignmentInfo = Get-AssignmentInfo -Assignments $assignments
+        $assignmentInfo = Get-HtmlAssignmentInfo -Assignments $assignments
         $policies.PlatformScripts += @{
             Name           = $script.displayName
             ID             = $script.id
@@ -781,7 +727,7 @@ function Export-HTMLReport {
     $healthScripts = Get-IntuneEntities -EntityType "deviceHealthScripts"
     foreach ($script in $healthScripts) {
         $assignments = Get-IntuneAssignments -EntityType "deviceHealthScripts" -EntityId $script.id
-        $assignmentInfo = Get-AssignmentInfo -Assignments $assignments
+        $assignmentInfo = Get-HtmlAssignmentInfo -Assignments $assignments
         $policies.HealthScripts += @{
             Name           = $script.displayName
             ID             = $script.id
@@ -799,7 +745,7 @@ function Export-HTMLReport {
     $autoProfiles = Get-IntuneEntities -EntityType "windowsAutopilotDeploymentProfiles"
     foreach ($profile in $autoProfiles) {
         $assignments = Get-IntuneAssignments -EntityType "windowsAutopilotDeploymentProfiles" -EntityId $profile.id
-        $assignmentInfo = Get-AssignmentInfo -Assignments $assignments
+        $assignmentInfo = Get-HtmlAssignmentInfo -Assignments $assignments
         $policies.DeploymentProfiles += @{
             Name           = $profile.displayName
             ID             = $profile.id
@@ -818,7 +764,7 @@ function Export-HTMLReport {
     $espProfiles = $enrollmentConfigs | Where-Object { $_.'@odata.type' -match 'EnrollmentCompletionPageConfiguration' }
     foreach ($esp in $espProfiles) {
         $assignments = Get-IntuneAssignments -EntityType "deviceEnrollmentConfigurations" -EntityId $esp.id
-        $assignmentInfo = Get-AssignmentInfo -Assignments $assignments
+        $assignmentInfo = Get-HtmlAssignmentInfo -Assignments $assignments
         $policies.ESPProfiles += @{
             Name           = $esp.displayName
             ID             = $esp.id
@@ -837,7 +783,7 @@ function Export-HTMLReport {
         $cloudPCProvisioningPolicies = Get-IntuneEntities -EntityType "virtualEndpoint/provisioningPolicies"
         foreach ($policy in $cloudPCProvisioningPolicies) {
             $rawAssignments = Get-IntuneAssignments -EntityType "virtualEndpoint/provisioningPolicies" -EntityId $policy.id
-            $assignmentInfo = Get-AssignmentInfo -Assignments $rawAssignments
+            $assignmentInfo = Get-HtmlAssignmentInfo -Assignments $rawAssignments
             $policies.CloudPCProvisioningPolicies += @{
                 Name           = if (-not [string]::IsNullOrWhiteSpace($policy.displayName)) { $policy.displayName } else { $policy.name }
                 ID             = $policy.id
@@ -860,7 +806,7 @@ function Export-HTMLReport {
         $cloudPCUserSettings = Get-IntuneEntities -EntityType "virtualEndpoint/userSettings"
         foreach ($setting in $cloudPCUserSettings) {
             $rawAssignments = Get-IntuneAssignments -EntityType "virtualEndpoint/userSettings" -EntityId $setting.id
-            $assignmentInfo = Get-AssignmentInfo -Assignments $rawAssignments
+            $assignmentInfo = Get-HtmlAssignmentInfo -Assignments $rawAssignments
             $policies.CloudPCUserSettings += @{
                 Name           = if (-not [string]::IsNullOrWhiteSpace($setting.displayName)) { $setting.displayName } else { $setting.name }
                 ID             = $setting.id
@@ -898,7 +844,7 @@ function Export-HTMLReport {
             foreach ($policy in $configPolicies) {
                 if ($processedIds.Add($policy.id)) {
                     $rawAssignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
-                    $assignmentInfo = Get-AssignmentInfo -Assignments $rawAssignments
+                    $assignmentInfo = Get-HtmlAssignmentInfo -Assignments $rawAssignments
                     $policies[$esCategory.Key] += @{
                         Name           = if (-not [string]::IsNullOrWhiteSpace($policy.displayName)) { $policy.displayName } else { $policy.name }
                         ID             = $policy.id
@@ -921,8 +867,8 @@ function Export-HTMLReport {
             foreach ($policy in $intentPolicies) {
                 if ($processedIds.Add($policy.id)) {
                     try {
-                        $assignmentsResponse = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
-                        $assignmentInfo = Get-AssignmentInfo -Assignments $assignmentsResponse.value # This expects an array
+                        $assignmentsResponse = Invoke-MgGraphRequest -Uri "$script:GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
+                        $assignmentInfo = Get-HtmlAssignmentInfo -Assignments $assignmentsResponse.value # This expects an array
                         $policies[$esCategory.Key] += @{
                             Name           = if (-not [string]::IsNullOrWhiteSpace($policy.displayName)) { $policy.displayName } else { $policy.name }
                             ID             = $policy.id
@@ -944,7 +890,7 @@ function Export-HTMLReport {
 
     # Get Apps
     Write-Host "Fetching Applications..." -ForegroundColor Yellow
-    $appUri = "$GraphEndpoint/beta/deviceAppManagement/mobileApps?`$filter=isAssigned eq true"
+    $appUri = "$script:GraphEndpoint/beta/deviceAppManagement/mobileApps?`$filter=isAssigned eq true"
     $appResponse = Invoke-MgGraphRequest -Uri $appUri -Method Get
     $allApps = $appResponse.value
     while ($appResponse.'@odata.nextLink') {
@@ -959,15 +905,15 @@ function Export-HTMLReport {
         }
 
         $appId = $app.id
-        $assignmentsUri = "$GraphEndpoint/beta/deviceAppManagement/mobileApps('$appId')/assignments"
+        $assignmentsUri = "$script:GraphEndpoint/beta/deviceAppManagement/mobileApps('$appId')/assignments"
         $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
 
         foreach ($assignment in $assignmentResponse.value) {
-            # Get-AssignmentInfo expects an array of assignment objects.
+            # Get-HtmlAssignmentInfo expects an array of assignment objects.
             # Here, $assignment is a single assignment object from the loop.
-            # We need to wrap it in an array for Get-AssignmentInfo.
+            # We need to wrap it in an array for Get-HtmlAssignmentInfo.
             $currentAssignmentArray = @($assignment) # Ensure it's an array
-            $assignmentInfo = Get-AssignmentInfo -Assignments $currentAssignmentArray
+            $assignmentInfo = Get-HtmlAssignmentInfo -Assignments $currentAssignmentArray
             
             $appInfo = @{
                 Name           = $app.displayName
@@ -1103,12 +1049,12 @@ function Export-HTMLReport {
                                 default { 'badge-none' }
                             }
                             "<tr>
-                                <td>$($p.Name)</td>
-                                <td>$($p.Platform)</td>
-                                <td>$($p.ScopeTags)</td>
-                                <td><span class='badge $badgeClass'>$($p.AssignmentType)</span></td>
-                                <td>$($p.AssignedTo)</td>
-                                <td>$($p.Filter)</td>
+                                <td>$([System.Net.WebUtility]::HtmlEncode($p.Name))</td>
+                                <td>$([System.Net.WebUtility]::HtmlEncode($p.Platform))</td>
+                                <td>$([System.Net.WebUtility]::HtmlEncode($p.ScopeTags))</td>
+                                <td><span class='badge $badgeClass'>$([System.Net.WebUtility]::HtmlEncode($p.AssignmentType))</span></td>
+                                <td>$([System.Net.WebUtility]::HtmlEncode($p.AssignedTo))</td>
+                                <td>$([System.Net.WebUtility]::HtmlEncode($p.Filter))</td>
                             </tr>"
                         }
                     }
@@ -1153,12 +1099,12 @@ function Export-HTMLReport {
                             default { 'badge-none' }
                         }
                         "<tr>
-                            <td>$($p.Name)</td>
-                            <td>$($p.Platform)</td>
-                            <td>$($p.ScopeTags)</td>
-                            <td><span class='badge $badgeClass'>$($p.AssignmentType)</span></td>
-                            <td>$($p.AssignedTo)</td>
-                            <td>$($p.Filter)</td>
+                            <td>$([System.Net.WebUtility]::HtmlEncode($p.Name))</td>
+                            <td>$([System.Net.WebUtility]::HtmlEncode($p.Platform))</td>
+                            <td>$([System.Net.WebUtility]::HtmlEncode($p.ScopeTags))</td>
+                            <td><span class='badge $badgeClass'>$([System.Net.WebUtility]::HtmlEncode($p.AssignmentType))</span></td>
+                            <td>$([System.Net.WebUtility]::HtmlEncode($p.AssignedTo))</td>
+                            <td>$([System.Net.WebUtility]::HtmlEncode($p.Filter))</td>
                         </tr>"
                     }
                 }
