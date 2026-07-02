@@ -111,7 +111,8 @@ function Compare-IntuneGroupAssignment {
         }
         else {
             # Try to find group by display name
-            $groupUri = "$GraphEndpoint/v1.0/groups?`$filter=displayName eq '$groupInput'"
+            $escapedGroupName = $groupInput -replace "'", "''"
+            $groupUri = "$GraphEndpoint/v1.0/groups?`$filter=displayName eq '$escapedGroupName'"
             $groupResponse = Invoke-MgGraphRequest -Uri $groupUri -Method Get
 
             if ($groupResponse.value.Count -eq 0) {
@@ -213,8 +214,14 @@ function Compare-IntuneGroupAssignment {
         # Process Settings Catalog
         $settingsCatalogUri = "$GraphEndpoint/beta/deviceManagement/configurationPolicies"
         $settingsCatalogResponse = Invoke-MgGraphRequest -Uri $settingsCatalogUri -Method Get
+        $allSettingsCatalog = [System.Collections.Generic.List[object]]::new()
+        if ($settingsCatalogResponse.value) { $allSettingsCatalog.AddRange($settingsCatalogResponse.value) }
+        while ($settingsCatalogResponse.'@odata.nextLink') {
+            $settingsCatalogResponse = Invoke-MgGraphRequest -Uri $settingsCatalogResponse.'@odata.nextLink' -Method Get
+            if ($settingsCatalogResponse.value) { $allSettingsCatalog.AddRange($settingsCatalogResponse.value) }
+        }
 
-        foreach ($policy in $settingsCatalogResponse.value) {
+        foreach ($policy in $allSettingsCatalog) {
             $policyId = $policy.id
             $assignmentsUri = "$GraphEndpoint/beta/deviceManagement/configurationPolicies('$policyId')/assignments"
             $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
@@ -247,8 +254,14 @@ function Compare-IntuneGroupAssignment {
         # Process Compliance Policies
         $complianceUri = "$GraphEndpoint/beta/deviceManagement/deviceCompliancePolicies"
         $complianceResponse = Invoke-MgGraphRequest -Uri $complianceUri -Method Get
+        $allCompliancePolicies = [System.Collections.Generic.List[object]]::new()
+        if ($complianceResponse.value) { $allCompliancePolicies.AddRange($complianceResponse.value) }
+        while ($complianceResponse.'@odata.nextLink') {
+            $complianceResponse = Invoke-MgGraphRequest -Uri $complianceResponse.'@odata.nextLink' -Method Get
+            if ($complianceResponse.value) { $allCompliancePolicies.AddRange($complianceResponse.value) }
+        }
 
-        foreach ($policy in $complianceResponse.value) {
+        foreach ($policy in $allCompliancePolicies) {
             $policyId = $policy.id
             $assignmentsUri = "$GraphEndpoint/beta/deviceManagement/deviceCompliancePolicies('$policyId')/assignments"
             $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
@@ -281,8 +294,14 @@ function Compare-IntuneGroupAssignment {
         # Process Apps
         $appUri = "$GraphEndpoint/beta/deviceAppManagement/mobileApps?`$filter=isAssigned eq true"
         $appResponse = Invoke-MgGraphRequest -Uri $appUri -Method Get
+        $allApps = [System.Collections.Generic.List[object]]::new()
+        if ($appResponse.value) { $allApps.AddRange($appResponse.value) }
+        while ($appResponse.'@odata.nextLink') {
+            $appResponse = Invoke-MgGraphRequest -Uri $appResponse.'@odata.nextLink' -Method Get
+            if ($appResponse.value) { $allApps.AddRange($appResponse.value) }
+        }
 
-        foreach ($app in $appResponse.value) {
+        foreach ($app in $allApps) {
             # Skip built-in and Microsoft apps
             if ($app.isFeatured -or $app.isBuiltIn) {
                 continue

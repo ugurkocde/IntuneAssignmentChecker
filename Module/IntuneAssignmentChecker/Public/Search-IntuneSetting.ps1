@@ -52,7 +52,14 @@ function Search-IntuneSetting {
     }
 
     # ── Load setting definitions ─────────────────────────────────────────
-    $dataPath = Join-Path $PSScriptRoot ".." "Data" "SettingDefinitions.json"
+    # Prefer the user-writable copy (created by Update-IntuneSettingDefinition), fall back to the module Data file
+    $userDataPath = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'IntuneAssignmentChecker' 'SettingDefinitions.json'
+    $dataPath = if (Test-Path $userDataPath) {
+        $userDataPath
+    }
+    else {
+        Join-Path $PSScriptRoot ".." "Data" "SettingDefinitions.json"
+    }
     if (-not (Test-Path $dataPath)) {
         Write-Host "Setting definitions file not found at: $dataPath" -ForegroundColor Red
         Write-Host "Run Update-IntuneSettingDefinition first to download the catalog." -ForegroundColor Yellow

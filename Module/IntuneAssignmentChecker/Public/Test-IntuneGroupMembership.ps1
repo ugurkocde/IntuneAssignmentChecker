@@ -127,7 +127,8 @@ function Test-IntuneGroupMembership {
         $simTargetGroupName = $simGroupInfo.DisplayName
     }
     else {
-        $simGroupUri = "$GraphEndpoint/v1.0/groups?`$filter=displayName eq '$simGroupInput'"
+        $escapedSimGroupName = $simGroupInput -replace "'", "''"
+        $simGroupUri = "$GraphEndpoint/v1.0/groups?`$filter=displayName eq '$escapedSimGroupName'"
         $simGroupResponse = Invoke-MgGraphRequest -Uri $simGroupUri -Method Get
 
         if ($simGroupResponse.value.Count -eq 0) {
