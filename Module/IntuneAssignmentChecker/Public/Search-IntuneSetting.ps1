@@ -289,7 +289,7 @@ function Search-IntuneSetting {
     Write-Host (Get-Separator -Character "=") -ForegroundColor Cyan
 
     # ── Export ───────────────────────────────────────────────────────────
-    Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneSettingSearch.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath
+    Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneSettingSearch.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath -ExportToCSV:$ExportToCSV -ParameterMode:$parameterMode
 }
 
 # ── Helper: extract configured value from a setting instance ─────────

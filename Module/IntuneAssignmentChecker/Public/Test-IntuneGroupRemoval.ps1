@@ -1034,5 +1034,5 @@ function Test-IntuneGroupRemoval {
         })
     }
 
-    Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneGroupRemovalImpact.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath
+    Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneGroupRemovalImpact.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath -ExportToCSV:$ExportToCSV -ParameterMode:$parameterMode
 }

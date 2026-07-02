@@ -69,17 +69,7 @@ function Connect-IntuneAssignmentChecker {
     $parameterMode     = $hasAppId -or $hasTenantId -or $hasClientSecret -or $hasCertThumbprint -or $hasAccessToken
 
     # ── Required permissions ──────────────────────────────────────────────
-    $requiredPermissions = @(
-        @{ Permission = "User.Read.All";                         Reason = "Required to read user profile information and check group memberships" }
-        @{ Permission = "Group.Read.All";                        Reason = "Needed to read group information and memberships" }
-        @{ Permission = "DeviceManagementConfiguration.Read.All"; Reason = "Allows reading Intune device configuration policies and their assignments" }
-        @{ Permission = "DeviceManagementApps.Read.All";         Reason = "Necessary to read mobile app management policies and app configurations" }
-        @{ Permission = "DeviceManagementManagedDevices.Read.All"; Reason = "Required to read managed device information and compliance policies" }
-        @{ Permission = "Device.Read.All";                       Reason = "Needed to read device information from Entra ID" }
-        @{ Permission = "DeviceManagementScripts.Read.All";      Reason = "Needed to read device management and health scripts" }
-        @{ Permission = "CloudPC.Read.All";                      Reason = "Required to read Windows 365 Cloud PC provisioning policies and settings (optional if W365 not licensed)" }
-        @{ Permission = "DeviceManagementRBAC.Read.All";         Reason = "Required to read role scope tags for scope tag display and filtering" }
-    )
+    $requiredPermissions = $script:RequiredPermissions
 
     # ── Connect to Microsoft Graph ────────────────────────────────────────
     try {
@@ -101,13 +91,21 @@ function Connect-IntuneAssignmentChecker {
             if ($hasAccessToken) {
                 # Pre-fetched access token authentication (managed identity, federated creds, parent-script tokens, etc.)
                 Write-Host "Connecting using pre-fetched access token..." -ForegroundColor Yellow
-                Set-Environment -EnvironmentName $Environment
+                $environmentResult = Set-Environment -EnvironmentName $Environment
+                if ($null -eq $environmentResult) {
+                    Write-Host "Connection cancelled by user." -ForegroundColor Red
+                    return
+                }
                 $null = Connect-MgGraph -AccessToken $AccessToken -Environment $script:GraphEnvironment -NoWelcome -ErrorAction Stop
             }
             elseif ($hasAppId -and $hasTenantId -and $hasClientSecret) {
                 # Client Secret authentication
                 Write-Host "Connecting using Client Secret authentication..." -ForegroundColor Yellow
-                Set-Environment -EnvironmentName $Environment
+                $environmentResult = Set-Environment -EnvironmentName $Environment
+                if ($null -eq $environmentResult) {
+                    Write-Host "Connection cancelled by user." -ForegroundColor Red
+                    return
+                }
                 $secureSecret = ConvertTo-SecureString $ClientSecret -AsPlainText -Force
                 $credential = New-Object System.Management.Automation.PSCredential($AppId, $secureSecret)
                 $null = Connect-MgGraph -TenantId $TenantId -ClientSecretCredential $credential -Environment $script:GraphEnvironment -NoWelcome -ErrorAction Stop
@@ -115,7 +113,11 @@ function Connect-IntuneAssignmentChecker {
             elseif ($hasAppId -and $hasTenantId -and $hasCertThumbprint) {
                 # Certificate-based authentication
                 Write-Host "Connecting using Certificate authentication..." -ForegroundColor Yellow
-                Set-Environment -EnvironmentName $Environment
+                $environmentResult = Set-Environment -EnvironmentName $Environment
+                if ($null -eq $environmentResult) {
+                    Write-Host "Connection cancelled by user." -ForegroundColor Red
+                    return
+                }
                 $null = Connect-MgGraph -ClientId $AppId -TenantId $TenantId -Environment $script:GraphEnvironment -CertificateThumbprint $CertificateThumbprint -NoWelcome -ErrorAction Stop
             }
             else {
@@ -126,10 +128,14 @@ function Connect-IntuneAssignmentChecker {
                     Write-Host "Attempting manual interactive connection (you need privileges to consent permissions)..." -ForegroundColor Yellow
                     $permissionsList = ($requiredPermissions | ForEach-Object { $_.Permission }) -join ', '
                     if ($parameterMode) {
-                        Set-Environment -EnvironmentName $Environment
+                        $environmentResult = Set-Environment -EnvironmentName $Environment
                     }
                     else {
-                        Set-Environment
+                        $environmentResult = Set-Environment
+                    }
+                    if ($null -eq $environmentResult) {
+                        Write-Host "Connection cancelled by user." -ForegroundColor Red
+                        return
                     }
                     $null = Connect-MgGraph -Scopes $permissionsList -Environment $script:GraphEnvironment -NoWelcome -ErrorAction Stop
                 }

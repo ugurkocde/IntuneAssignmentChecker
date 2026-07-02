@@ -69,7 +69,7 @@ function Set-Environment {
                 Write-Host "- Starring the repository: https://github.com/ugurkocde/IntuneAssignmentChecker" -ForegroundColor White
                 Write-Host "- Supporting the project: https://github.com/sponsors/ugurkocde" -ForegroundColor White
                 Write-Host ""
-                exit
+                return $null
             }
             default {
                 Write-Host "Invalid choice, please select 1,2,3, or 0" -ForegroundColor Red

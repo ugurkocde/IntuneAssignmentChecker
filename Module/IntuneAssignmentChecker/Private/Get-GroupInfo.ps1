@@ -4,20 +4,30 @@ function Get-GroupInfo {
         [string]$GroupId
     )
 
+    if ($null -eq $script:GroupInfoCache) {
+        $script:GroupInfoCache = @{}
+    }
+    if ($script:GroupInfoCache.ContainsKey($GroupId)) {
+        return $script:GroupInfoCache[$GroupId]
+    }
+
     try {
         $groupUri = "$GraphEndpoint/v1.0/groups/$GroupId"
         $group = Invoke-MgGraphRequest -Uri $groupUri -Method Get
-        return @{
+        $result = @{
             Id          = $group.id
             DisplayName = $group.displayName
             Success     = $true
         }
     }
     catch {
-        return @{
+        $result = @{
             Id          = $GroupId
             DisplayName = "Unknown Group"
             Success     = $false
         }
     }
+
+    $script:GroupInfoCache[$GroupId] = $result
+    return $result
 }

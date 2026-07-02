@@ -562,5 +562,5 @@ function Get-IntuneUserDeviceAssignment {
     Add-ExportData -ExportData $exportData -Category "Cloud PC Provisioning Policy"          -Items $relevantPolicies.CloudPCProvisioningPolicies -AssignmentReason { param($i) "$($i.Source) | $($i.AssignmentReason)" }
     Add-ExportData -ExportData $exportData -Category "Cloud PC User Setting"                 -Items $relevantPolicies.CloudPCUserSettings         -AssignmentReason { param($i) "$($i.Source) | $($i.AssignmentReason)" }
 
-    Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneUserDeviceAssignments.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath
+    Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneUserDeviceAssignments.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath -ExportToCSV:$ExportToCSV -ParameterMode:$parameterMode
 }

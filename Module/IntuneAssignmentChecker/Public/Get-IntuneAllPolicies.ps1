@@ -609,5 +609,5 @@ function Get-IntuneAllPolicies {
     Add-ExportData -ExportData $exportData -Category "Endpoint Security - Account Protection" -Items $allPolicies.AccountProtectionProfiles -AssignmentReason { param($item) $item.AssignmentSummary }
 
     # Export results if requested
-    Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneAllPolicies.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath
+    Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneAllPolicies.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath -ExportToCSV:$ExportToCSV -ParameterMode:$parameterMode
 }
