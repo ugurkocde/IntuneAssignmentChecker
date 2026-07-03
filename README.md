@@ -80,7 +80,7 @@ IntuneAssignmentChecker
 - 📱 View all 'All User' and 'All Device' assignments
 - 🎯 See Intune assignment filters (name and Include/Exclude type) inline on every assignment, in the console, CSV exports, and HTML reports
 - 🔐 Support for certificate-based and client secret authentication
-- 🔄 Built-in auto-update functionality
+- 🔄 Version check on connect with an update notice when a newer PSGallery release is available
 - 📊 Detailed reporting of Configuration Profiles, Compliance Policies, and Applications
 - 📈 Interactive HTML reports with charts and filterable tables
 
@@ -123,6 +123,8 @@ Your Entra ID application registration needs these permissions:
 | DeviceManagementScripts.Read.All | Application | Read device management and health scripts |
 | CloudPC.Read.All | Application | Read Windows 365 Cloud PC provisioning policies and settings |
 | DeviceManagementRBAC.Read.All | Application | Read role scope tags for scope tag display and filtering |
+
+> **Note**: The automated setup script ([`Register-IntuneAssignmentCheckerApp.ps1`](./Register-IntuneAssignmentCheckerApp.ps1)) additionally grants `DeviceManagementServiceConfig.Read.All`, which covers Intune service configuration such as enrollment settings. It is not validated by `Connect-IntuneAssignmentChecker`, but granting it avoids gaps when reading enrollment-related configurations.
 
 ## 🔐 Authentication Options
 
@@ -197,7 +199,17 @@ If you prefer a simpler setup than certificates but still need non-interactive a
    - Click "Add"
    - **Copy the secret value immediately** -- it will not be shown again
 
-3. Connect using the client secret:
+3. Connect using the client secret. The preferred way is `-ClientSecretCredential`, a PSCredential whose username is the App ID and whose password is the client secret, so the secret never appears as plain text:
+
+   ```powershell
+   $credential = Get-Credential -UserName 'your-app-id' -Message 'Enter the client secret as the password'
+   Connect-IntuneAssignmentChecker `
+       -TenantId 'your-tenant-id' `
+       -ClientSecretCredential $credential
+   ```
+
+   Alternatively, the plain-text `-ClientSecret` parameter is retained for compatibility:
+
    ```powershell
    Connect-IntuneAssignmentChecker `
        -AppId 'your-app-id' `
@@ -221,6 +233,19 @@ IntuneAssignmentChecker
 
 You'll be asked for the Intune environment (Global, USGov, or USGovDoD). The permissions will be based on your user account's roles in Entra ID.
 
+### Option 4: Pre-fetched Access Token (Managed Identity, Azure Functions, parent scripts)
+
+If you already have a Microsoft Graph access token, for example from a managed identity in Azure Automation or Azure Functions, or from a parent script that handles authentication, you can pass it directly as a SecureString:
+
+```powershell
+# Acquire a token (here via Az.Accounts) and pass it as a SecureString
+$token = (Get-AzAccessToken -ResourceUrl "https://graph.microsoft.com").Token |
+    ConvertTo-SecureString -AsPlainText -Force
+Connect-IntuneAssignmentChecker -AccessToken $token
+```
+
+The token's permissions come from however it was issued (for example the managed identity's app role assignments), so make sure the identity has the required permissions listed in Prerequisites.
+
 ### Which Option Should I Choose?
 
 - **Choose Certificate Authentication if you**:
@@ -238,10 +263,16 @@ You'll be asked for the Intune environment (Global, USGov, or USGovDoD). The per
   - Prefer not to deal with certificate creation and installation
 
 - **Choose Interactive Authentication if you**:
+
   - Want the simplest setup
   - Don't need automation
   - Are comfortable using your user credentials
   - Only need to run the script occasionally
+
+- **Choose a Pre-fetched Access Token if you**:
+  - Run in Azure Automation, Azure Functions, or another host with a managed identity
+  - Already handle Microsoft Graph authentication in a parent script
+  - Want to reuse an existing token instead of creating a new connection
 
 > **Note**: Keep your certificate and app credentials secure! Anyone with access to these can access your Intune environment with the configured permissions.
 
@@ -306,8 +337,14 @@ New-IntuneHTMLReport -HTMLReportPath "C:\Temp\IntuneAssignmentReport.html"
 # Simulate what policies a user would receive if added to a group
 Test-IntuneGroupMembership -UserPrincipalNames "user@contoso.com" -SimulateTargetGroup "Marketing Team"
 
+# Simulate what policies a device would receive if added to a group (user and device can be combined)
+Test-IntuneGroupMembership -DeviceNames "Laptop123" -SimulateTargetGroup "Marketing Team"
+
 # Simulate what policies a user would lose if removed from a group
 Test-IntuneGroupRemoval -UserPrincipalNames "user@contoso.com" -SimulateRemoveTargetGroup "Marketing Team"
+
+# Simulate what policies a device would lose if removed from a group
+Test-IntuneGroupRemoval -DeviceNames "Laptop123" -SimulateRemoveTargetGroup "Marketing Team"
 
 # Reverse lookup: find all assignment targets for a policy name
 Search-IntunePolicy -PolicySearchTerm "BitLocker"
@@ -332,8 +369,8 @@ Available cmdlets:
 | `Get-IntuneEmptyGroup`             | Check for empty groups used in assignments                            |
 | `Get-IntuneFailedAssignment`       | Show all failed policy assignments                                    |
 | `Compare-IntuneGroupAssignment`    | Compare assignments between two or more groups                        |
-| `Test-IntuneGroupMembership`       | Simulate adding a user to a group and show resulting policies         |
-| `Test-IntuneGroupRemoval`          | Simulate removing a user from a group and show lost policies          |
+| `Test-IntuneGroupMembership`       | Simulate adding a user and/or device to a group and show resulting policies |
+| `Test-IntuneGroupRemoval`          | Simulate removing a user and/or device from a group and show lost policies |
 | `Search-IntunePolicy`              | Reverse lookup: find all assignment targets for a policy name         |
 | `Search-IntuneSetting`             | Search configured settings across all policies                        |
 | `Update-IntuneSettingDefinition`   | Refresh the local Settings Catalog definition cache                   |
@@ -354,8 +391,10 @@ Common parameters on `Connect-IntuneAssignmentChecker`:
 | `-AppId`                 | Application ID for authentication                          |
 | `-TenantId`              | Tenant ID for authentication                               |
 | `-CertificateThumbprint` | Certificate Thumbprint for authentication                  |
-| `-ClientSecret`          | Client Secret for authentication                           |
-| `-Environment`           | Environment (Global, USGov, USGovDoD) — defaults to Global |
+| `-ClientSecret`          | Client Secret for authentication (plain text; retained for compatibility, prefer `-ClientSecretCredential`) |
+| `-ClientSecretCredential`| PSCredential with the App ID as username and the client secret as password (preferred over `-ClientSecret`) |
+| `-AccessToken`           | Pre-fetched Microsoft Graph access token (SecureString), for managed identities or token reuse |
+| `-Environment`           | Environment (Global, USGov, USGovDoD) - defaults to Global |
 
 ### 📋 Interactive Menu Options
 
@@ -432,15 +471,15 @@ Running `IntuneAssignmentChecker` opens a menu-driven interface with the followi
     - Helps identify configuration issues
     - Supports CSV export of findings
 
-12. **Simulate Group Membership Impact**
+12. **Simulate Group Membership Impact (User and/or Device)**
 
-    - Preview what policies and apps a user would receive if added to a group
-    - Shows deltas vs. the user's current assignments
+    - Preview what policies and apps a user and/or device would receive if added to a group
+    - Shows deltas vs. the current assignments
     - Useful for validating planned group changes before applying them
 
-13. **Simulate Removing User from Group**
+13. **Simulate Removing from Group (User and/or Device)**
 
-    - Preview what policies and apps a user would lose if removed from a group
+    - Preview what policies and apps a user and/or device would lose if removed from a group
     - Helps evaluate the impact of offboarding or group cleanup
 
 14. **Search Policy Assignments**

@@ -184,12 +184,12 @@ function Get-IntuneUserDeviceAssignment {
         }
     }
 
-    # Helper: ES intents-based fetch
+    # Helper: ES intents-based fetch. Entity sets are fetched once by the caller
+    # and passed in so each family invocation does not re-query Graph.
     $processIntent = {
-        param($templateFamily, $bucketKey, $processedSet)
+        param($templateFamily, $bucketKey, $processedSet, $configPolicies, $intents)
 
         # configurationPolicies branch
-        $configPolicies = Get-IntuneEntities -EntityType "configurationPolicies"
         $matching = $configPolicies | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq $templateFamily }
         foreach ($policy in $matching) {
             if (-not $processedSet.Add($policy.id)) { continue }
@@ -204,12 +204,17 @@ function Get-IntuneUserDeviceAssignment {
         }
 
         # deviceManagement/intents branch
-        $intents = Get-IntuneEntities -EntityType "deviceManagement/intents"
-        Add-IntentTemplateFamilyInfo -IntentPolicies $intents
         $matchingIntents = $intents | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq $templateFamily }
         foreach ($policy in $matchingIntents) {
             if (-not $processedSet.Add($policy.id)) { continue }
-            $resp = Invoke-MgGraphRequest -Uri "$script:GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
+            try {
+                $resp = Invoke-MgGraphRequest -Uri "$script:GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
+            }
+            catch {
+                Write-Host "Error fetching assignments for intent $($policy.displayName): $($_.Exception.Message)" -ForegroundColor Red
+                Write-Error -Message "Assignments fetch failed for '$($policy.displayName)': $($_.Exception.Message)"
+                continue
+            }
             $assignmentList = foreach ($a in $resp.value) {
                 [PSCustomObject]@{
                     Reason  = switch ($a.target.'@odata.type') {
@@ -303,12 +308,7 @@ function Get-IntuneUserDeviceAssignment {
     $appProt = Get-IntuneEntities -EntityType "deviceAppManagement/managedAppPolicies"
     foreach ($policy in $appProt) {
         if (-not (Test-PlatformCompatibility -DeviceOS $deviceOS -Policy $policy)) { continue }
-        $assignmentsUri = switch ($policy.'@odata.type') {
-            "#microsoft.graph.androidManagedAppProtection" { "$script:GraphEndpoint/beta/deviceAppManagement/androidManagedAppProtections('$($policy.id)')/assignments" }
-            "#microsoft.graph.iosManagedAppProtection"     { "$script:GraphEndpoint/beta/deviceAppManagement/iosManagedAppProtections('$($policy.id)')/assignments" }
-            "#microsoft.graph.windowsManagedAppProtection" { "$script:GraphEndpoint/beta/deviceAppManagement/windowsManagedAppProtections('$($policy.id)')/assignments" }
-            default { $null }
-        }
+        $assignmentsUri = Get-AppProtectionAssignmentUri -Policy $policy
         if (-not $assignmentsUri) { continue }
         try {
             $resp = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
@@ -344,20 +344,31 @@ function Get-IntuneUserDeviceAssignment {
         @{ Family = 'endpointSecurityAttackSurfaceReduction';       Bucket = 'AttackSurfaceProfiles'     }
         @{ Family = 'endpointSecurityAccountProtection';            Bucket = 'AccountProtectionProfiles' }
     )
+    # Fetch each entity set once and reuse it for every family below.
+    # $allConfigPolicies was already fetched for the Settings Catalog section above.
+    $allIntents = Get-IntuneEntities -EntityType "deviceManagement/intents"
+    Add-IntentTemplateFamilyInfo -IntentPolicies $allIntents
     foreach ($f in $esFamilies) {
         Write-Host "  Endpoint Security: $($f.Family)..." -ForegroundColor Yellow
         $processed = [System.Collections.Generic.HashSet[string]]::new()
-        & $processIntent $f.Family $f.Bucket $processed
+        & $processIntent $f.Family $f.Bucket $processed $allConfigPolicies $allIntents
     }
 
     # ── Applications ─────────────────────────────────────────────────────────
     Write-Host "  Applications..." -ForegroundColor Yellow
     $appUri = "$script:GraphEndpoint/beta/deviceAppManagement/mobileApps?`$filter=isAssigned eq true"
-    $appResponse = Invoke-MgGraphRequest -Uri $appUri -Method Get
-    $allApps = $appResponse.value
-    while ($appResponse.'@odata.nextLink') {
-        $appResponse = Invoke-MgGraphRequest -Uri $appResponse.'@odata.nextLink' -Method Get
-        $allApps += $appResponse.value
+    $allApps = [System.Collections.Generic.List[object]]::new()
+    try {
+        $appResponse = Invoke-MgGraphRequest -Uri $appUri -Method Get
+        if ($appResponse.value) { $allApps.AddRange([object[]]$appResponse.value) }
+        while ($appResponse.'@odata.nextLink') {
+            $appResponse = Invoke-MgGraphRequest -Uri $appResponse.'@odata.nextLink' -Method Get
+            if ($appResponse.value) { $allApps.AddRange([object[]]$appResponse.value) }
+        }
+    }
+    catch {
+        Write-Host "Error fetching applications: $($_.Exception.Message)" -ForegroundColor Red
+        Write-Error -Message "Applications fetch failed: $($_.Exception.Message)"
     }
 
     foreach ($app in $allApps) {
@@ -562,5 +573,5 @@ function Get-IntuneUserDeviceAssignment {
     Add-ExportData -ExportData $exportData -Category "Cloud PC Provisioning Policy"          -Items $relevantPolicies.CloudPCProvisioningPolicies -AssignmentReason { param($i) "$($i.Source) | $($i.AssignmentReason)" }
     Add-ExportData -ExportData $exportData -Category "Cloud PC User Setting"                 -Items $relevantPolicies.CloudPCUserSettings         -AssignmentReason { param($i) "$($i.Source) | $($i.AssignmentReason)" }
 
-    Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneUserDeviceAssignments.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath
+    Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneUserDeviceAssignments.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath -ExportToCSV:$ExportToCSV -ParameterMode:$parameterMode
 }

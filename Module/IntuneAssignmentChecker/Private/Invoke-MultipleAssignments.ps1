@@ -1,4 +1,5 @@
 function Invoke-MultipleAssignments {
+    [CmdletBinding()]
     param (
         [Parameter(Mandatory = $true)]
         [Array]$Assignments,

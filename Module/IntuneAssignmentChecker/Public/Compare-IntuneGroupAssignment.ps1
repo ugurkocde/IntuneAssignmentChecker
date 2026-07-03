@@ -49,6 +49,81 @@ function Compare-IntuneGroupAssignment {
     # Before caching starts, initialize the group assignments hashtable
     $groupAssignments = [ordered]@{}
 
+    # Shell Scripts stay outside the shared engine: their assignments live under
+    # /groupAssignments (flat targetGroupId shape) instead of /assignments, which
+    # the engine's assignment fetch does not model.
+    $scanCategories = @(Get-IntuneCategoryDefinition -Audience 'Compare' | Where-Object { $_.Id -ne 'ShellScripts' })
+    # Shared across groups so each entity set is fetched from Graph once per run
+    $entityCache = @{}
+
+    # Compare historically checks Endpoint Security via deviceManagement/intents only.
+    # Skip the engine's configurationPolicies phase (those entities carry no top-level
+    # templateId) so results and fetch counts match the legacy intents-only scope.
+    $entityPreFilter = {
+        param($entity, $category)
+        if ($category.Kind -eq 'EndpointSecurity' -and -not $entity.templateId) { return $false }
+        return $true
+    }
+
+    $processEntity = {
+        param($ctx)
+
+        $entity = $ctx.Entity
+        $category = $ctx.Category
+
+        if ($category.Kind -eq 'MobileApps') {
+            # Legacy per-assignment loop: every assignment targeting one of the checked
+            # group ids yields its own entry, tagged [EXCLUDED]/[INHERITED]/filter and
+            # bucketed by that assignment's intent (exclusion-only apps stay visible).
+            foreach ($assignment in $ctx.RawAssignments) {
+                if ($allGroupIds -notcontains $assignment.target.groupId) { continue }
+                $exclusionSuffix = if ($assignment.target.'@odata.type' -eq '#microsoft.graph.exclusionGroupAssignmentTarget') { " [EXCLUDED]" } else { "" }
+                $inheritedSuffix = if ($assignment.target.groupId -ne $groupId) { " [INHERITED]" } else { "" }
+                $filterSuffix = Format-AssignmentFilter -FilterId $assignment.target.deviceAndAppManagementAssignmentFilterId -FilterType $assignment.target.deviceAndAppManagementAssignmentFilterType
+                $combinedSuffix = "$exclusionSuffix$inheritedSuffix$filterSuffix"
+                switch ($assignment.intent) {
+                    "required" { $ctx.Buckets['RequiredApps'].Add("$($entity.displayName)$combinedSuffix") }
+                    "available" { $ctx.Buckets['AvailableApps'].Add("$($entity.displayName)$combinedSuffix") }
+                    "uninstall" { $ctx.Buckets['UninstallApps'].Add("$($entity.displayName)$combinedSuffix") }
+                }
+            }
+            return
+        }
+
+        if ($category.Kind -eq 'EndpointSecurity' -or $category.Id -eq 'HealthScripts') {
+            # Backstop for the prefilter: never take ES results from the configurationPolicies phase
+            if ($category.Kind -eq 'EndpointSecurity' -and $null -eq $ctx.RawAssignments) { return }
+            # Legacy matching: inclusion targets only, [INHERITED] as the only tag
+            $inclusions = @($ctx.Assignments | Where-Object { $_.Reason -eq 'Direct Assignment' })
+            if ($inclusions.Count -eq 0) { return }
+            $suffix = if (@($inclusions | Where-Object { $_.GroupId -ne $groupId }).Count -gt 0) { " [INHERITED]" } else { "" }
+            $ctx.Buckets[$category.BucketKeys[0]].Add("$($entity.displayName)$suffix")
+            return
+        }
+
+        if ($category.Id -eq 'PlatformScripts') {
+            # Legacy matching: any group target (inclusion or exclusion) counts,
+            # [INHERITED] as the only tag, "(PowerShell)" marker in the name
+            if (@($ctx.Assignments).Count -eq 0) { return }
+            $suffix = if (@($ctx.Assignments | Where-Object { $_.GroupId -ne $groupId }).Count -gt 0) { " [INHERITED]" } else { "" }
+            $ctx.Buckets['PlatformScripts'].Add("$($entity.displayName) (PowerShell)$suffix")
+            return
+        }
+
+        # Device Configurations / Settings Catalog / Compliance Policies: one entry per
+        # policy with [EXCLUDED], [INHERITED] and filter suffixes, in that order
+        if (@($ctx.Assignments).Count -eq 0) { return }
+        $suffix = ""
+        if (@($ctx.Assignments | Where-Object { $_.Reason -eq 'Direct Exclusion' }).Count -gt 0) { $suffix += " [EXCLUDED]" }
+        if (@($ctx.Assignments | Where-Object { $_.GroupId -ne $groupId }).Count -gt 0) { $suffix += " [INHERITED]" }
+        $filterMatch = $ctx.Assignments | Where-Object { $_.FilterId } | Select-Object -First 1
+        if ($filterMatch) {
+            $suffix += (Format-AssignmentFilter -FilterId $filterMatch.FilterId -FilterType $filterMatch.FilterType)
+        }
+        $entryName = if ($category.Id -eq 'SettingsCatalog') { $entity.name } else { $entity.displayName }
+        $ctx.Buckets[$category.BucketKeys[0]].Add("$entryName$suffix")
+    }
+
     # Process each group input
     $resolvedGroups = @{}
     foreach ($groupInput in $groupInputs) {
@@ -57,52 +132,17 @@ function Compare-IntuneGroupAssignment {
         # Initialize variables
         $groupId = $null
         $groupName = $null
-        $allGroupIds = @()
-        $parentGroupMap = @{}
 
         # Check if input is a GUID
         if ($groupInput -match '^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$') {
             try {
                 # Get group info from Graph API
-                $groupUri = "$GraphEndpoint/v1.0/groups/$groupInput"
+                $groupUri = "$script:GraphEndpoint/v1.0/groups/$groupInput"
                 $groupResponse = Invoke-MgGraphRequest -Uri $groupUri -Method Get
                 $groupId = $groupResponse.id
                 $groupName = $groupResponse.displayName
                 $resolvedGroups[$groupId] = $groupName
-
-                # Initialize collections for this group
-                $groupAssignments[$groupName] = @{
-                    DeviceConfigs              = [System.Collections.ArrayList]::new()
-                    SettingsCatalog            = [System.Collections.ArrayList]::new()
-                    CompliancePolicies         = [System.Collections.ArrayList]::new()
-                    RequiredApps               = [System.Collections.ArrayList]::new()
-                    AvailableApps              = [System.Collections.ArrayList]::new()
-                    UninstallApps              = [System.Collections.ArrayList]::new()
-                    PlatformScripts            = [System.Collections.ArrayList]::new()
-                    HealthScripts              = [System.Collections.ArrayList]::new()
-                    AntivirusProfiles          = [System.Collections.ArrayList]::new()
-                    DiskEncryptionProfiles     = [System.Collections.ArrayList]::new()
-                    FirewallProfiles           = [System.Collections.ArrayList]::new()
-                    EndpointDetectionProfiles  = [System.Collections.ArrayList]::new()
-                    AttackSurfaceProfiles      = [System.Collections.ArrayList]::new()
-                    AccountProtectionProfiles  = [System.Collections.ArrayList]::new()
-                }
-
                 Write-Host "Found group by ID: $groupName" -ForegroundColor Green
-
-                # Build effective group IDs for nested group support
-                $allGroupIds = @($groupId)
-                $parentGroupMap = @{}
-                if ($checkNestedGroupsCompare) {
-                    $parentGroups = Get-TransitiveGroupMembership -GroupId $groupId
-                    if ($parentGroups.Count -gt 0) {
-                        foreach ($pg in $parentGroups) {
-                            $allGroupIds += $pg.id
-                            $parentGroupMap[$pg.id] = $pg.displayName
-                        }
-                        Write-Host "  Found $($parentGroups.Count) parent group(s)" -ForegroundColor Green
-                    }
-                }
             }
             catch {
                 Write-Host "No group found with ID: $groupInput" -ForegroundColor Red
@@ -110,8 +150,9 @@ function Compare-IntuneGroupAssignment {
             }
         }
         else {
-            # Try to find group by display name
-            $groupUri = "$GraphEndpoint/v1.0/groups?`$filter=displayName eq '$groupInput'"
+            # Try to find group by display name (single quotes escaped for the OData filter)
+            $escapedGroupName = $groupInput -replace "'", "''"
+            $groupUri = "$script:GraphEndpoint/v1.0/groups?`$filter=displayName eq '$escapedGroupName'"
             $groupResponse = Invoke-MgGraphRequest -Uri $groupUri -Method Get
 
             if ($groupResponse.value.Count -eq 0) {
@@ -129,328 +170,43 @@ function Compare-IntuneGroupAssignment {
             $groupId = $groupResponse.value[0].id
             $groupName = $groupResponse.value[0].displayName
             $resolvedGroups[$groupId] = $groupName
-
-            # Initialize collections for this group
-            $groupAssignments[$groupName] = @{
-                DeviceConfigs              = [System.Collections.ArrayList]::new()
-                SettingsCatalog            = [System.Collections.ArrayList]::new()
-                CompliancePolicies         = [System.Collections.ArrayList]::new()
-                RequiredApps               = [System.Collections.ArrayList]::new()
-                AvailableApps              = [System.Collections.ArrayList]::new()
-                UninstallApps              = [System.Collections.ArrayList]::new()
-                PlatformScripts            = [System.Collections.ArrayList]::new()
-                HealthScripts              = [System.Collections.ArrayList]::new()
-                AntivirusProfiles          = [System.Collections.ArrayList]::new()
-                DiskEncryptionProfiles     = [System.Collections.ArrayList]::new()
-                FirewallProfiles           = [System.Collections.ArrayList]::new()
-                EndpointDetectionProfiles  = [System.Collections.ArrayList]::new()
-                AttackSurfaceProfiles      = [System.Collections.ArrayList]::new()
-                AccountProtectionProfiles  = [System.Collections.ArrayList]::new()
-            }
-
             Write-Host "Found group by name: $groupName (ID: $groupId)" -ForegroundColor Green
+        }
 
-            # Build effective group IDs for nested group support
-            $allGroupIds = @($groupId)
-            $parentGroupMap = @{}
-            if ($checkNestedGroupsCompare) {
-                $parentGroups = Get-TransitiveGroupMembership -GroupId $groupId
-                if ($parentGroups.Count -gt 0) {
-                    foreach ($pg in $parentGroups) {
-                        $allGroupIds += $pg.id
-                        $parentGroupMap[$pg.id] = $pg.displayName
-                    }
-                    Write-Host "  Found $($parentGroups.Count) parent group(s)" -ForegroundColor Green
+        # Build effective group IDs for nested group support (direct + transitive parents)
+        $allGroupIds = @($groupId)
+        if ($checkNestedGroupsCompare) {
+            $parentGroups = Get-TransitiveGroupMembership -GroupId $groupId
+            if ($parentGroups.Count -gt 0) {
+                foreach ($pg in $parentGroups) {
+                    $allGroupIds += $pg.id
                 }
+                Write-Host "  Found $($parentGroups.Count) parent group(s)" -ForegroundColor Green
             }
         }
 
-        # Process Device Configurations
-        $deviceConfigsUri = "$GraphEndpoint/beta/deviceManagement/deviceConfigurations"
-        $deviceConfigsResponse = Invoke-MgGraphRequest -Uri $deviceConfigsUri -Method Get
-        $allDeviceConfigs = $deviceConfigsResponse.value
-        while ($deviceConfigsResponse.'@odata.nextLink') {
-            $deviceConfigsResponse = Invoke-MgGraphRequest -Uri $deviceConfigsResponse.'@odata.nextLink' -Method Get
-            $allDeviceConfigs += $deviceConfigsResponse.value
+        $scanResult = Invoke-IntuneCategoryScan -Categories $scanCategories -ProcessEntity $processEntity -AssignmentGroupIds $allGroupIds -EntityPreFilter $entityPreFilter -ShowProgress -EntityCache $entityCache
+        $groupAssignments[$groupName] = $scanResult.Buckets
+
+        # Process Shell Scripts (macOS) via the legacy /groupAssignments endpoint
+        Write-Host "Fetching Shell Scripts..." -ForegroundColor Yellow
+        if (-not $entityCache.ContainsKey('deviceShellScripts')) {
+            $entityCache['deviceShellScripts'] = @(Get-IntuneEntities -EntityType 'deviceShellScripts')
         }
-        $totalDeviceConfigs = $allDeviceConfigs.Count
-        $currentDeviceConfig = 0
-        foreach ($config in $allDeviceConfigs) {
-            $currentDeviceConfig++
-            Write-Host "`rFetching Device Configuration $currentDeviceConfig of $totalDeviceConfigs" -NoNewline
-            $configId = $config.id
-            $assignmentsUri = "$GraphEndpoint/beta/deviceManagement/deviceConfigurations('$configId')/assignments"
-            $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
+        foreach ($shellScript in $entityCache['deviceShellScripts']) {
+            $assignmentsUri = "$script:GraphEndpoint/beta/deviceManagement/deviceShellScripts('$($shellScript.id)')/groupAssignments"
+            $shellAssignments = [System.Collections.Generic.List[object]]::new()
+            do {
+                $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
+                if ($assignmentResponse -and $null -ne $assignmentResponse.value) { $shellAssignments.AddRange(@($assignmentResponse.value)) }
+                $assignmentsUri = $assignmentResponse.'@odata.nextLink'
+            } while (![string]::IsNullOrEmpty($assignmentsUri))
 
-            # Check for both inclusion and exclusion assignments
-            $hasAssignment = $assignmentResponse.value | Where-Object {
-                $allGroupIds -contains $_.target.groupId -and
-                ($_.target.'@odata.type' -eq '#microsoft.graph.groupAssignmentTarget' -or
-                $_.target.'@odata.type' -eq '#microsoft.graph.exclusionGroupAssignmentTarget')
-            }
-            if ($hasAssignment) {
-                $isExclusion = $hasAssignment | Where-Object {
-                    $_.target.'@odata.type' -eq '#microsoft.graph.exclusionGroupAssignmentTarget'
-                }
-                $isInherited = $hasAssignment | Where-Object {
-                    $_.target.groupId -ne $groupId
-                }
-                $suffix = ""
-                if ($isExclusion) { $suffix += " [EXCLUDED]" }
-                if ($isInherited) { $suffix += " [INHERITED]" }
-                $filterMatch = $hasAssignment | Where-Object { $_.target.deviceAndAppManagementAssignmentFilterType -and $_.target.deviceAndAppManagementAssignmentFilterType -ne 'none' } | Select-Object -First 1
-                if ($filterMatch) {
-                    $suffix += (Format-AssignmentFilter -FilterId $filterMatch.target.deviceAndAppManagementAssignmentFilterId -FilterType $filterMatch.target.deviceAndAppManagementAssignmentFilterType)
-                }
-                $displayName = "$($config.displayName)$suffix"
-                [void]$groupAssignments[$groupName].DeviceConfigs.Add($displayName)
-            }
-        }
-        Write-Host "`rFetching Device Configuration $totalDeviceConfigs of $totalDeviceConfigs" -NoNewline
-        Start-Sleep -Milliseconds 100
-        Write-Host ""  # Move to the next line after the loop
-
-        # Process Settings Catalog
-        $settingsCatalogUri = "$GraphEndpoint/beta/deviceManagement/configurationPolicies"
-        $settingsCatalogResponse = Invoke-MgGraphRequest -Uri $settingsCatalogUri -Method Get
-
-        foreach ($policy in $settingsCatalogResponse.value) {
-            $policyId = $policy.id
-            $assignmentsUri = "$GraphEndpoint/beta/deviceManagement/configurationPolicies('$policyId')/assignments"
-            $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
-
-            # Check for both inclusion and exclusion assignments
-            $hasAssignment = $assignmentResponse.value | Where-Object {
-                $allGroupIds -contains $_.target.groupId -and
-                ($_.target.'@odata.type' -eq '#microsoft.graph.groupAssignmentTarget' -or
-                $_.target.'@odata.type' -eq '#microsoft.graph.exclusionGroupAssignmentTarget')
-            }
-            if ($hasAssignment) {
-                $isExclusion = $hasAssignment | Where-Object {
-                    $_.target.'@odata.type' -eq '#microsoft.graph.exclusionGroupAssignmentTarget'
-                }
-                $isInherited = $hasAssignment | Where-Object {
-                    $_.target.groupId -ne $groupId
-                }
-                $suffix = ""
-                if ($isExclusion) { $suffix += " [EXCLUDED]" }
-                if ($isInherited) { $suffix += " [INHERITED]" }
-                $filterMatch = $hasAssignment | Where-Object { $_.target.deviceAndAppManagementAssignmentFilterType -and $_.target.deviceAndAppManagementAssignmentFilterType -ne 'none' } | Select-Object -First 1
-                if ($filterMatch) {
-                    $suffix += (Format-AssignmentFilter -FilterId $filterMatch.target.deviceAndAppManagementAssignmentFilterId -FilterType $filterMatch.target.deviceAndAppManagementAssignmentFilterType)
-                }
-                $displayName = "$($policy.name)$suffix"
-                [void]$groupAssignments[$groupName].SettingsCatalog.Add($displayName)
-            }
-        }
-
-        # Process Compliance Policies
-        $complianceUri = "$GraphEndpoint/beta/deviceManagement/deviceCompliancePolicies"
-        $complianceResponse = Invoke-MgGraphRequest -Uri $complianceUri -Method Get
-
-        foreach ($policy in $complianceResponse.value) {
-            $policyId = $policy.id
-            $assignmentsUri = "$GraphEndpoint/beta/deviceManagement/deviceCompliancePolicies('$policyId')/assignments"
-            $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
-
-            # Check for both inclusion and exclusion assignments
-            $hasAssignment = $assignmentResponse.value | Where-Object {
-                $allGroupIds -contains $_.target.groupId -and
-                ($_.target.'@odata.type' -eq '#microsoft.graph.groupAssignmentTarget' -or
-                $_.target.'@odata.type' -eq '#microsoft.graph.exclusionGroupAssignmentTarget')
-            }
-            if ($hasAssignment) {
-                $isExclusion = $hasAssignment | Where-Object {
-                    $_.target.'@odata.type' -eq '#microsoft.graph.exclusionGroupAssignmentTarget'
-                }
-                $isInherited = $hasAssignment | Where-Object {
-                    $_.target.groupId -ne $groupId
-                }
-                $suffix = ""
-                if ($isExclusion) { $suffix += " [EXCLUDED]" }
-                if ($isInherited) { $suffix += " [INHERITED]" }
-                $filterMatch = $hasAssignment | Where-Object { $_.target.deviceAndAppManagementAssignmentFilterType -and $_.target.deviceAndAppManagementAssignmentFilterType -ne 'none' } | Select-Object -First 1
-                if ($filterMatch) {
-                    $suffix += (Format-AssignmentFilter -FilterId $filterMatch.target.deviceAndAppManagementAssignmentFilterId -FilterType $filterMatch.target.deviceAndAppManagementAssignmentFilterType)
-                }
-                $displayName = "$($policy.displayName)$suffix"
-                [void]$groupAssignments[$groupName].CompliancePolicies.Add($displayName)
-            }
-        }
-
-        # Process Apps
-        $appUri = "$GraphEndpoint/beta/deviceAppManagement/mobileApps?`$filter=isAssigned eq true"
-        $appResponse = Invoke-MgGraphRequest -Uri $appUri -Method Get
-
-        foreach ($app in $appResponse.value) {
-            # Skip built-in and Microsoft apps
-            if ($app.isFeatured -or $app.isBuiltIn) {
-                continue
-            }
-
-            $appId = $app.id
-            $assignmentsUri = "$GraphEndpoint/beta/deviceAppManagement/mobileApps('$appId')/assignments"
-            $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
-
-            foreach ($assignment in $assignmentResponse.value) {
-                if ($allGroupIds -contains $assignment.target.groupId) {
-                    $inheritedSuffix = if ($assignment.target.groupId -ne $groupId) { " [INHERITED]" } else { "" }
-                    $filterSuffix = Format-AssignmentFilter -FilterId $assignment.target.deviceAndAppManagementAssignmentFilterId -FilterType $assignment.target.deviceAndAppManagementAssignmentFilterType
-                    $combinedSuffix = "$inheritedSuffix$filterSuffix"
-                    switch ($assignment.intent) {
-                        "required" { [void]$groupAssignments[$groupName].RequiredApps.Add("$($app.displayName)$combinedSuffix") }
-                        "available" { [void]$groupAssignments[$groupName].AvailableApps.Add("$($app.displayName)$combinedSuffix") }
-                        "uninstall" { [void]$groupAssignments[$groupName].UninstallApps.Add("$($app.displayName)$combinedSuffix") }
-                    }
-                }
-            }
-        }
-
-        # Process Platform Scripts (PowerShell)
-        $scriptsUri = "$GraphEndpoint/beta/deviceManagement/deviceManagementScripts"
-        $scriptsResponse = Invoke-MgGraphRequest -Uri $scriptsUri -Method Get
-        # For PowerShell scripts, we need to check the script type
-        foreach ($script in $scriptsResponse.value) {
-            $scriptId = $script.id
-            $assignmentsUri = "$GraphEndpoint/beta/deviceManagement/deviceManagementScripts('$scriptId')/assignments"
-            $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
-
-            $hasAssignment = $assignmentResponse.value | Where-Object { $allGroupIds -contains $_.target.groupId }
-            if ($hasAssignment) {
-                $isInherited = $hasAssignment | Where-Object { $_.target.groupId -ne $groupId }
-                $suffix = if ($isInherited) { " [INHERITED]" } else { "" }
-                $scriptInfo = "$($script.displayName) (PowerShell)$suffix"
-                [void]$groupAssignments[$groupName].PlatformScripts.Add($scriptInfo)
-            }
-        }
-
-        # Process Shell Scripts (macOS)
-        $shellScriptsUri = "$GraphEndpoint/beta/deviceManagement/deviceShellScripts"
-        $shellScriptsResponse = Invoke-MgGraphRequest -Uri $shellScriptsUri -Method Get
-        # For Shell scripts, we need to check the script type
-        foreach ($script in $shellScriptsResponse.value) {
-            $scriptId = $script.id
-            $assignmentsUri = "$GraphEndpoint/beta/deviceManagement/deviceShellScripts('$scriptId')/groupAssignments"
-            $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
-
-            $hasAssignment = $assignmentResponse.value | Where-Object { $allGroupIds -contains $_.targetGroupId }
-            if ($hasAssignment) {
-                $isInherited = $hasAssignment | Where-Object { $_.targetGroupId -ne $groupId }
-                $suffix = if ($isInherited) { " [INHERITED]" } else { "" }
-                $scriptInfo = "$($script.displayName) (Shell)$suffix"
-                [void]$groupAssignments[$groupName].PlatformScripts.Add($scriptInfo)
-            }
-        }
-
-        # Fetch and process Proactive Remediation Scripts (deviceHealthScripts)
-        $healthScriptsUri = "$GraphEndpoint/beta/deviceManagement/deviceHealthScripts"
-        $healthScriptsResponse = Invoke-MgGraphRequest -Uri $healthScriptsUri -Method Get
-        foreach ($script in $healthScriptsResponse.value) {
-            $scriptId = $script.id
-            $assignmentsUri = "$GraphEndpoint/beta/deviceManagement/deviceHealthScripts('$scriptId')/assignments"
-            $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
-
-            $hasAssignment = $assignmentResponse.value | Where-Object { $_.target.'@odata.type' -eq '#microsoft.graph.groupAssignmentTarget' -and $allGroupIds -contains $_.target.groupId }
-            if ($hasAssignment) {
-                $isInherited = $hasAssignment | Where-Object { $_.target.groupId -ne $groupId }
-                $suffix = if ($isInherited) { " [INHERITED]" } else { "" }
-                [void]$groupAssignments[$groupName].HealthScripts.Add("$($script.displayName)$suffix")
-            }
-        }
-
-        # Get Endpoint Security - Antivirus Policies
-        $allIntentsForAntivirusCompare = Get-IntuneEntities -EntityType "deviceManagement/intents"
-        Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentsForAntivirusCompare
-        $antivirusPolicies = $allIntentsForAntivirusCompare | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAntivirus' }
-        if ($antivirusPolicies) {
-            foreach ($policy in $antivirusPolicies) {
-                $assignments = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
-                $hasAssignment = $assignments.value | Where-Object { $_.target.'@odata.type' -eq '#microsoft.graph.groupAssignmentTarget' -and $allGroupIds -contains $_.target.groupId }
-                if ($hasAssignment) {
-                    $isInherited = $hasAssignment | Where-Object { $_.target.groupId -ne $groupId }
-                    $suffix = if ($isInherited) { " [INHERITED]" } else { "" }
-                    [void]$groupAssignments[$groupName].AntivirusProfiles.Add("$($policy.displayName)$suffix")
-                }
-            }
-        }
-
-        # Get Endpoint Security - Disk Encryption Policies
-        $allIntentsForDiskEncCompare = Get-IntuneEntities -EntityType "deviceManagement/intents"
-        Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentsForDiskEncCompare
-        $diskEncryptionPolicies = $allIntentsForDiskEncCompare | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityDiskEncryption' }
-        if ($diskEncryptionPolicies) {
-            foreach ($policy in $diskEncryptionPolicies) {
-                $assignments = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
-                $hasAssignment = $assignments.value | Where-Object { $_.target.'@odata.type' -eq '#microsoft.graph.groupAssignmentTarget' -and $allGroupIds -contains $_.target.groupId }
-                if ($hasAssignment) {
-                    $isInherited = $hasAssignment | Where-Object { $_.target.groupId -ne $groupId }
-                    $suffix = if ($isInherited) { " [INHERITED]" } else { "" }
-                    [void]$groupAssignments[$groupName].DiskEncryptionProfiles.Add("$($policy.displayName)$suffix")
-                }
-            }
-        }
-
-        # Get Endpoint Security - Firewall Policies
-        $allIntentsForFirewallCompare = Get-IntuneEntities -EntityType "deviceManagement/intents"
-        Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentsForFirewallCompare
-        $firewallPolicies = $allIntentsForFirewallCompare | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityFirewall' }
-        if ($firewallPolicies) {
-            foreach ($policy in $firewallPolicies) {
-                $assignments = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
-                $hasAssignment = $assignments.value | Where-Object { $_.target.'@odata.type' -eq '#microsoft.graph.groupAssignmentTarget' -and $allGroupIds -contains $_.target.groupId }
-                if ($hasAssignment) {
-                    $isInherited = $hasAssignment | Where-Object { $_.target.groupId -ne $groupId }
-                    $suffix = if ($isInherited) { " [INHERITED]" } else { "" }
-                    [void]$groupAssignments[$groupName].FirewallProfiles.Add("$($policy.displayName)$suffix")
-                }
-            }
-        }
-
-        # Get Endpoint Security - Endpoint Detection and Response Policies
-        $allIntentsForEDRCompare = Get-IntuneEntities -EntityType "deviceManagement/intents"
-        Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentsForEDRCompare
-        $edrPolicies = $allIntentsForEDRCompare | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityEndpointDetectionAndResponse' }
-        if ($edrPolicies) {
-            foreach ($policy in $edrPolicies) {
-                $assignments = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
-                $hasAssignment = $assignments.value | Where-Object { $_.target.'@odata.type' -eq '#microsoft.graph.groupAssignmentTarget' -and $allGroupIds -contains $_.target.groupId }
-                if ($hasAssignment) {
-                    $isInherited = $hasAssignment | Where-Object { $_.target.groupId -ne $groupId }
-                    $suffix = if ($isInherited) { " [INHERITED]" } else { "" }
-                    [void]$groupAssignments[$groupName].EndpointDetectionProfiles.Add("$($policy.displayName)$suffix")
-                }
-            }
-        }
-
-        # Get Endpoint Security - Attack Surface Reduction Policies
-        $allIntentsForASRCompare = Get-IntuneEntities -EntityType "deviceManagement/intents"
-        Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentsForASRCompare
-        $asrPolicies = $allIntentsForASRCompare | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReduction' }
-        if ($asrPolicies) {
-            foreach ($policy in $asrPolicies) {
-                $assignments = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
-                $hasAssignment = $assignments.value | Where-Object { $_.target.'@odata.type' -eq '#microsoft.graph.groupAssignmentTarget' -and $allGroupIds -contains $_.target.groupId }
-                if ($hasAssignment) {
-                    $isInherited = $hasAssignment | Where-Object { $_.target.groupId -ne $groupId }
-                    $suffix = if ($isInherited) { " [INHERITED]" } else { "" }
-                    [void]$groupAssignments[$groupName].AttackSurfaceProfiles.Add("$($policy.displayName)$suffix")
-                }
-            }
-        }
-
-        # Get Endpoint Security - Account Protection Policies
-        $allIntentsForAccountProtectionCompare = Get-IntuneEntities -EntityType "deviceManagement/intents"
-        Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentsForAccountProtectionCompare
-        $accountProtectionPolicies = $allIntentsForAccountProtectionCompare | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAccountProtection' }
-        if ($accountProtectionPolicies) {
-            foreach ($policy in $accountProtectionPolicies) {
-                $assignments = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
-                $hasAssignment = $assignments.value | Where-Object { $_.target.'@odata.type' -eq '#microsoft.graph.groupAssignmentTarget' -and $allGroupIds -contains $_.target.groupId }
-                if ($hasAssignment) {
-                    $isInherited = $hasAssignment | Where-Object { $_.target.groupId -ne $groupId }
-                    $suffix = if ($isInherited) { " [INHERITED]" } else { "" }
-                    [void]$groupAssignments[$groupName].AccountProtectionProfiles.Add("$($policy.displayName)$suffix")
-                }
+            $hasAssignment = @($shellAssignments | Where-Object { $allGroupIds -contains $_.targetGroupId })
+            if ($hasAssignment.Count -gt 0) {
+                $isInherited = @($hasAssignment | Where-Object { $_.targetGroupId -ne $groupId })
+                $suffix = if ($isInherited.Count -gt 0) { " [INHERITED]" } else { "" }
+                $groupAssignments[$groupName]['PlatformScripts'].Add("$($shellScript.displayName) (Shell)$suffix")
             }
         }
     }

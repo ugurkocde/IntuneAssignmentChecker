@@ -1,4 +1,5 @@
 function Format-AssignmentFilter {
+    [CmdletBinding()]
     param(
         [Parameter(Mandatory = $false)]
         [AllowNull()]

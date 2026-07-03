@@ -1,4 +1,5 @@
 function Get-PolicyPlatform {
+    [CmdletBinding()]
     param (
         [Parameter(Mandatory = $true)]
         [PSObject]$Policy

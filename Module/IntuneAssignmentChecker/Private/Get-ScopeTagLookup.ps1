@@ -1,4 +1,6 @@
 function Get-ScopeTagLookup {
+    [CmdletBinding()]
+    param()
     $lookup = @{ "0" = "Default" }
     try {
         $uri = "$script:GraphEndpoint/beta/deviceManagement/roleScopeTags?`$select=id,displayName"

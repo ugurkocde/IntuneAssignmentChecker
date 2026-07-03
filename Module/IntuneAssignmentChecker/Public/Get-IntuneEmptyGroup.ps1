@@ -19,7 +19,7 @@ function Get-IntuneEmptyGroup {
         )
 
         try {
-            $membersUri = "$GraphEndpoint/v1.0/groups/$GroupId/members?`$select=id"
+            $membersUri = "$script:GraphEndpoint/v1.0/groups/$GroupId/members?`$select=id"
             $response = Invoke-MgGraphRequest -Uri $membersUri -Method Get
             return $response.value.Count -eq 0
         }
@@ -101,55 +101,15 @@ function Get-IntuneEmptyGroup {
     Write-Host "Fetching App Protection Policies..." -ForegroundColor Yellow
     $appProtectionPolicies = Get-IntuneEntities -EntityType "deviceAppManagement/managedAppPolicies"
     foreach ($policy in $appProtectionPolicies) {
-        $policyType = $policy.'@odata.type'
-        $assignmentsUri = switch ($policyType) {
-            "#microsoft.graph.androidManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/androidManagedAppProtections('$($policy.id)')/assignments" }
-            "#microsoft.graph.iosManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/iosManagedAppProtections('$($policy.id)')/assignments" }
-            "#microsoft.graph.windowsManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/windowsManagedAppProtections('$($policy.id)')/assignments" }
-            default { $null }
-        }
-
-        if ($assignmentsUri) {
-            try {
-                $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
-                $assignments = @()
-                foreach ($assignment in $assignmentResponse.value) {
-                    $assignmentReason = $null
-                    switch ($assignment.target.'@odata.type') {
-                        '#microsoft.graph.allLicensedUsersAssignmentTarget' {
-                            $assignmentReason = "All Users"
-                        }
-                        '#microsoft.graph.groupAssignmentTarget' {
-                            if (!$GroupId -or $assignment.target.groupId -eq $GroupId) {
-                                $assignmentReason = "Group Assignment"
-                            }
-                        }
-                    }
-
-                    if ($assignmentReason) {
-                        $assignments += @{
-                            Reason  = $assignmentReason
-                            GroupId = $assignment.target.groupId
-                        }
-                    }
-                }
-
-                if ($assignments.Count -gt 0) {
-                    $assignmentSummary = $assignments | ForEach-Object {
-                        if ($_.Reason -eq "Group Assignment") {
-                            $groupInfo = Get-GroupInfo -GroupId $_.GroupId
-                            "$($_.Reason) - $($groupInfo.DisplayName)"
-                        }
-                        else {
-                            $_.Reason
-                        }
-                    }
-                    $policy | Add-Member -NotePropertyName 'AssignmentSummary' -NotePropertyValue ($assignmentSummary -join "; ") -Force
+        $assignments = Get-IntuneAssignments -EntityType "deviceAppManagement/managedAppPolicies" -EntityId $policy.id
+        foreach ($assignment in $assignments) {
+            if ($assignment.Reason -eq "Group Assignment" -and $assignment.GroupId) {
+                $groupInfo = Get-GroupInfo -GroupId $assignment.GroupId
+                if ($groupInfo.Success -and (Test-EmptyGroup -GroupId $assignment.GroupId)) {
+                    $policy | Add-Member -NotePropertyName 'EmptyGroupInfo' -NotePropertyValue "Assigned to empty group: $($groupInfo.DisplayName)" -Force
                     $emptyGroupAssignments.AppProtectionPolicies += $policy
+                    break
                 }
-            }
-            catch {
-                Write-Host "Error fetching assignments for policy $($policy.displayName): $($_.Exception.Message)" -ForegroundColor Red
             }
         }
     }
@@ -200,6 +160,37 @@ function Get-IntuneEmptyGroup {
                     $script | Add-Member -NotePropertyName 'EmptyGroupInfo' -NotePropertyValue "Assigned to empty group: $($groupInfo.DisplayName)" -Force
                     $emptyGroupAssignments.HealthScripts += $script
                     break
+                }
+            }
+        }
+    }
+
+    # Get Endpoint Security Policies
+    Write-Host "Fetching Endpoint Security Policies..." -ForegroundColor Yellow
+    $configPolicies = Get-IntuneEntities -EntityType "configurationPolicies"
+    $endpointSecurityCategories = @(
+        @{ Key = "AntivirusProfiles"; TemplateFamily = "endpointSecurityAntivirus" },
+        @{ Key = "DiskEncryptionProfiles"; TemplateFamily = "endpointSecurityDiskEncryption" },
+        @{ Key = "FirewallProfiles"; TemplateFamily = "endpointSecurityFirewall" },
+        @{ Key = "EndpointDetectionProfiles"; TemplateFamily = "endpointSecurityEndpointDetectionAndResponse" },
+        @{ Key = "AttackSurfaceProfiles"; TemplateFamily = "endpointSecurityAttackSurfaceReduction" },
+        @{ Key = "AccountProtectionProfiles"; TemplateFamily = "endpointSecurityAccountProtection" }
+    )
+    foreach ($esCategory in $endpointSecurityCategories) {
+        $matchingEsPolicies = $configPolicies | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq $esCategory.TemplateFamily }
+        foreach ($policy in $matchingEsPolicies) {
+            $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
+            foreach ($assignment in $assignments) {
+                if ($assignment.Reason -eq "Group Assignment" -and $assignment.GroupId) {
+                    $groupInfo = Get-GroupInfo -GroupId $assignment.GroupId
+                    if ($groupInfo.Success -and (Test-EmptyGroup -GroupId $assignment.GroupId)) {
+                        $policy | Add-Member -NotePropertyName 'EmptyGroupInfo' -NotePropertyValue "Assigned to empty group: $($groupInfo.DisplayName)" -Force
+                        if ([string]::IsNullOrWhiteSpace($policy.displayName)) {
+                            $policy | Add-Member -NotePropertyName 'displayName' -NotePropertyValue $policy.name -Force
+                        }
+                        $emptyGroupAssignments[$esCategory.Key] += $policy
+                        break
+                    }
                 }
             }
         }
@@ -405,6 +396,21 @@ function Get-IntuneEmptyGroup {
         }
     }
 
+    # Display Endpoint Security - Account Protection Profiles
+    Write-Host "`n------- Endpoint Security - Account Protection Profiles -------" -ForegroundColor Cyan
+    if ($emptyGroupAssignments.AccountProtectionProfiles.Count -eq 0) {
+        Write-Host "No Account Protection Profiles assigned to empty groups" -ForegroundColor Gray
+    }
+    else {
+        foreach ($policyProfile in $emptyGroupAssignments.AccountProtectionProfiles) {
+            Write-Host "Account Protection Profile Name: $($policyProfile.displayName)" -ForegroundColor White
+            Write-Host "Profile ID: $($policyProfile.id)" -ForegroundColor Gray
+            Write-Host "$($policyProfile.EmptyGroupInfo)" -ForegroundColor Yellow
+            Write-Host ""
+            Add-ExportData -ExportData $exportData -Category "Endpoint Security - Account Protection" -Items @($policyProfile) -AssignmentReason $policyProfile.EmptyGroupInfo
+        }
+    }
+
     # Export results if requested
-    Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneEmptyGroupAssignments.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath
+    Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneEmptyGroupAssignments.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath -ExportToCSV:$ExportToCSV -ParameterMode:$parameterMode
 }

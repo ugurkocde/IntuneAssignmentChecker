@@ -1,4 +1,6 @@
 function Get-AssignmentFilterLookup {
+    [CmdletBinding()]
+    param()
     $lookup = @{}
     try {
         $uri = "$script:GraphEndpoint/beta/deviceManagement/assignmentFilters?`$select=id,displayName,platform"

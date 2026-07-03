@@ -1,4 +1,5 @@
 function Test-AppPlatformCompatibility {
+    [CmdletBinding()]
     param (
         [string]$DeviceOS,
         [PSObject]$App

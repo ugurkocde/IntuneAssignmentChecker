@@ -1,4 +1,5 @@
 function Get-Separator {
+    [CmdletBinding()]
     param (
         [string]$Character = "-",
         [int]$MinWidth = 80

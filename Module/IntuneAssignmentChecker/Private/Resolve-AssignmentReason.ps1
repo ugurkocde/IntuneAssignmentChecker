@@ -1,4 +1,5 @@
 function Resolve-AssignmentReason {
+    [CmdletBinding()]
     param (
         [object[]]$Assignments,
         [object[]]$GroupMembershipIds,

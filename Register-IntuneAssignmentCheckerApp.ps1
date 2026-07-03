@@ -21,7 +21,7 @@
 .NOTES
     Author: Stefan Redlin
     Inspired by Ugur Koc's Intune Assignment Checker (@UgurKocDe), which motivated the automation of the App Registration process.
-    Many thanks for sharing this great tool — big shoutout to the IT community!
+    Many thanks for sharing this great tool - big shoutout to the IT community!
 #>
 
 # STEP 1: Connect to Microsoft Graph and get tenant information
@@ -49,7 +49,10 @@ $permissions = @(
     @{ id = "7a6ee1e7-141e-4cec-ae74-d9db155731ff"; displayName = "DeviceManagementApps.Read.All" },
     @{ id = "dc377aa6-52d8-4e23-b271-2a7ae04cedf3"; displayName = "DeviceManagementConfiguration.Read.All" },
     @{ id = "2f51be20-0bb4-4fed-bf7b-db946066c75e"; displayName = "DeviceManagementManagedDevices.Read.All" },
-    @{ id = "06a5fe6d-c49d-46a7-b082-56b1b14103c7"; displayName = "DeviceManagementServiceConfig.Read.All" }
+    @{ id = "06a5fe6d-c49d-46a7-b082-56b1b14103c7"; displayName = "DeviceManagementServiceConfig.Read.All" },
+    @{ id = "c7a5be92-2b3d-4540-8a67-c96dcaae8b43"; displayName = "DeviceManagementScripts.Read.All" },
+    @{ id = "a9e09520-8ed4-4cde-838e-4fdea192c227"; displayName = "CloudPC.Read.All" },
+    @{ id = "58ca0d9a-1575-47e1-a3cb-007ef2e4583b"; displayName = "DeviceManagementRBAC.Read.All" }
 )
 
 $requiredResourceAccess = @(
@@ -83,8 +86,8 @@ $cert = New-SelfSignedCertificate `
     -KeySpec Signature `
     -KeyExportPolicy Exportable
 
-$exportFolder = "C:\temp\$shortTenantName"
-$exportPath = "$exportFolder\IntuneAssignmentChecker-$shortTenantName.cer"
+$exportFolder = Join-Path ([System.IO.Path]::GetTempPath()) $shortTenantName
+$exportPath = Join-Path $exportFolder "IntuneAssignmentChecker-$shortTenantName.cer"
 New-Item -Path $exportFolder -ItemType Directory -Force | Out-Null
 Export-Certificate -Cert $cert -FilePath $exportPath | Out-Null
 Write-Host "Certificate exported to: $exportPath" -ForegroundColor Green
@@ -92,8 +95,21 @@ Write-Host "Certificate exported to: $exportPath" -ForegroundColor Green
 $keyCreds = @(
     @{ "Type" = "AsymmetricX509Cert"; "Usage" = "Verify"; "Key" = $cert.RawData }
 )
-Update-MgApplication -ApplicationId $app.Id -KeyCredentials $keyCreds
-Write-Host "Certificate uploaded successfully." -ForegroundColor Green
+try {
+    Update-MgApplication -ApplicationId $app.Id -KeyCredentials $keyCreds
+    Write-Host "Certificate uploaded successfully." -ForegroundColor Green
+}
+catch {
+    Write-Host "Certificate upload failed. Removing temporary Client Secret..." -ForegroundColor Red
+    $passwords = (Get-MgApplication -ApplicationId $app.Id).PasswordCredentials
+    foreach ($secret in $passwords) {
+        if ($secret.DisplayName -eq "TemporaryClientSecret") {
+            Remove-MgApplicationPassword -ApplicationId $app.Id -KeyId $secret.KeyId
+            Write-Host "Temporary Client Secret removed." -ForegroundColor Green
+        }
+    }
+    throw
+}
 
 # STEP 6: Remove Temporary Client Secret
 $passwords = (Get-MgApplication -ApplicationId $app.Id).PasswordCredentials
@@ -123,7 +139,8 @@ $tenantId = $tenant.Id
 $appId = $app.AppId
 
 Write-Host "`n----------------------------" -ForegroundColor Cyan
-Write-Host "You can now run IntuneAssignmentChecker with the following command:" -ForegroundColor Cyan
-Write-Host ".\IntuneAssignmentChecker.ps1 -CertificateThumbprint `"$certificateThumbprint`" -TenantId `"$tenantId`" -AppId `"$appId`"" -ForegroundColor Yellow
+Write-Host "You can now connect IntuneAssignmentChecker with the following command:" -ForegroundColor Cyan
+Write-Host "Connect-IntuneAssignmentChecker -AppId `"$appId`" -TenantId `"$tenantId`" -CertificateThumbprint `"$certificateThumbprint`"" -ForegroundColor Yellow
+Write-Host "Afterwards, run 'IntuneAssignmentChecker' to start the interactive menu." -ForegroundColor Cyan
 Write-Host "----------------------------"
 

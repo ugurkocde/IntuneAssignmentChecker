@@ -1,4 +1,5 @@
 function Get-IntuneAssignments {
+    [CmdletBinding()]
     param (
         [Parameter(Mandatory = $true)]
         [string]$EntityType,
@@ -24,21 +25,12 @@ function Get-IntuneAssignments {
 
     if ($EntityType -eq "deviceAppManagement/managedAppPolicies") {
         # For generic App Protection Policies, determine the specific policy type first
-        $policyDetailsUri = "$GraphEndpoint/beta/deviceAppManagement/managedAppPolicies/$EntityId"
+        $policyDetailsUri = "$script:GraphEndpoint/beta/deviceAppManagement/managedAppPolicies/$EntityId"
         try {
             $policyDetailsResponse = Invoke-MgGraphRequest -Uri $policyDetailsUri -Method Get
-            $policyODataType = $policyDetailsResponse.'@odata.type'
-            $specificPolicyTypePath = switch ($policyODataType) {
-                "#microsoft.graph.androidManagedAppProtection" { "androidManagedAppProtections" }
-                "#microsoft.graph.iosManagedAppProtection" { "iosManagedAppProtections" }
-                "#microsoft.graph.windowsManagedAppProtection" { "windowsManagedAppProtections" }
-                default { $null }
-            }
-            if ($specificPolicyTypePath) {
-                $actualAssignmentsUri = "$GraphEndpoint/beta/deviceAppManagement/$specificPolicyTypePath('$EntityId')/assignments"
-            }
-            else {
-                Write-Warning "Could not determine specific App Protection Policy type for $EntityId from OData type '$policyODataType'."
+            $actualAssignmentsUri = Get-AppProtectionAssignmentUri -Policy $policyDetailsResponse
+            if (-not $actualAssignmentsUri) {
+                Write-Warning "Could not determine specific App Protection Policy type for $EntityId from OData type '$($policyDetailsResponse.'@odata.type')'."
                 return [System.Collections.ArrayList]::new() # Return empty ArrayList
             }
         }
@@ -48,21 +40,21 @@ function Get-IntuneAssignments {
         }
     }
     elseif ($EntityType -eq "mobileAppConfigurations") {
-        $actualAssignmentsUri = "$GraphEndpoint/beta/deviceAppManagement/mobileAppConfigurations('$EntityId')/assignments"
+        $actualAssignmentsUri = "$script:GraphEndpoint/beta/deviceAppManagement/mobileAppConfigurations('$EntityId')/assignments"
     }
     elseif ($EntityType -like "deviceAppManagement/*ManagedAppProtections") {
         # Already specific App Protection Policy type
         # Example: deviceAppManagement/iosManagedAppProtections
-        $actualAssignmentsUri = "$GraphEndpoint/beta/$EntityType('$EntityId')/assignments" # EntityType already includes deviceAppManagement
+        $actualAssignmentsUri = "$script:GraphEndpoint/beta/$EntityType('$EntityId')/assignments" # EntityType already includes deviceAppManagement
     }
     elseif ($EntityType -like "virtualEndpoint/*") {
         # Windows 365 Cloud PC policies use forward slash format instead of OData parentheses
         # Example: virtualEndpoint/provisioningPolicies or virtualEndpoint/userSettings
-        $actualAssignmentsUri = "$GraphEndpoint/beta/deviceManagement/$EntityType/$EntityId/assignments"
+        $actualAssignmentsUri = "$script:GraphEndpoint/beta/deviceManagement/$EntityType/$EntityId/assignments"
     }
     else {
         # General device management entities
-        $actualAssignmentsUri = "$GraphEndpoint/beta/deviceManagement/$EntityType('$EntityId')/assignments"
+        $actualAssignmentsUri = "$script:GraphEndpoint/beta/deviceManagement/$EntityType('$EntityId')/assignments"
     }
 
     if (-not $actualAssignmentsUri) {

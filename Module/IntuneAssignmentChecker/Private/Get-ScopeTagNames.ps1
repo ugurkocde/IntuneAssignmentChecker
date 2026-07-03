@@ -1,4 +1,5 @@
 function Get-ScopeTagNames {
+    [CmdletBinding()]
     param (
         [object[]]$ScopeTagIds,
         [hashtable]$ScopeTagLookup

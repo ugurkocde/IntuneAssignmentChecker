@@ -47,6 +47,6 @@ function Get-IntuneFailedAssignment {
         }
 
         # Export if requested
-        Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneFailedAssignments.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath
+        Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneFailedAssignments.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath -ExportToCSV:$ExportToCSV -ParameterMode:$parameterMode
     }
 }

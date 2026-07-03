@@ -8,7 +8,12 @@ function Update-IntuneSettingDefinition {
         return
     }
 
-    $dataPath = Join-Path $PSScriptRoot ".." "Data" "SettingDefinitions.json"
+    # Write to a user-writable location (module Data folder is read-only for PSGallery installs)
+    $dataDir = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'IntuneAssignmentChecker'
+    if (-not (Test-Path $dataDir)) {
+        $null = New-Item -Path $dataDir -ItemType Directory -Force
+    }
+    $dataPath = Join-Path $dataDir 'SettingDefinitions.json'
 
     Write-Host "Fetching setting definitions from Microsoft Graph..." -ForegroundColor Yellow
     Write-Host "This may take a few minutes (there are thousands of definitions)." -ForegroundColor Gray

@@ -1,4 +1,5 @@
 function Get-IntuneEntities {
+    [CmdletBinding()]
     param (
         [Parameter(Mandatory = $true)]
         [string]$EntityType,
@@ -15,11 +16,11 @@ function Get-IntuneEntities {
 
     # Handle special cases for app management and specific deviceManagement endpoints
     if ($EntityType -like "deviceAppManagement/*" -or $EntityType -eq "deviceManagement/templates" -or $EntityType -eq "deviceManagement/intents") {
-        $baseUri = "$GraphEndpoint/beta"
+        $baseUri = "$script:GraphEndpoint/beta"
         $actualEntityType = $EntityType
     }
     else {
-        $baseUri = "$GraphEndpoint/beta/deviceManagement"
+        $baseUri = "$script:GraphEndpoint/beta/deviceManagement"
         $actualEntityType = "$EntityType"
     }
 

@@ -1,4 +1,5 @@
 function Get-AssignmentInfo {
+    [CmdletBinding()]
     param (
         [Parameter(Mandatory = $true)]
         [AllowNull()]

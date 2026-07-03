@@ -1,4 +1,5 @@
 function Filter-ByScopeTag {
+    [CmdletBinding()]
     param (
         [object[]]$Items,
         [string]$FilterTag,

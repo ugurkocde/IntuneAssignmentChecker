@@ -1,11 +1,12 @@
 function Get-UserInfo {
+    [CmdletBinding()]
     param (
         [Parameter(Mandatory = $true)]
         [string]$UserPrincipalName
     )
 
     try {
-        $userUri = "$GraphEndpoint/v1.0/users/$UserPrincipalName"
+        $userUri = "$script:GraphEndpoint/v1.0/users/$([uri]::EscapeDataString($UserPrincipalName))"
         $user = Invoke-MgGraphRequest -Uri $userUri -Method Get
         return @{
             Id                = $user.id

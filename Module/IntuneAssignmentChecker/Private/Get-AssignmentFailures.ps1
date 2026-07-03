@@ -1,4 +1,6 @@
 function Get-AssignmentFailures {
+    [CmdletBinding()]
+    param()
     Write-Host "Fetching assignment failures..." -ForegroundColor Green
 
     $failedAssignments = [System.Collections.ArrayList]::new()
@@ -77,8 +79,7 @@ function Get-AssignmentFailures {
     # 2. Get Device Configuration Policy Failures
     Write-Host "Checking device configuration policy failures..." -ForegroundColor Yellow
     try {
-        $configPoliciesUri = "$script:GraphEndpoint/beta/deviceManagement/deviceConfigurations"
-        $configPolicies = (Invoke-MgGraphRequest -Uri $configPoliciesUri -Method GET).value
+        $configPolicies = Get-IntuneEntities -EntityType "deviceConfigurations"
 
         foreach ($policy in $configPolicies) {
             $skip = 0
@@ -120,12 +121,18 @@ function Get-AssignmentFailures {
     # 3. Get Compliance Policy Failures
     Write-Host "Checking compliance policy failures..." -ForegroundColor Yellow
     try {
-        $compliancePoliciesUri = "$script:GraphEndpoint/beta/deviceManagement/deviceCompliancePolicies"
-        $compliancePolicies = (Invoke-MgGraphRequest -Uri $compliancePoliciesUri -Method GET).value
+        $compliancePolicies = Get-IntuneEntities -EntityType "deviceCompliancePolicies"
 
         foreach ($policy in $compliancePolicies) {
+            $statuses = [System.Collections.ArrayList]::new()
             $statusUri = "$script:GraphEndpoint/beta/deviceManagement/deviceCompliancePolicies('$($policy.id)')/deviceStatuses"
-            $statuses = (Invoke-MgGraphRequest -Uri $statusUri -Method GET).value
+            do {
+                $statusResponse = Invoke-MgGraphRequest -Uri $statusUri -Method GET
+                if ($statusResponse -and $null -ne $statusResponse.value) {
+                    $statuses.AddRange([object[]]$statusResponse.value)
+                }
+                $statusUri = $statusResponse.'@odata.nextLink'
+            } while (![string]::IsNullOrEmpty($statusUri))
 
             $failures = $statuses | Where-Object {
                 $_.status -in @("error", "conflict", "notApplicable", "nonCompliant")

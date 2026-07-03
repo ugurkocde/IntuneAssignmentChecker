@@ -1,4 +1,6 @@
 function Show-Menu {
+    [CmdletBinding()]
+    param()
     # Display current connection status
     if ($script:CurrentTenantName -and $script:CurrentUserUPN) {
         Write-Host "Connected to: " -ForegroundColor Green -NoNewline

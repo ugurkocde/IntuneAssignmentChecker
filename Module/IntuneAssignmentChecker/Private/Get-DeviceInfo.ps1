@@ -1,4 +1,5 @@
 function Get-DeviceInfo {
+    [CmdletBinding()]
     param (
         [Parameter(Mandatory = $true)]
         [string]$DeviceName
@@ -6,7 +7,7 @@ function Get-DeviceInfo {
 
     $selectProps = "id,displayName,operatingSystem,operatingSystemVersion,managementType,deviceOwnership,trustType,isCompliant,isManaged,approximateLastSignInDateTime,manufacturer,model,enrollmentProfileName"
     $escapedName = $DeviceName -replace "'", "''"
-    $deviceUri = "$GraphEndpoint/beta/devices?`$filter=displayName eq '$escapedName'&`$select=$selectProps"
+    $deviceUri = "$script:GraphEndpoint/beta/devices?`$filter=displayName eq '$escapedName'&`$select=$selectProps"
     try {
         $deviceResponse = Invoke-MgGraphRequest -Uri $deviceUri -Method Get
     }

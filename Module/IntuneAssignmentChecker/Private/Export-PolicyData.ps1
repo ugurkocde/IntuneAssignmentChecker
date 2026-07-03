@@ -1,4 +1,5 @@
 function Export-PolicyData {
+    [CmdletBinding()]
     param (
         [Parameter(Mandatory = $true)]
         [System.Collections.ArrayList]$ExportData,

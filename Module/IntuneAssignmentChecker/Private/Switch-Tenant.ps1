@@ -1,4 +1,6 @@
 function Switch-Tenant {
+    [CmdletBinding()]
+    param()
     Write-Host "`nDisconnecting from current tenant..." -ForegroundColor Yellow
 
     try {
@@ -17,10 +19,14 @@ function Switch-Tenant {
         Write-Host "Please log in to connect to a different tenant..." -ForegroundColor Cyan
 
         # Get required permissions
-        $permissionsList = ($requiredPermissions | ForEach-Object { $_.Permission }) -join ', '
+        $permissionsList = ($script:RequiredPermissions | ForEach-Object { $_.Permission }) -join ', '
 
         # Prompt for environment selection
-        Set-Environment
+        $environment = Set-Environment
+        if ($null -eq $environment) {
+            Write-Host "Tenant switch cancelled." -ForegroundColor Yellow
+            return
+        }
 
         # Attempt new connection
         $null = Connect-MgGraph -Scopes $permissionsList -Environment $script:GraphEnvironment -NoWelcome -ErrorAction Stop
@@ -49,6 +55,12 @@ function Switch-Tenant {
 
             # Refresh scope tag lookup for the new tenant
             $script:ScopeTagLookup = Get-ScopeTagLookup
+
+            # Refresh assignment filter lookup for the new tenant
+            $script:AssignmentFilterLookup = Get-AssignmentFilterLookup
+
+            # Clear cached group info from the previous tenant
+            $script:GroupInfoCache = $null
         }
     }
     catch {
