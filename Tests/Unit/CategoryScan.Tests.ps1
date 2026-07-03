@@ -7,6 +7,9 @@ BeforeAll {
     . (Join-Path $modulePrivate 'Get-AppProtectionAssignmentUri.ps1')
     . (Join-Path $modulePrivate 'Get-IntuneCategoryDefinition.ps1')
     . (Join-Path $modulePrivate 'Invoke-IntuneCategoryScan.ps1')
+    . (Join-Path $modulePrivate 'Get-ScopeTagNames.ps1')
+    . (Join-Path $modulePrivate 'Add-ExportData.ps1')
+    . (Join-Path $modulePrivate 'Add-CategoryExportData.ps1')
 
     $script:GraphEndpoint = 'https://graph.microsoft.com'
 
@@ -370,6 +373,133 @@ Describe 'Invoke-IntuneCategoryScan' {
             $script:emptyContexts.Count | Should -Be 1
             @($script:emptyContexts[0].Assignments).Count | Should -Be 0
         }
+    }
+}
+
+Describe 'Add-CategoryExportData' {
+    BeforeEach {
+        $script:ScopeTagLookup = @{}
+        $script:exportData = [System.Collections.ArrayList]::new()
+    }
+
+    It 'exports buckets in registry order using each category ExportCategory label' {
+        $categories = @(
+            New-TestCategory @{ Id = 'DeviceConfigurations'; BucketKeys = @('DeviceConfigs'); ExportCategory = 'Device Configuration' }
+            New-TestCategory @{ Id = 'CompliancePolicies'; BucketKeys = @('CompliancePolicies'); ExportCategory = 'Compliance Policy' }
+        )
+        $buckets = @{
+            DeviceConfigs      = @([PSCustomObject]@{ id = 'cfg-1'; displayName = 'Config 1'; AssignmentSummary = 'All Users' })
+            CompliancePolicies = @([PSCustomObject]@{ id = 'comp-1'; displayName = 'Compliance 1'; AssignmentSummary = 'All Devices' })
+        }
+
+        Add-CategoryExportData -ExportData $script:exportData -Categories $categories -Buckets $buckets
+
+        $script:exportData.Count | Should -Be 2
+        $script:exportData[0].Category | Should -BeExactly 'Device Configuration'
+        $script:exportData[0].Item | Should -BeExactly 'Config 1 (ID: cfg-1)'
+        $script:exportData[1].Category | Should -BeExactly 'Compliance Policy'
+    }
+
+    It 'uses BucketExportCategories labels for multi-bucket categories' {
+        $categories = @(
+            New-TestCategory @{
+                Id                     = 'Applications'
+                BucketKeys             = @('AppsRequired', 'AppsAvailable', 'AppsUninstall')
+                ExportCategory         = $null
+                BucketExportCategories = @{ AppsRequired = 'Required Apps'; AppsAvailable = 'Available Apps'; AppsUninstall = 'Uninstall Apps' }
+            }
+        )
+        $buckets = @{
+            AppsRequired  = @([PSCustomObject]@{ id = 'app-1'; displayName = 'App 1' })
+            AppsAvailable = @([PSCustomObject]@{ id = 'app-2'; displayName = 'App 2' })
+            AppsUninstall = @()
+        }
+
+        Add-CategoryExportData -ExportData $script:exportData -Categories $categories -Buckets $buckets
+
+        $script:exportData.Count | Should -Be 2
+        $script:exportData[0].Category | Should -BeExactly 'Required Apps'
+        $script:exportData[1].Category | Should -BeExactly 'Available Apps'
+    }
+
+    It 'exports a bucket shared by multiple categories only once' {
+        $categories = @(
+            New-TestCategory @{ Id = 'PlatformScripts'; BucketKeys = @('PlatformScripts'); ExportCategory = 'Platform Scripts' }
+            New-TestCategory @{ Id = 'ShellScripts'; BucketKeys = @('PlatformScripts'); ExportCategory = 'Platform Scripts' }
+        )
+        $buckets = @{
+            PlatformScripts = @([PSCustomObject]@{ id = 'scr-1'; displayName = 'Script 1' })
+        }
+
+        Add-CategoryExportData -ExportData $script:exportData -Categories $categories -Buckets $buckets
+
+        $script:exportData.Count | Should -Be 1
+    }
+
+    It 'emits no rows for empty or missing buckets without erroring' {
+        $categories = @(
+            New-TestCategory @{ Id = 'DeviceConfigurations'; BucketKeys = @('DeviceConfigs'); ExportCategory = 'Device Configuration' }
+            New-TestCategory @{ Id = 'CompliancePolicies'; BucketKeys = @('CompliancePolicies'); ExportCategory = 'Compliance Policy' }
+        )
+        $buckets = @{ DeviceConfigs = [System.Collections.Generic.List[object]]::new() }
+
+        { Add-CategoryExportData -ExportData $script:exportData -Categories $categories -Buckets $buckets } | Should -Not -Throw
+        $script:exportData.Count | Should -Be 0
+    }
+
+    It 'passes an AssignmentReason scriptblock through to Add-ExportData' {
+        $categories = @(
+            New-TestCategory @{ Id = 'DeviceConfigurations'; BucketKeys = @('DeviceConfigs'); ExportCategory = 'Device Configuration' }
+        )
+        $buckets = @{
+            DeviceConfigs = @(
+                [PSCustomObject]@{ id = 'cfg-1'; displayName = 'Config 1'; AssignmentSummary = 'Group Assignment - Sales (Filter: Corp Devices [Include])' }
+                [PSCustomObject]@{ id = 'cfg-2'; displayName = 'Config 2'; AssignmentSummary = '' }
+            )
+        }
+
+        Add-CategoryExportData -ExportData $script:exportData -Categories $categories -Buckets $buckets -AssignmentReason { param($item) $item.AssignmentSummary }
+
+        $script:exportData.Count | Should -Be 2
+        $script:exportData[0].AssignmentReason | Should -BeExactly 'Group Assignment - Sales (Filter: Corp Devices [Include])'
+        $script:exportData[0].FilterName | Should -BeExactly 'Corp Devices'
+        $script:exportData[0].FilterType | Should -BeExactly 'Include'
+        # The scriptblock returns the raw empty summary rather than the N/A default
+        $script:exportData[1].AssignmentReason | Should -BeExactly ''
+    }
+
+    It 'covers every AllPolicies export label in registry order matching the pre-migration sequence' {
+        $expectedLabels = @(
+            'Device Configuration'
+            'Settings Catalog Policy'
+            'Compliance Policy'
+            'App Protection Policy'
+            'App Configuration Policy'
+            'Platform Scripts'
+            'Proactive Remediation Scripts'
+            'Autopilot Deployment Profile'
+            'Enrollment Status Page'
+            'Windows 365 Cloud PC Provisioning Policy'
+            'Windows 365 Cloud PC User Setting'
+            'Endpoint Security - Antivirus'
+            'Endpoint Security - Disk Encryption'
+            'Endpoint Security - Firewall'
+            'Endpoint Security - EDR'
+            'Endpoint Security - ASR'
+            'Endpoint Security - Account Protection'
+        )
+
+        $categories = Get-IntuneCategoryDefinition -Audience AllPolicies
+        $buckets = @{}
+        foreach ($category in $categories) {
+            foreach ($bucketKey in $category.BucketKeys) {
+                $buckets[$bucketKey] = @([PSCustomObject]@{ id = "$bucketKey-1"; displayName = "$bucketKey item" })
+            }
+        }
+
+        Add-CategoryExportData -ExportData $script:exportData -Categories $categories -Buckets $buckets
+
+        @($script:exportData | ForEach-Object { $_.Category }) | Should -Be $expectedLabels
     }
 }
 
