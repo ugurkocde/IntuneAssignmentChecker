@@ -668,18 +668,7 @@ function Export-HTMLReport {
     $appProtectionPolicies = Get-IntuneEntities -EntityType "deviceAppManagement/managedAppPolicies"
     foreach ($policy in $appProtectionPolicies) {
         $policyType = $policy.'@odata.type'
-        $assignmentsUri = switch ($policyType) {
-            "#microsoft.graph.androidManagedAppProtection" {
-                "$script:GraphEndpoint/beta/deviceAppManagement/androidManagedAppProtections('$($policy.id)')/assignments"
-            }
-            "#microsoft.graph.iosManagedAppProtection" {
-                "$script:GraphEndpoint/beta/deviceAppManagement/iosManagedAppProtections('$($policy.id)')/assignments"
-            }
-            "#microsoft.graph.windowsManagedAppProtection" {
-                "$script:GraphEndpoint/beta/deviceAppManagement/windowsManagedAppProtections('$($policy.id)')/assignments"
-            }
-            default { $null }
-        }
+        $assignmentsUri = Get-AppProtectionAssignmentUri -Policy $policy
 
         if ($assignmentsUri) {
             try {
@@ -891,11 +880,18 @@ function Export-HTMLReport {
     # Get Apps
     Write-Host "Fetching Applications..." -ForegroundColor Yellow
     $appUri = "$script:GraphEndpoint/beta/deviceAppManagement/mobileApps?`$filter=isAssigned eq true"
-    $appResponse = Invoke-MgGraphRequest -Uri $appUri -Method Get
-    $allApps = $appResponse.value
-    while ($appResponse.'@odata.nextLink') {
-        $appResponse = Invoke-MgGraphRequest -Uri $appResponse.'@odata.nextLink' -Method Get
-        $allApps += $appResponse.value
+    $allApps = [System.Collections.Generic.List[object]]::new()
+    try {
+        $appResponse = Invoke-MgGraphRequest -Uri $appUri -Method Get
+        if ($appResponse.value) { $allApps.AddRange([object[]]$appResponse.value) }
+        while ($appResponse.'@odata.nextLink') {
+            $appResponse = Invoke-MgGraphRequest -Uri $appResponse.'@odata.nextLink' -Method Get
+            if ($appResponse.value) { $allApps.AddRange([object[]]$appResponse.value) }
+        }
+    }
+    catch {
+        Write-Host "Error fetching applications: $($_.Exception.Message)" -ForegroundColor Red
+        Write-Error -Message "Applications fetch failed: $($_.Exception.Message)"
     }
 
     foreach ($app in $allApps) {
@@ -906,7 +902,14 @@ function Export-HTMLReport {
 
         $appId = $app.id
         $assignmentsUri = "$script:GraphEndpoint/beta/deviceAppManagement/mobileApps('$appId')/assignments"
-        $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
+        try {
+            $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
+        }
+        catch {
+            Write-Host "Error fetching assignments for app $($app.displayName): $($_.Exception.Message)" -ForegroundColor Red
+            Write-Error -Message "Assignments fetch failed for '$($app.displayName)': $($_.Exception.Message)"
+            continue
+        }
 
         foreach ($assignment in $assignmentResponse.value) {
             # Get-HtmlAssignmentInfo expects an array of assignment objects.

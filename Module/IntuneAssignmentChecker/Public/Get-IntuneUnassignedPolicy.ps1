@@ -60,13 +60,7 @@ function Get-IntuneUnassignedPolicy {
     Write-Host "Fetching App Protection Policies..." -ForegroundColor Yellow
     $appProtectionPolicies = Get-IntuneEntities -EntityType "deviceAppManagement/managedAppPolicies"
     foreach ($policy in $appProtectionPolicies) {
-        $policyType = $policy.'@odata.type'
-        $assignmentsUri = switch ($policyType) {
-            "#microsoft.graph.androidManagedAppProtection" { "$script:GraphEndpoint/beta/deviceAppManagement/androidManagedAppProtections('$($policy.id)')/assignments" }
-            "#microsoft.graph.iosManagedAppProtection" { "$script:GraphEndpoint/beta/deviceAppManagement/iosManagedAppProtections('$($policy.id)')/assignments" }
-            "#microsoft.graph.windowsManagedAppProtection" { "$script:GraphEndpoint/beta/deviceAppManagement/windowsManagedAppProtections('$($policy.id)')/assignments" }
-            default { $null }
-        }
+        $assignmentsUri = Get-AppProtectionAssignmentUri -Policy $policy
 
         if ($assignmentsUri) {
             try {
@@ -118,9 +112,15 @@ function Get-IntuneUnassignedPolicy {
     $antivirusPolicies = $allIntentsForAntivirusUnassigned | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAntivirus' }
     if ($antivirusPolicies) {
         foreach ($policy in $antivirusPolicies) {
-            $assignments = Invoke-MgGraphRequest -Uri "$script:GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
-            if ($assignments.value.Count -eq 0) {
-                $unassignedPolicies.AntivirusProfiles += $policy
+            try {
+                $assignments = Invoke-MgGraphRequest -Uri "$script:GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
+                if ($assignments.value.Count -eq 0) {
+                    $unassignedPolicies.AntivirusProfiles += $policy
+                }
+            }
+            catch {
+                Write-Host "Error fetching assignments for policy $($policy.displayName): $($_.Exception.Message)" -ForegroundColor Red
+                Write-Error -Message "Assignments fetch failed for '$($policy.displayName)': $($_.Exception.Message)"
             }
         }
     }
@@ -132,9 +132,15 @@ function Get-IntuneUnassignedPolicy {
     $diskEncryptionPolicies = $allIntentsForDiskEncUnassigned | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityDiskEncryption' }
     if ($diskEncryptionPolicies) {
         foreach ($policy in $diskEncryptionPolicies) {
-            $assignments = Invoke-MgGraphRequest -Uri "$script:GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
-            if ($assignments.value.Count -eq 0) {
-                $unassignedPolicies.DiskEncryptionProfiles += $policy
+            try {
+                $assignments = Invoke-MgGraphRequest -Uri "$script:GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
+                if ($assignments.value.Count -eq 0) {
+                    $unassignedPolicies.DiskEncryptionProfiles += $policy
+                }
+            }
+            catch {
+                Write-Host "Error fetching assignments for policy $($policy.displayName): $($_.Exception.Message)" -ForegroundColor Red
+                Write-Error -Message "Assignments fetch failed for '$($policy.displayName)': $($_.Exception.Message)"
             }
         }
     }
@@ -146,9 +152,15 @@ function Get-IntuneUnassignedPolicy {
     $firewallPolicies = $allIntentsForFirewallUnassigned | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityFirewall' }
     if ($firewallPolicies) {
         foreach ($policy in $firewallPolicies) {
-            $assignments = Invoke-MgGraphRequest -Uri "$script:GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
-            if ($assignments.value.Count -eq 0) {
-                $unassignedPolicies.FirewallProfiles += $policy
+            try {
+                $assignments = Invoke-MgGraphRequest -Uri "$script:GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
+                if ($assignments.value.Count -eq 0) {
+                    $unassignedPolicies.FirewallProfiles += $policy
+                }
+            }
+            catch {
+                Write-Host "Error fetching assignments for policy $($policy.displayName): $($_.Exception.Message)" -ForegroundColor Red
+                Write-Error -Message "Assignments fetch failed for '$($policy.displayName)': $($_.Exception.Message)"
             }
         }
     }
@@ -160,9 +172,15 @@ function Get-IntuneUnassignedPolicy {
     $edrPolicies = $allIntentsForEDRUnassigned | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityEndpointDetectionAndResponse' }
     if ($edrPolicies) {
         foreach ($policy in $edrPolicies) {
-            $assignments = Invoke-MgGraphRequest -Uri "$script:GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
-            if ($assignments.value.Count -eq 0) {
-                $unassignedPolicies.EndpointDetectionProfiles += $policy
+            try {
+                $assignments = Invoke-MgGraphRequest -Uri "$script:GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
+                if ($assignments.value.Count -eq 0) {
+                    $unassignedPolicies.EndpointDetectionProfiles += $policy
+                }
+            }
+            catch {
+                Write-Host "Error fetching assignments for policy $($policy.displayName): $($_.Exception.Message)" -ForegroundColor Red
+                Write-Error -Message "Assignments fetch failed for '$($policy.displayName)': $($_.Exception.Message)"
             }
         }
     }
@@ -174,9 +192,15 @@ function Get-IntuneUnassignedPolicy {
     $asrPolicies = $allIntentsForASRUnassigned | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReduction' }
     if ($asrPolicies) {
         foreach ($policy in $asrPolicies) {
-            $assignments = Invoke-MgGraphRequest -Uri "$script:GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
-            if ($assignments.value.Count -eq 0) {
-                $unassignedPolicies.AttackSurfaceProfiles += $policy
+            try {
+                $assignments = Invoke-MgGraphRequest -Uri "$script:GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
+                if ($assignments.value.Count -eq 0) {
+                    $unassignedPolicies.AttackSurfaceProfiles += $policy
+                }
+            }
+            catch {
+                Write-Host "Error fetching assignments for policy $($policy.displayName): $($_.Exception.Message)" -ForegroundColor Red
+                Write-Error -Message "Assignments fetch failed for '$($policy.displayName)': $($_.Exception.Message)"
             }
         }
     }
@@ -188,9 +212,15 @@ function Get-IntuneUnassignedPolicy {
     $accountProtectionPolicies = $allIntentsForAccountProtectionUnassigned | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAccountProtection' }
     if ($accountProtectionPolicies) {
         foreach ($policy in $accountProtectionPolicies) {
-            $assignments = Invoke-MgGraphRequest -Uri "$script:GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
-            if ($assignments.value.Count -eq 0) {
-                $unassignedPolicies.AccountProtectionProfiles += $policy
+            try {
+                $assignments = Invoke-MgGraphRequest -Uri "$script:GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
+                if ($assignments.value.Count -eq 0) {
+                    $unassignedPolicies.AccountProtectionProfiles += $policy
+                }
+            }
+            catch {
+                Write-Host "Error fetching assignments for policy $($policy.displayName): $($_.Exception.Message)" -ForegroundColor Red
+                Write-Error -Message "Assignments fetch failed for '$($policy.displayName)': $($_.Exception.Message)"
             }
         }
     }
@@ -198,11 +228,18 @@ function Get-IntuneUnassignedPolicy {
     # Get Unassigned Apps
     Write-Host "Fetching Unassigned Apps..." -ForegroundColor Yellow
     $unassignedAppUri = "$script:GraphEndpoint/beta/deviceAppManagement/mobileApps?`$filter=isAssigned eq false"
-    $unassignedAppResponse = Invoke-MgGraphRequest -Uri $unassignedAppUri -Method Get
-    $unassignedApps = $unassignedAppResponse.value
-    while ($unassignedAppResponse.'@odata.nextLink') {
-        $unassignedAppResponse = Invoke-MgGraphRequest -Uri $unassignedAppResponse.'@odata.nextLink' -Method Get
-        $unassignedApps += $unassignedAppResponse.value
+    $unassignedApps = [System.Collections.Generic.List[object]]::new()
+    try {
+        $unassignedAppResponse = Invoke-MgGraphRequest -Uri $unassignedAppUri -Method Get
+        if ($unassignedAppResponse.value) { $unassignedApps.AddRange([object[]]$unassignedAppResponse.value) }
+        while ($unassignedAppResponse.'@odata.nextLink') {
+            $unassignedAppResponse = Invoke-MgGraphRequest -Uri $unassignedAppResponse.'@odata.nextLink' -Method Get
+            if ($unassignedAppResponse.value) { $unassignedApps.AddRange([object[]]$unassignedAppResponse.value) }
+        }
+    }
+    catch {
+        Write-Host "Error fetching unassigned applications: $($_.Exception.Message)" -ForegroundColor Red
+        Write-Error -Message "Unassigned applications fetch failed: $($_.Exception.Message)"
     }
     $unassignedApps = $unassignedApps | Where-Object { -not $_.isFeatured -and -not $_.isBuiltIn }
     $unassignedPolicies.Apps = $unassignedApps
