@@ -14,433 +14,70 @@ function Get-IntuneAllUsersAssignment {
     Write-Host "Fetching all 'All Users' assignments..." -ForegroundColor Green
     $exportData = [System.Collections.ArrayList]::new()
 
-    # Initialize collections for policies with "All Users" assignments
-    $allUsersAssignments = @{
-        DeviceConfigs            = @()
-        SettingsCatalog          = @()
-        CompliancePolicies       = @()
-        AppProtectionPolicies    = @()
-        AppConfigurationPolicies = @()
-        PlatformScripts          = @()
-        HealthScripts            = @()
-        RequiredApps             = @()
-        AvailableApps            = @()
-        UninstallApps                = @()
-        AntivirusProfiles            = @()
-        DiskEncryptionProfiles       = @()
-        FirewallProfiles             = @()
-        EndpointDetectionProfiles    = @()
-        AttackSurfaceProfiles        = @()
-        AccountProtectionProfiles    = @()
-        DeploymentProfiles           = @()
-        ESPProfiles                  = @()
-    }
+    # Renders one result section: Cyan header, Gray empty message, one White line per item.
+    function Show-AllUsersSection {
+        param (
+            [string]$Header,
+            [string]$EmptyLabel,
+            [object[]]$Items,
+            [scriptblock]$Line
+        )
 
-    # Get Device Configurations
-    Write-Host "Fetching Device Configurations..." -ForegroundColor Yellow
-    $deviceConfigs = Get-IntuneEntities -EntityType "deviceConfigurations"
-    foreach ($config in $deviceConfigs) {
-        $assignments = Get-IntuneAssignments -EntityType "deviceConfigurations" -EntityId $config.id
-        if (($reason = Get-AllTargetReason -Assignments $assignments -TargetReason "All Users")) {
-            $config | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
-            $allUsersAssignments.DeviceConfigs += $config
+        Write-Host "`n------- $Header -------" -ForegroundColor Cyan
+        if ($null -eq $Items -or $Items.Count -eq 0) {
+            Write-Host "No $EmptyLabel assigned to All Users" -ForegroundColor Gray
+            return
+        }
+        foreach ($item in $Items) {
+            Write-Host (& $Line $item) -ForegroundColor White
         }
     }
 
-    # Get Settings Catalog Policies
-    Write-Host "Fetching Settings Catalog Policies..." -ForegroundColor Yellow
-    $settingsCatalog = Get-IntuneEntities -EntityType "configurationPolicies"
-    foreach ($policy in $settingsCatalog) {
-        $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
-        if (($reason = Get-AllTargetReason -Assignments $assignments -TargetReason "All Users")) {
-            $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
-            $allUsersAssignments.SettingsCatalog += $policy
-        }
+    # UserContext carries this cmdlet's exact category order and buckets, with three
+    # caller-side adjustments to match the legacy walk:
+    # - Cloud PC categories were never fetched here, so drop them entirely
+    # - Autopilot/ESP are BucketOnly for a single user but ARE fetched by this cmdlet
+    # - the legacy ESP export label here was "Enrollment Status Page Profile"
+    $categories = @(Get-IntuneCategoryDefinition -Audience 'UserContext' | Where-Object { $_.Id -notin @('CloudPCProvisioningPolicies', 'CloudPCUserSettings') })
+    foreach ($category in $categories) {
+        if ($category.Id -in @('DeploymentProfiles', 'ESPProfiles')) { $category.BucketOnly = $false }
+        if ($category.Id -eq 'ESPProfiles') { $category.ExportCategory = 'Enrollment Status Page Profile' }
     }
 
-    # Get Compliance Policies
-    Write-Host "Fetching Compliance Policies..." -ForegroundColor Yellow
-    $compliancePolicies = Get-IntuneEntities -EntityType "deviceCompliancePolicies"
-    foreach ($policy in $compliancePolicies) {
-        $assignments = Get-IntuneAssignments -EntityType "deviceCompliancePolicies" -EntityId $policy.id
-        if (($reason = Get-AllTargetReason -Assignments $assignments -TargetReason "All Users")) {
-            $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
-            $allUsersAssignments.CompliancePolicies += $policy
-        }
-    }
+    $processEntity = {
+        param($ctx)
 
-    # Get App Protection Policies
-    Write-Host "Fetching App Protection Policies..." -ForegroundColor Yellow
-    $appProtectionPolicies = Get-IntuneEntities -EntityType "deviceAppManagement/managedAppPolicies"
-    foreach ($policy in $appProtectionPolicies) {
-        $policyType = $policy.'@odata.type'
-        $assignmentsUri = switch ($policyType) {
-            "#microsoft.graph.androidManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/androidManagedAppProtections('$($policy.id)')/assignments" }
-            "#microsoft.graph.iosManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/iosManagedAppProtections('$($policy.id)')/assignments" }
-            "#microsoft.graph.windowsManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/windowsManagedAppProtections('$($policy.id)')/assignments" }
-            default { $null }
-        }
+        $entity = $ctx.Entity
 
-        if ($assignmentsUri) {
-            try {
-                $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
-                $allUsersTarget = $null
-                foreach ($assignment in $assignmentResponse.value) {
-                    if ($assignment.target.'@odata.type' -eq '#microsoft.graph.allLicensedUsersAssignmentTarget') {
-                        $allUsersTarget = $assignment.target
-                        break
+        if ($ctx.Category.Kind -eq 'MobileApps') {
+            # Legacy quirk: only the first "All Users" assignment counts, so each app
+            # lands in exactly one intent bucket, on a copy of the app object.
+            foreach ($assignment in $ctx.RawAssignments) {
+                if ($assignment.target.'@odata.type' -eq '#microsoft.graph.allLicensedUsersAssignmentTarget') {
+                    $suffix = Format-AssignmentFilter -FilterId $assignment.target.deviceAndAppManagementAssignmentFilterId -FilterType $assignment.target.deviceAndAppManagementAssignmentFilterType
+                    $appWithReason = $entity.PSObject.Copy()
+                    $appWithReason | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Users$suffix" -Force
+                    switch ($assignment.intent) {
+                        "required" { $ctx.Buckets['AppsRequired'].Add($appWithReason); break }
+                        "available" { $ctx.Buckets['AppsAvailable'].Add($appWithReason); break }
+                        "uninstall" { $ctx.Buckets['AppsUninstall'].Add($appWithReason); break }
                     }
-                }
-                if ($allUsersTarget) {
-                    $suffix = Format-AssignmentFilter -FilterId $allUsersTarget.deviceAndAppManagementAssignmentFilterId -FilterType $allUsersTarget.deviceAndAppManagementAssignmentFilterType
-                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Users$suffix" -Force
-                    $allUsersAssignments.AppProtectionPolicies += $policy
+                    break
                 }
             }
-            catch {
-                Write-Host "Error fetching assignments for policy $($policy.displayName): $($_.Exception.Message)" -ForegroundColor Red
-            }
+            return
+        }
+
+        # All other categories: keep the entity only when an "All Users" target exists;
+        # exclusions and group targets never qualify. Reason keeps the filter suffix.
+        if (($reason = Get-AllTargetReason -Assignments $ctx.Assignments -TargetReason "All Users")) {
+            $entity | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
+            $ctx.Buckets[$ctx.Category.BucketKeys[0]].Add($entity)
         }
     }
 
-    # Get App Configuration Policies
-    Write-Host "Fetching App Configuration Policies..." -ForegroundColor Yellow
-    $appConfigPolicies = Get-IntuneEntities -EntityType "deviceAppManagement/mobileAppConfigurations"
-    foreach ($policy in $appConfigPolicies) {
-        $assignments = Get-IntuneAssignments -EntityType "mobileAppConfigurations" -EntityId $policy.id
-        if (($reason = Get-AllTargetReason -Assignments $assignments -TargetReason "All Users")) {
-            $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
-            $allUsersAssignments.AppConfigurationPolicies += $policy
-        }
-    }
-
-    # Get Applications
-    Write-Host "Fetching Applications..." -ForegroundColor Yellow
-    # Fetch Applications
-    $appUri = "$GraphEndpoint/beta/deviceAppManagement/mobileApps?`$filter=isAssigned eq true"
-    $appResponse = Invoke-MgGraphRequest -Uri $appUri -Method Get
-    $allApps = $appResponse.value
-    while ($appResponse.'@odata.nextLink') {
-        $appResponse = Invoke-MgGraphRequest -Uri $appResponse.'@odata.nextLink' -Method Get
-        $allApps += $appResponse.value
-    }
-    $totalApps = $allApps.Count
-
-    foreach ($app in $allApps) {
-        # Filter out irrelevant apps
-        if ($app.isFeatured -or $app.isBuiltIn) {
-            continue
-        }
-
-        $appId = $app.id
-        $assignmentsUri = "$GraphEndpoint/beta/deviceAppManagement/mobileApps('$appId')/assignments"
-        $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
-
-        foreach ($assignment in $assignmentResponse.value) {
-            if ($assignment.target.'@odata.type' -eq '#microsoft.graph.allLicensedUsersAssignmentTarget') {
-                $suffix = Format-AssignmentFilter -FilterId $assignment.target.deviceAndAppManagementAssignmentFilterId -FilterType $assignment.target.deviceAndAppManagementAssignmentFilterType
-                $appWithReason = $app.PSObject.Copy()
-                $appWithReason | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Users$suffix" -Force
-                switch ($assignment.intent) {
-                    "required" { $allUsersAssignments.RequiredApps += $appWithReason; break }
-                    "available" { $allUsersAssignments.AvailableApps += $appWithReason; break }
-                    "uninstall" { $allUsersAssignments.UninstallApps += $appWithReason; break }
-                }
-                break
-            }
-        }
-    }
-
-    # Get Platform Scripts
-    Write-Host "Fetching Platform Scripts..." -ForegroundColor Yellow
-    $platformScripts = Get-IntuneEntities -EntityType "deviceManagementScripts"
-    foreach ($script in $platformScripts) {
-        $assignments = Get-IntuneAssignments -EntityType "deviceManagementScripts" -EntityId $script.id
-        if (($reason = Get-AllTargetReason -Assignments $assignments -TargetReason "All Users")) {
-            $script | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
-            $allUsersAssignments.PlatformScripts += $script
-        }
-    }
-
-    # Get Proactive Remediation Scripts
-    Write-Host "Fetching Proactive Remediation Scripts..." -ForegroundColor Yellow
-    $healthScripts = Get-IntuneEntities -EntityType "deviceHealthScripts"
-    foreach ($script in $healthScripts) {
-        $assignments = Get-IntuneAssignments -EntityType "deviceHealthScripts" -EntityId $script.id
-        if (($reason = Get-AllTargetReason -Assignments $assignments -TargetReason "All Users")) {
-            $script | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
-            $allUsersAssignments.HealthScripts += $script
-        }
-    }
-
-    # Get Endpoint Security - Antivirus Policies
-    Write-Host "Fetching Antivirus Policies assigned to All Users..." -ForegroundColor Yellow
-    $antivirusPoliciesFound_AllUsers = [System.Collections.ArrayList]::new()
-    $processedAntivirusIds_AllUsers = [System.Collections.Generic.HashSet[string]]::new()
-
-    # 1. Check configurationPolicies
-    $configPoliciesForAntivirus_AllUsers = Get-IntuneEntities -EntityType "configurationPolicies"
-    $matchingConfigPoliciesAntivirus_AllUsers = $configPoliciesForAntivirus_AllUsers | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAntivirus' }
-
-    if ($matchingConfigPoliciesAntivirus_AllUsers) {
-        foreach ($policy in $matchingConfigPoliciesAntivirus_AllUsers) {
-            if ($processedAntivirusIds_AllUsers.Add($policy.id)) {
-                $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
-                if (($reason = Get-AllTargetReason -Assignments $assignments -TargetReason "All Users")) {
-                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
-                    [void]$antivirusPoliciesFound_AllUsers.Add($policy)
-                }
-            }
-        }
-    }
-
-    # 2. Check deviceManagement/intents
-    $allIntentsForAntivirus_AllUsers = Get-IntuneEntities -EntityType "deviceManagement/intents"
-    Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentsForAntivirus_AllUsers
-    $matchingIntentsAntivirus_AllUsers = $allIntentsForAntivirus_AllUsers | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAntivirus' }
-
-    if ($matchingIntentsAntivirus_AllUsers) {
-        foreach ($policy in $matchingIntentsAntivirus_AllUsers) {
-            if ($processedAntivirusIds_AllUsers.Add($policy.id)) {
-                $assignmentsResponse = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
-                $allUsersTarget = $assignmentsResponse.value | Where-Object { $_.target.'@odata.type' -eq '#microsoft.graph.allLicensedUsersAssignmentTarget' } | Select-Object -First 1
-                if ($allUsersTarget) {
-                    $intentSuffix = Format-AssignmentFilter -FilterId $allUsersTarget.target.deviceAndAppManagementAssignmentFilterId -FilterType $allUsersTarget.target.deviceAndAppManagementAssignmentFilterType
-                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Users$intentSuffix" -Force
-                    [void]$antivirusPoliciesFound_AllUsers.Add($policy)
-                }
-            }
-        }
-    }
-    $allUsersAssignments.AntivirusProfiles = $antivirusPoliciesFound_AllUsers
-
-    # Get Endpoint Security - Disk Encryption Policies
-    Write-Host "Fetching Disk Encryption Policies assigned to All Users..." -ForegroundColor Yellow
-    $diskEncryptionPoliciesFound_AllUsers = [System.Collections.ArrayList]::new()
-    $processedDiskEncryptionIds_AllUsers = [System.Collections.Generic.HashSet[string]]::new()
-
-    # 1. Check configurationPolicies
-    $configPoliciesForDiskEnc_AllUsers = Get-IntuneEntities -EntityType "configurationPolicies"
-    $matchingConfigPoliciesDiskEnc_AllUsers = $configPoliciesForDiskEnc_AllUsers | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityDiskEncryption' }
-
-    if ($matchingConfigPoliciesDiskEnc_AllUsers) {
-        foreach ($policy in $matchingConfigPoliciesDiskEnc_AllUsers) {
-            if ($processedDiskEncryptionIds_AllUsers.Add($policy.id)) {
-                $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
-                if (($reason = Get-AllTargetReason -Assignments $assignments -TargetReason "All Users")) {
-                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
-                    [void]$diskEncryptionPoliciesFound_AllUsers.Add($policy)
-                }
-            }
-        }
-    }
-
-    # 2. Check deviceManagement/intents
-    $allIntentsForDiskEnc_AllUsers = Get-IntuneEntities -EntityType "deviceManagement/intents"
-    Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentsForDiskEnc_AllUsers
-    $matchingIntentsDiskEnc_AllUsers = $allIntentsForDiskEnc_AllUsers | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityDiskEncryption' }
-
-    if ($matchingIntentsDiskEnc_AllUsers) {
-        foreach ($policy in $matchingIntentsDiskEnc_AllUsers) {
-            if ($processedDiskEncryptionIds_AllUsers.Add($policy.id)) {
-                $assignmentsResponse = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
-                $allUsersTarget = $assignmentsResponse.value | Where-Object { $_.target.'@odata.type' -eq '#microsoft.graph.allLicensedUsersAssignmentTarget' } | Select-Object -First 1
-                if ($allUsersTarget) {
-                    $intentSuffix = Format-AssignmentFilter -FilterId $allUsersTarget.target.deviceAndAppManagementAssignmentFilterId -FilterType $allUsersTarget.target.deviceAndAppManagementAssignmentFilterType
-                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Users$intentSuffix" -Force
-                    [void]$diskEncryptionPoliciesFound_AllUsers.Add($policy)
-                }
-            }
-        }
-    }
-    $allUsersAssignments.DiskEncryptionProfiles = $diskEncryptionPoliciesFound_AllUsers
-
-    # Get Endpoint Security - Firewall Policies
-    Write-Host "Fetching Firewall Policies assigned to All Users..." -ForegroundColor Yellow
-    $firewallPoliciesFound_AllUsers = [System.Collections.ArrayList]::new()
-    $processedFirewallIds_AllUsers = [System.Collections.Generic.HashSet[string]]::new()
-
-    # 1. Check configurationPolicies
-    $configPoliciesForFirewall_AllUsers = Get-IntuneEntities -EntityType "configurationPolicies"
-    $matchingConfigPoliciesFirewall_AllUsers = $configPoliciesForFirewall_AllUsers | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityFirewall' }
-
-    if ($matchingConfigPoliciesFirewall_AllUsers) {
-        foreach ($policy in $matchingConfigPoliciesFirewall_AllUsers) {
-            if ($processedFirewallIds_AllUsers.Add($policy.id)) {
-                $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
-                if (($reason = Get-AllTargetReason -Assignments $assignments -TargetReason "All Users")) {
-                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
-                    [void]$firewallPoliciesFound_AllUsers.Add($policy)
-                }
-            }
-        }
-    }
-
-    # 2. Check deviceManagement/intents
-    $allIntentsForFirewall_AllUsers = Get-IntuneEntities -EntityType "deviceManagement/intents"
-    Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentsForFirewall_AllUsers
-    $matchingIntentsFirewall_AllUsers = $allIntentsForFirewall_AllUsers | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityFirewall' }
-
-    if ($matchingIntentsFirewall_AllUsers) {
-        foreach ($policy in $matchingIntentsFirewall_AllUsers) {
-            if ($processedFirewallIds_AllUsers.Add($policy.id)) {
-                $assignmentsResponse = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
-                $allUsersTarget = $assignmentsResponse.value | Where-Object { $_.target.'@odata.type' -eq '#microsoft.graph.allLicensedUsersAssignmentTarget' } | Select-Object -First 1
-                if ($allUsersTarget) {
-                    $intentSuffix = Format-AssignmentFilter -FilterId $allUsersTarget.target.deviceAndAppManagementAssignmentFilterId -FilterType $allUsersTarget.target.deviceAndAppManagementAssignmentFilterType
-                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Users$intentSuffix" -Force
-                    [void]$firewallPoliciesFound_AllUsers.Add($policy)
-                }
-            }
-        }
-    }
-    $allUsersAssignments.FirewallProfiles = $firewallPoliciesFound_AllUsers
-
-    # Get Endpoint Security - Endpoint Detection and Response Policies
-    Write-Host "Fetching EDR Policies assigned to All Users..." -ForegroundColor Yellow
-    $edrPoliciesFound_AllUsers = [System.Collections.ArrayList]::new()
-    $processedEDRIds_AllUsers = [System.Collections.Generic.HashSet[string]]::new()
-
-    # 1. Check configurationPolicies
-    $configPoliciesForEDR_AllUsers = Get-IntuneEntities -EntityType "configurationPolicies"
-    $matchingConfigPoliciesEDR_AllUsers = $configPoliciesForEDR_AllUsers | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityEndpointDetectionAndResponse' }
-
-    if ($matchingConfigPoliciesEDR_AllUsers) {
-        foreach ($policy in $matchingConfigPoliciesEDR_AllUsers) {
-            if ($processedEDRIds_AllUsers.Add($policy.id)) {
-                $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
-                if (($reason = Get-AllTargetReason -Assignments $assignments -TargetReason "All Users")) {
-                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
-                    [void]$edrPoliciesFound_AllUsers.Add($policy)
-                }
-            }
-        }
-    }
-
-    # 2. Check deviceManagement/intents
-    $allIntentsForEDR_AllUsers = Get-IntuneEntities -EntityType "deviceManagement/intents"
-    Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentsForEDR_AllUsers
-    $matchingIntentsEDR_AllUsers = $allIntentsForEDR_AllUsers | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityEndpointDetectionAndResponse' }
-
-    if ($matchingIntentsEDR_AllUsers) {
-        foreach ($policy in $matchingIntentsEDR_AllUsers) {
-            if ($processedEDRIds_AllUsers.Add($policy.id)) {
-                $assignmentsResponse = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
-                $allUsersTarget = $assignmentsResponse.value | Where-Object { $_.target.'@odata.type' -eq '#microsoft.graph.allLicensedUsersAssignmentTarget' } | Select-Object -First 1
-                if ($allUsersTarget) {
-                    $intentSuffix = Format-AssignmentFilter -FilterId $allUsersTarget.target.deviceAndAppManagementAssignmentFilterId -FilterType $allUsersTarget.target.deviceAndAppManagementAssignmentFilterType
-                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Users$intentSuffix" -Force
-                    [void]$edrPoliciesFound_AllUsers.Add($policy)
-                }
-            }
-        }
-    }
-    $allUsersAssignments.EndpointDetectionProfiles = $edrPoliciesFound_AllUsers
-
-    # Get Endpoint Security - Attack Surface Reduction Policies
-    Write-Host "Fetching ASR Policies assigned to All Users..." -ForegroundColor Yellow
-    $asrPoliciesFound_AllUsers = [System.Collections.ArrayList]::new()
-    $processedASRIds_AllUsers = [System.Collections.Generic.HashSet[string]]::new()
-
-    # 1. Check configurationPolicies
-    $configPoliciesForASR_AllUsers = Get-IntuneEntities -EntityType "configurationPolicies"
-    $matchingConfigPoliciesASR_AllUsers = $configPoliciesForASR_AllUsers | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReduction' }
-
-    if ($matchingConfigPoliciesASR_AllUsers) {
-        foreach ($policy in $matchingConfigPoliciesASR_AllUsers) {
-            if ($processedASRIds_AllUsers.Add($policy.id)) {
-                $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
-                if (($reason = Get-AllTargetReason -Assignments $assignments -TargetReason "All Users")) {
-                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
-                    [void]$asrPoliciesFound_AllUsers.Add($policy)
-                }
-            }
-        }
-    }
-
-    # 2. Check deviceManagement/intents
-    $allIntentsForASR_AllUsers = Get-IntuneEntities -EntityType "deviceManagement/intents"
-    Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentsForASR_AllUsers
-    $matchingIntentsASR_AllUsers = $allIntentsForASR_AllUsers | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReduction' }
-
-    if ($matchingIntentsASR_AllUsers) {
-        foreach ($policy in $matchingIntentsASR_AllUsers) {
-            if ($processedASRIds_AllUsers.Add($policy.id)) {
-                $assignmentsResponse = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
-                $allUsersTarget = $assignmentsResponse.value | Where-Object { $_.target.'@odata.type' -eq '#microsoft.graph.allLicensedUsersAssignmentTarget' } | Select-Object -First 1
-                if ($allUsersTarget) {
-                    $intentSuffix = Format-AssignmentFilter -FilterId $allUsersTarget.target.deviceAndAppManagementAssignmentFilterId -FilterType $allUsersTarget.target.deviceAndAppManagementAssignmentFilterType
-                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Users$intentSuffix" -Force
-                    [void]$asrPoliciesFound_AllUsers.Add($policy)
-                }
-            }
-        }
-    }
-    $allUsersAssignments.AttackSurfaceProfiles = $asrPoliciesFound_AllUsers
-
-    # Get Endpoint Security - Account Protection Policies
-    Write-Host "Fetching Account Protection Policies assigned to All Users..." -ForegroundColor Yellow
-    $accountProtectionPoliciesFound_AllUsers = [System.Collections.ArrayList]::new()
-    $processedAccountProtectionIds_AllUsers = [System.Collections.Generic.HashSet[string]]::new()
-
-    # 1. Check configurationPolicies
-    $configPoliciesForAccountProtection_AllUsers = Get-IntuneEntities -EntityType "configurationPolicies"
-    $matchingConfigPoliciesAccountProtection_AllUsers = $configPoliciesForAccountProtection_AllUsers | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAccountProtection' }
-
-    if ($matchingConfigPoliciesAccountProtection_AllUsers) {
-        foreach ($policy in $matchingConfigPoliciesAccountProtection_AllUsers) {
-            if ($processedAccountProtectionIds_AllUsers.Add($policy.id)) {
-                $assignments = Get-IntuneAssignments -EntityType "configurationPolicies" -EntityId $policy.id
-                if (($reason = Get-AllTargetReason -Assignments $assignments -TargetReason "All Users")) {
-                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
-                    [void]$accountProtectionPoliciesFound_AllUsers.Add($policy)
-                }
-            }
-        }
-    }
-
-    # 2. Check deviceManagement/intents
-    $allIntentsForAccountProtection_AllUsers = Get-IntuneEntities -EntityType "deviceManagement/intents"
-    Add-IntentTemplateFamilyInfo -IntentPolicies $allIntentsForAccountProtection_AllUsers
-    $matchingIntentsAccountProtection_AllUsers = $allIntentsForAccountProtection_AllUsers | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAccountProtection' }
-
-    if ($matchingIntentsAccountProtection_AllUsers) {
-        foreach ($policy in $matchingIntentsAccountProtection_AllUsers) {
-            if ($processedAccountProtectionIds_AllUsers.Add($policy.id)) {
-                $assignmentsResponse = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
-                $allUsersTarget = $assignmentsResponse.value | Where-Object { $_.target.'@odata.type' -eq '#microsoft.graph.allLicensedUsersAssignmentTarget' } | Select-Object -First 1
-                if ($allUsersTarget) {
-                    $intentSuffix = Format-AssignmentFilter -FilterId $allUsersTarget.target.deviceAndAppManagementAssignmentFilterId -FilterType $allUsersTarget.target.deviceAndAppManagementAssignmentFilterType
-                    $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue "All Users$intentSuffix" -Force
-                    [void]$accountProtectionPoliciesFound_AllUsers.Add($policy)
-                }
-            }
-        }
-    }
-    $allUsersAssignments.AccountProtectionProfiles = $accountProtectionPoliciesFound_AllUsers
-
-    # Get Autopilot Deployment Profiles
-    Write-Host "Fetching Autopilot Deployment Profiles assigned to All Users..." -ForegroundColor Yellow
-    $autoProfilesAU = Get-IntuneEntities -EntityType "windowsAutopilotDeploymentProfiles"
-    foreach ($policyProfile in $autoProfilesAU) {
-        $assignments = Get-IntuneAssignments -EntityType "windowsAutopilotDeploymentProfiles" -EntityId $policyProfile.id
-        if (($reason = Get-AllTargetReason -Assignments $assignments -TargetReason "All Users")) {
-            $policyProfile | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
-            $allUsersAssignments.DeploymentProfiles += $policyProfile
-        }
-    }
-
-    # Get Enrollment Status Page Profiles
-    Write-Host "Fetching Enrollment Status Page Profiles assigned to All Users..." -ForegroundColor Yellow
-    $enrollmentConfigsAU = Get-IntuneEntities -EntityType "deviceEnrollmentConfigurations"
-    $espProfilesAU = $enrollmentConfigsAU | Where-Object { $_.'@odata.type' -match 'EnrollmentCompletionPageConfiguration' }
-    foreach ($esp in $espProfilesAU) {
-        $assignments = Get-IntuneAssignments -EntityType "deviceEnrollmentConfigurations" -EntityId $esp.id
-        if (($reason = Get-AllTargetReason -Assignments $assignments -TargetReason "All Users")) {
-            $esp | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $reason -Force
-            $allUsersAssignments.ESPProfiles += $esp
-        }
-    }
+    $scanResult = Invoke-IntuneCategoryScan -Categories $categories -ProcessEntity $processEntity -ShowProgress
+    $allUsersAssignments = $scanResult.Buckets
 
     # Apply scope tag filter if specified
     if ($ScopeTagFilter) {
@@ -452,247 +89,99 @@ function Get-IntuneAllUsersAssignment {
     # Display results
     Write-Host "`nPolicies Assigned to All Users:" -ForegroundColor Green
 
-    # Display Device Configurations
-    Write-Host "`n------- Device Configurations -------" -ForegroundColor Cyan
-    if ($allUsersAssignments.DeviceConfigs.Count -eq 0) {
-        Write-Host "No Device Configurations assigned to All Users" -ForegroundColor Gray
-    }
-    else {
-        foreach ($config in $allUsersAssignments.DeviceConfigs) {
-            $configName = if ([string]::IsNullOrWhiteSpace($config.name)) { $config.displayName } else { $config.name }
-            $platform = Get-PolicyPlatform -Policy $config
-            Write-Host "Device Configuration Name: $configName, Platform: $platform, Configuration ID: $($config.id)" -ForegroundColor White
-            Add-ExportData -ExportData $exportData -Category "Device Configuration" -Items @($config) -AssignmentReason "All Users"
-        }
+    Show-AllUsersSection -Header "Device Configurations" -EmptyLabel "Device Configurations" -Items $allUsersAssignments.DeviceConfigs -Line {
+        param($config)
+        $configName = if ([string]::IsNullOrWhiteSpace($config.name)) { $config.displayName } else { $config.name }
+        $platform = Get-PolicyPlatform -Policy $config
+        "Device Configuration Name: $configName, Platform: $platform, Configuration ID: $($config.id)"
     }
 
-    # Display Settings Catalog Policies
-    Write-Host "`n------- Settings Catalog Policies -------" -ForegroundColor Cyan
-    if ($allUsersAssignments.SettingsCatalog.Count -eq 0) {
-        Write-Host "No Settings Catalog Policies assigned to All Users" -ForegroundColor Gray
-    }
-    else {
-        foreach ($policy in $allUsersAssignments.SettingsCatalog) {
-            $policyName = if ([string]::IsNullOrWhiteSpace($policy.name)) { $policy.displayName } else { $policy.name }
-            Write-Host "Settings Catalog Policy Name: $policyName, Policy ID: $($policy.id)" -ForegroundColor White
-            Add-ExportData -ExportData $exportData -Category "Settings Catalog Policy" -Items @($policy) -AssignmentReason "All Users"
-        }
+    Show-AllUsersSection -Header "Settings Catalog Policies" -EmptyLabel "Settings Catalog Policies" -Items $allUsersAssignments.SettingsCatalog -Line {
+        param($policy)
+        $policyName = if ([string]::IsNullOrWhiteSpace($policy.name)) { $policy.displayName } else { $policy.name }
+        "Settings Catalog Policy Name: $policyName, Policy ID: $($policy.id)"
     }
 
-    # Display Compliance Policies
-    Write-Host "`n------- Compliance Policies -------" -ForegroundColor Cyan
-    if ($allUsersAssignments.CompliancePolicies.Count -eq 0) {
-        Write-Host "No Compliance Policies assigned to All Users" -ForegroundColor Gray
-    }
-    else {
-        foreach ($policy in $allUsersAssignments.CompliancePolicies) {
-            $policyName = if ([string]::IsNullOrWhiteSpace($policy.name)) { $policy.displayName } else { $policy.name }
-            $platform = Get-PolicyPlatform -Policy $policy
-            Write-Host "Compliance Policy Name: $policyName, Platform: $platform, Policy ID: $($policy.id)" -ForegroundColor White
-            Add-ExportData -ExportData $exportData -Category "Compliance Policy" -Items @($policy) -AssignmentReason "All Users"
-        }
+    Show-AllUsersSection -Header "Compliance Policies" -EmptyLabel "Compliance Policies" -Items $allUsersAssignments.CompliancePolicies -Line {
+        param($policy)
+        $policyName = if ([string]::IsNullOrWhiteSpace($policy.name)) { $policy.displayName } else { $policy.name }
+        $platform = Get-PolicyPlatform -Policy $policy
+        "Compliance Policy Name: $policyName, Platform: $platform, Policy ID: $($policy.id)"
     }
 
-    # Display App Protection Policies
-    Write-Host "`n------- App Protection Policies -------" -ForegroundColor Cyan
-    if ($allUsersAssignments.AppProtectionPolicies.Count -eq 0) {
-        Write-Host "No App Protection Policies assigned to All Users" -ForegroundColor Gray
-    }
-    else {
-        foreach ($policy in $allUsersAssignments.AppProtectionPolicies) {
-            $policyName = $policy.displayName
-            $policyType = switch ($policy.'@odata.type') {
-                "#microsoft.graph.androidManagedAppProtection" { "Android" }
-                "#microsoft.graph.iosManagedAppProtection" { "iOS" }
-                "#microsoft.graph.windowsManagedAppProtection" { "Windows" }
-                default { "Unknown" }
-            }
-            Write-Host "App Protection Policy Name: $policyName, Policy ID: $($policy.id), Type: $policyType" -ForegroundColor White
-            Add-ExportData -ExportData $exportData -Category "App Protection Policy" -Items @($policy) -AssignmentReason "All Users"
+    Show-AllUsersSection -Header "App Protection Policies" -EmptyLabel "App Protection Policies" -Items $allUsersAssignments.AppProtectionPolicies -Line {
+        param($policy)
+        $policyType = switch ($policy.'@odata.type') {
+            "#microsoft.graph.androidManagedAppProtection" { "Android" }
+            "#microsoft.graph.iosManagedAppProtection" { "iOS" }
+            "#microsoft.graph.windowsManagedAppProtection" { "Windows" }
+            default { "Unknown" }
         }
+        "App Protection Policy Name: $($policy.displayName), Policy ID: $($policy.id), Type: $policyType"
     }
 
-    # Display App Configuration Policies
-    Write-Host "`n------- App Configuration Policies -------" -ForegroundColor Cyan
-    if ($allUsersAssignments.AppConfigurationPolicies.Count -eq 0) {
-        Write-Host "No App Configuration Policies assigned to All Users" -ForegroundColor Gray
-    }
-    else {
-        foreach ($policy in $allUsersAssignments.AppConfigurationPolicies) {
-            $policyName = if ([string]::IsNullOrWhiteSpace($policy.name)) { $policy.displayName } else { $policy.name }
-            Write-Host "App Configuration Policy Name: $policyName, Policy ID: $($policy.id)" -ForegroundColor White
-            Add-ExportData -ExportData $exportData -Category "App Configuration Policy" -Items @($policy) -AssignmentReason "All Users"
-        }
+    Show-AllUsersSection -Header "App Configuration Policies" -EmptyLabel "App Configuration Policies" -Items $allUsersAssignments.AppConfigurationPolicies -Line {
+        param($policy)
+        $policyName = if ([string]::IsNullOrWhiteSpace($policy.name)) { $policy.displayName } else { $policy.name }
+        "App Configuration Policy Name: $policyName, Policy ID: $($policy.id)"
     }
 
-    # Display Platform Scripts
-    Write-Host "`n------- Platform Scripts -------" -ForegroundColor Cyan
-    if ($allUsersAssignments.PlatformScripts.Count -eq 0) {
-        Write-Host "No Platform Scripts assigned to All Users" -ForegroundColor Gray
+    $scriptLine = {
+        param($script)
+        $scriptName = if ([string]::IsNullOrWhiteSpace($script.name)) { $script.displayName } else { $script.name }
+        "Script Name: $scriptName, Script ID: $($script.id)"
     }
-    else {
-        foreach ($script in $allUsersAssignments.PlatformScripts) {
-            $scriptName = if ([string]::IsNullOrWhiteSpace($script.name)) { $script.displayName } else { $script.name }
-            Write-Host "Script Name: $scriptName, Script ID: $($script.id)" -ForegroundColor White
-            Add-ExportData -ExportData $exportData -Category "Platform Scripts" -Items @($script) -AssignmentReason "All Users"
-        }
-    }
+    Show-AllUsersSection -Header "Platform Scripts" -EmptyLabel "Platform Scripts" -Items $allUsersAssignments.PlatformScripts -Line $scriptLine
+    Show-AllUsersSection -Header "Proactive Remediation Scripts" -EmptyLabel "Proactive Remediation Scripts" -Items $allUsersAssignments.HealthScripts -Line $scriptLine
 
-    # Display Proactive Remediation Scripts
-    Write-Host "`n------- Proactive Remediation Scripts -------" -ForegroundColor Cyan
-    if ($allUsersAssignments.HealthScripts.Count -eq 0) {
-        Write-Host "No Proactive Remediation Scripts assigned to All Users" -ForegroundColor Gray
+    $appLine = {
+        param($app)
+        "App Name: $($app.displayName), App ID: $($app.id)"
     }
-    else {
-        foreach ($script in $allUsersAssignments.HealthScripts) {
-            $scriptName = if ([string]::IsNullOrWhiteSpace($script.name)) { $script.displayName } else { $script.name }
-            Write-Host "Script Name: $scriptName, Script ID: $($script.id)" -ForegroundColor White
-            Add-ExportData -ExportData $exportData -Category "Proactive Remediation Scripts" -Items @($script) -AssignmentReason "All Users"
-        }
-    }
+    Show-AllUsersSection -Header "Required Apps" -EmptyLabel "Required Apps" -Items $allUsersAssignments.AppsRequired -Line $appLine
+    Show-AllUsersSection -Header "Available Apps" -EmptyLabel "Available Apps" -Items $allUsersAssignments.AppsAvailable -Line $appLine
+    Show-AllUsersSection -Header "Uninstall Apps" -EmptyLabel "Uninstall Apps" -Items $allUsersAssignments.AppsUninstall -Line $appLine
 
-    # Display Required Apps
-    Write-Host "`n------- Required Apps -------" -ForegroundColor Cyan
-    if ($allUsersAssignments.RequiredApps.Count -eq 0) {
-        Write-Host "No Required Apps assigned to All Users" -ForegroundColor Gray
-    }
-    else {
-        foreach ($app in $allUsersAssignments.RequiredApps) {
-            $appName = $app.displayName
-            Write-Host "App Name: $appName, App ID: $($app.id)" -ForegroundColor White
-            Add-ExportData -ExportData $exportData -Category "Required Apps" -Items @($app) -AssignmentReason "All Users"
-        }
-    }
-
-    # Display Available Apps
-    Write-Host "`n------- Available Apps -------" -ForegroundColor Cyan
-    if ($allUsersAssignments.AvailableApps.Count -eq 0) {
-        Write-Host "No Available Apps assigned to All Users" -ForegroundColor Gray
-    }
-    else {
-        foreach ($app in $allUsersAssignments.AvailableApps) {
-            $appName = $app.displayName
-            Write-Host "App Name: $appName, App ID: $($app.id)" -ForegroundColor White
-            Add-ExportData -ExportData $exportData -Category "Available Apps" -Items @($app) -AssignmentReason "All Users"
-        }
-    }
-
-    # Display Uninstall Apps
-    Write-Host "`n------- Uninstall Apps -------" -ForegroundColor Cyan
-    if ($allUsersAssignments.UninstallApps.Count -eq 0) {
-        Write-Host "No Uninstall Apps assigned to All Users" -ForegroundColor Gray
-    }
-    else {
-        foreach ($app in $allUsersAssignments.UninstallApps) {
-            $appName = $app.displayName
-            Write-Host "App Name: $appName, App ID: $($app.id)" -ForegroundColor White
-            Add-ExportData -ExportData $exportData -Category "Uninstall Apps" -Items @($app) -AssignmentReason "All Users"
-        }
-    }
-
-    # Display Endpoint Security - Antivirus Profiles
-    Write-Host "`n------- Endpoint Security - Antivirus Profiles -------" -ForegroundColor Cyan
-    if ($allUsersAssignments.AntivirusProfiles.Count -eq 0) {
-        Write-Host "No Antivirus Profiles assigned to All Users" -ForegroundColor Gray
-    }
-    else {
-        foreach ($policyProfile in $allUsersAssignments.AntivirusProfiles) {
+    $esSections = @(
+        @{ Bucket = 'AntivirusProfiles'; Label = 'Antivirus' }
+        @{ Bucket = 'DiskEncryptionProfiles'; Label = 'Disk Encryption' }
+        @{ Bucket = 'FirewallProfiles'; Label = 'Firewall' }
+        @{ Bucket = 'EndpointDetectionProfiles'; Label = 'EDR' }
+        @{ Bucket = 'AttackSurfaceProfiles'; Label = 'ASR' }
+        @{ Bucket = 'AccountProtectionProfiles'; Label = 'Account Protection' }
+    )
+    foreach ($section in $esSections) {
+        $esLabel = $section.Label
+        Show-AllUsersSection -Header "Endpoint Security - $esLabel Profiles" -EmptyLabel "$esLabel Profiles" -Items $allUsersAssignments[$section.Bucket] -Line {
+            param($policyProfile)
             $profileNameForDisplay = if ($policyProfile.displayName) { $policyProfile.displayName } else { $policyProfile.name }
-            Write-Host "Antivirus Profile Name: $profileNameForDisplay, Profile ID: $($policyProfile.id)" -ForegroundColor White
-            Add-ExportData -ExportData $exportData -Category "Endpoint Security - Antivirus" -Items @($policyProfile) -AssignmentReason "All Users"
-        }
+            "$esLabel Profile Name: $profileNameForDisplay, Profile ID: $($policyProfile.id)"
+        }.GetNewClosure()
     }
 
-    # Display Endpoint Security - Disk Encryption Profiles
-    Write-Host "`n------- Endpoint Security - Disk Encryption Profiles -------" -ForegroundColor Cyan
-    if ($allUsersAssignments.DiskEncryptionProfiles.Count -eq 0) {
-        Write-Host "No Disk Encryption Profiles assigned to All Users" -ForegroundColor Gray
-    }
-    else {
-        foreach ($policyProfile in $allUsersAssignments.DiskEncryptionProfiles) {
-            $profileNameForDisplay = if ($policyProfile.displayName) { $policyProfile.displayName } else { $policyProfile.name }
-            Write-Host "Disk Encryption Profile Name: $profileNameForDisplay, Profile ID: $($policyProfile.id)" -ForegroundColor White
-            Add-ExportData -ExportData $exportData -Category "Endpoint Security - Disk Encryption" -Items @($policyProfile) -AssignmentReason "All Users"
-        }
+    Show-AllUsersSection -Header "Autopilot Deployment Profiles" -EmptyLabel "Autopilot Deployment Profiles" -Items $allUsersAssignments.DeploymentProfiles -Line {
+        param($policyProfile)
+        $profileName = if ([string]::IsNullOrWhiteSpace($policyProfile.name)) { $policyProfile.displayName } else { $policyProfile.name }
+        "Autopilot Deployment Profile Name: $profileName, Profile ID: $($policyProfile.id)"
     }
 
-    # Display Endpoint Security - Firewall Profiles
-    Write-Host "`n------- Endpoint Security - Firewall Profiles -------" -ForegroundColor Cyan
-    if ($allUsersAssignments.FirewallProfiles.Count -eq 0) {
-        Write-Host "No Firewall Profiles assigned to All Users" -ForegroundColor Gray
-    }
-    else {
-        foreach ($policyProfile in $allUsersAssignments.FirewallProfiles) {
-            $profileNameForDisplay = if ($policyProfile.displayName) { $policyProfile.displayName } else { $policyProfile.name }
-            Write-Host "Firewall Profile Name: $profileNameForDisplay, Profile ID: $($policyProfile.id)" -ForegroundColor White
-            Add-ExportData -ExportData $exportData -Category "Endpoint Security - Firewall" -Items @($policyProfile) -AssignmentReason "All Users"
-        }
+    Show-AllUsersSection -Header "Enrollment Status Page Profiles" -EmptyLabel "Enrollment Status Page Profiles" -Items $allUsersAssignments.ESPProfiles -Line {
+        param($policyProfile)
+        $profileName = if ([string]::IsNullOrWhiteSpace($policyProfile.name)) { $policyProfile.displayName } else { $policyProfile.name }
+        "Enrollment Status Page Profile Name: $profileName, Profile ID: $($policyProfile.id)"
     }
 
-    # Display Endpoint Security - Endpoint Detection and Response Profiles
-    Write-Host "`n------- Endpoint Security - EDR Profiles -------" -ForegroundColor Cyan
-    if ($allUsersAssignments.EndpointDetectionProfiles.Count -eq 0) {
-        Write-Host "No EDR Profiles assigned to All Users" -ForegroundColor Gray
-    }
-    else {
-        foreach ($policyProfile in $allUsersAssignments.EndpointDetectionProfiles) {
-            $profileNameForDisplay = if ($policyProfile.displayName) { $policyProfile.displayName } else { $policyProfile.name }
-            Write-Host "EDR Profile Name: $profileNameForDisplay, Profile ID: $($policyProfile.id)" -ForegroundColor White
-            Add-ExportData -ExportData $exportData -Category "Endpoint Security - EDR" -Items @($policyProfile) -AssignmentReason "All Users"
-        }
-    }
-
-    # Display Endpoint Security - Attack Surface Reduction Profiles
-    Write-Host "`n------- Endpoint Security - ASR Profiles -------" -ForegroundColor Cyan
-    if ($allUsersAssignments.AttackSurfaceProfiles.Count -eq 0) {
-        Write-Host "No ASR Profiles assigned to All Users" -ForegroundColor Gray
-    }
-    else {
-        foreach ($policyProfile in $allUsersAssignments.AttackSurfaceProfiles) {
-            $profileNameForDisplay = if ($policyProfile.displayName) { $policyProfile.displayName } else { $policyProfile.name }
-            Write-Host "ASR Profile Name: $profileNameForDisplay, Profile ID: $($policyProfile.id)" -ForegroundColor White
-            Add-ExportData -ExportData $exportData -Category "Endpoint Security - ASR" -Items @($policyProfile) -AssignmentReason "All Users"
-        }
-    }
-
-    # Display Endpoint Security - Account Protection Profiles
-    Write-Host "`n------- Endpoint Security - Account Protection Profiles -------" -ForegroundColor Cyan
-    if ($allUsersAssignments.AccountProtectionProfiles.Count -eq 0) {
-        Write-Host "No Account Protection Profiles assigned to All Users" -ForegroundColor Gray
-    }
-    else {
-        foreach ($policyProfile in $allUsersAssignments.AccountProtectionProfiles) {
-            $profileNameForDisplay = if ($policyProfile.displayName) { $policyProfile.displayName } else { $policyProfile.name }
-            Write-Host "Account Protection Profile Name: $profileNameForDisplay, Profile ID: $($policyProfile.id)" -ForegroundColor White
-            Add-ExportData -ExportData $exportData -Category "Endpoint Security - Account Protection" -Items @($policyProfile) -AssignmentReason "All Users"
-        }
-    }
-
-    # Display Autopilot Deployment Profiles
-    Write-Host "`n------- Autopilot Deployment Profiles -------" -ForegroundColor Cyan
-    if ($allUsersAssignments.DeploymentProfiles.Count -eq 0) {
-        Write-Host "No Autopilot Deployment Profiles assigned to All Users" -ForegroundColor Gray
-    }
-    else {
-        foreach ($policyProfile in $allUsersAssignments.DeploymentProfiles) {
-            $profileName = if ([string]::IsNullOrWhiteSpace($policyProfile.name)) { $policyProfile.displayName } else { $policyProfile.name }
-            Write-Host "Autopilot Deployment Profile Name: $profileName, Profile ID: $($policyProfile.id)" -ForegroundColor White
-            Add-ExportData -ExportData $exportData -Category "Autopilot Deployment Profile" -Items @($policyProfile) -AssignmentReason "All Users"
-        }
-    }
-
-    # Display Enrollment Status Page Profiles
-    Write-Host "`n------- Enrollment Status Page Profiles -------" -ForegroundColor Cyan
-    if ($allUsersAssignments.ESPProfiles.Count -eq 0) {
-        Write-Host "No Enrollment Status Page Profiles assigned to All Users" -ForegroundColor Gray
-    }
-    else {
-        foreach ($policyProfile in $allUsersAssignments.ESPProfiles) {
-            $profileName = if ([string]::IsNullOrWhiteSpace($policyProfile.name)) { $policyProfile.displayName } else { $policyProfile.name }
-            Write-Host "Enrollment Status Page Profile Name: $profileName, Profile ID: $($policyProfile.id)" -ForegroundColor White
-            Add-ExportData -ExportData $exportData -Category "Enrollment Status Page Profile" -Items @($policyProfile) -AssignmentReason "All Users"
-        }
-    }
+    # Add to export data. The legacy CSV row order follows the display order above,
+    # where the app buckets came after the script categories, so export in that order
+    # rather than fetch order.
+    $exportOrderIds = @(
+        'DeviceConfigurations', 'SettingsCatalog', 'CompliancePolicies', 'AppProtectionPolicies',
+        'AppConfigurationPolicies', 'PlatformScripts', 'HealthScripts', 'Applications',
+        'ESAntivirus', 'ESDiskEncryption', 'ESFirewall', 'ESEndpointDetection', 'ESAttackSurface',
+        'ESAccountProtection', 'DeploymentProfiles', 'ESPProfiles'
+    )
+    $exportCategories = foreach ($id in $exportOrderIds) { $categories | Where-Object { $_.Id -eq $id } }
+    Add-CategoryExportData -ExportData $exportData -Categories $exportCategories -Buckets $allUsersAssignments -AssignmentReason "All Users"
 
     # Export results if requested
     Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneAllUsersAssignments.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath -ExportToCSV:$ExportToCSV -ParameterMode:$parameterMode
