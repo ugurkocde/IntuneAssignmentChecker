@@ -1,6 +1,6 @@
 @{
     RootModule        = 'IntuneAssignmentChecker.psm1'
-    ModuleVersion     = '4.2.0'
+    ModuleVersion     = '4.3.0'
     GUID              = 'c6e25ec6-5787-45ef-95af-8abeb8a17daf'
     Author            = 'Ugur Koc'
     CompanyName       = 'Community'
@@ -43,6 +43,15 @@
             ProjectUri   = 'https://github.com/ugurkocde/IntuneAssignmentChecker'
             IconUri      = ''
             ReleaseNotes = @'
+Version 4.3.0:
+- Show applications where the checked group is excluded in Get-IntuneGroupAssignment; Compare-IntuneGroupAssignment now marks excluded apps with [EXCLUDED] (issue #126).
+- Rebuild the ten category-walk cmdlets on a shared scan engine: entity sets are fetched once per run (dozens fewer Graph calls), transient per-category failures no longer abort a run, and errors are raised on the error stream for automation (issue #123).
+- Fix App Protection policies showing for every user regardless of group membership, app intent misclassification, broken multi-device input, junk rows in CSV exports, missing pagination past 100 items in group memberships / comparisons / assignment failures, and Get-IntuneEmptyGroup categories that were displayed but never checked.
+- Security hardening: HTML-encode report values, escape OData group-name filters, URL-encode guest UPNs, add -ClientSecretCredential (PSCredential) as the preferred client secret input.
+- Fix EDR policies missing from HTML reports due to a template mapping typo.
+- Switch-Tenant now connects with the correct permission scopes and refreshes cached filter and group lookups.
+- Register-IntuneAssignmentCheckerApp grants all documented permissions, uses a cross-platform temp path, and cleans up its temporary client secret on failure (issue #124).
+
 Version 4.2.0:
 - Add -AccessToken (SecureString) parameter for non-interactive authentication using a pre-fetched Microsoft Graph token (Azure Automation managed identities, Azure Functions, federated credentials, parent-script Connect-MgGraph sessions).
 - Extend Test-IntuneGroupMembership and Test-IntuneGroupRemoval to accept a Device in addition to a User. The simulation now unions user-side and device-side group memberships.
