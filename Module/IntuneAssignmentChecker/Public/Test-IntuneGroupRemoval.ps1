@@ -128,7 +128,7 @@ function Test-IntuneGroupRemoval {
     }
     else {
         $escapedSimGroupName = $simGroupInput -replace "'", "''"
-        $simGroupUri = "$GraphEndpoint/v1.0/groups?`$filter=displayName eq '$escapedSimGroupName'"
+        $simGroupUri = "$script:GraphEndpoint/v1.0/groups?`$filter=displayName eq '$escapedSimGroupName'"
         $simGroupResponse = Invoke-MgGraphRequest -Uri $simGroupUri -Method Get
 
         if ($simGroupResponse.value.Count -eq 0) {

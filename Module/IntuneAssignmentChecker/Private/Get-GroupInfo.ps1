@@ -13,7 +13,7 @@ function Get-GroupInfo {
     }
 
     try {
-        $groupUri = "$GraphEndpoint/v1.0/groups/$GroupId"
+        $groupUri = "$script:GraphEndpoint/v1.0/groups/$GroupId"
         $group = Invoke-MgGraphRequest -Uri $groupUri -Method Get
         $result = @{
             Id          = $group.id

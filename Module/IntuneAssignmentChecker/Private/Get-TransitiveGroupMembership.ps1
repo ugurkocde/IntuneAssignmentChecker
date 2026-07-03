@@ -6,7 +6,7 @@ function Get-TransitiveGroupMembership {
     )
 
     $parentGroups = [System.Collections.ArrayList]::new()
-    $uri = "$GraphEndpoint/v1.0/groups/$GroupId/transitiveMemberOf/microsoft.graph.group?`$select=id,displayName"
+    $uri = "$script:GraphEndpoint/v1.0/groups/$GroupId/transitiveMemberOf/microsoft.graph.group?`$select=id,displayName"
 
     try {
         do {

@@ -62,9 +62,9 @@ function Get-IntuneUnassignedPolicy {
     foreach ($policy in $appProtectionPolicies) {
         $policyType = $policy.'@odata.type'
         $assignmentsUri = switch ($policyType) {
-            "#microsoft.graph.androidManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/androidManagedAppProtections('$($policy.id)')/assignments" }
-            "#microsoft.graph.iosManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/iosManagedAppProtections('$($policy.id)')/assignments" }
-            "#microsoft.graph.windowsManagedAppProtection" { "$GraphEndpoint/beta/deviceAppManagement/windowsManagedAppProtections('$($policy.id)')/assignments" }
+            "#microsoft.graph.androidManagedAppProtection" { "$script:GraphEndpoint/beta/deviceAppManagement/androidManagedAppProtections('$($policy.id)')/assignments" }
+            "#microsoft.graph.iosManagedAppProtection" { "$script:GraphEndpoint/beta/deviceAppManagement/iosManagedAppProtections('$($policy.id)')/assignments" }
+            "#microsoft.graph.windowsManagedAppProtection" { "$script:GraphEndpoint/beta/deviceAppManagement/windowsManagedAppProtections('$($policy.id)')/assignments" }
             default { $null }
         }
 
@@ -118,7 +118,7 @@ function Get-IntuneUnassignedPolicy {
     $antivirusPolicies = $allIntentsForAntivirusUnassigned | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAntivirus' }
     if ($antivirusPolicies) {
         foreach ($policy in $antivirusPolicies) {
-            $assignments = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
+            $assignments = Invoke-MgGraphRequest -Uri "$script:GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
             if ($assignments.value.Count -eq 0) {
                 $unassignedPolicies.AntivirusProfiles += $policy
             }
@@ -132,7 +132,7 @@ function Get-IntuneUnassignedPolicy {
     $diskEncryptionPolicies = $allIntentsForDiskEncUnassigned | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityDiskEncryption' }
     if ($diskEncryptionPolicies) {
         foreach ($policy in $diskEncryptionPolicies) {
-            $assignments = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
+            $assignments = Invoke-MgGraphRequest -Uri "$script:GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
             if ($assignments.value.Count -eq 0) {
                 $unassignedPolicies.DiskEncryptionProfiles += $policy
             }
@@ -146,7 +146,7 @@ function Get-IntuneUnassignedPolicy {
     $firewallPolicies = $allIntentsForFirewallUnassigned | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityFirewall' }
     if ($firewallPolicies) {
         foreach ($policy in $firewallPolicies) {
-            $assignments = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
+            $assignments = Invoke-MgGraphRequest -Uri "$script:GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
             if ($assignments.value.Count -eq 0) {
                 $unassignedPolicies.FirewallProfiles += $policy
             }
@@ -160,7 +160,7 @@ function Get-IntuneUnassignedPolicy {
     $edrPolicies = $allIntentsForEDRUnassigned | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityEndpointDetectionAndResponse' }
     if ($edrPolicies) {
         foreach ($policy in $edrPolicies) {
-            $assignments = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
+            $assignments = Invoke-MgGraphRequest -Uri "$script:GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
             if ($assignments.value.Count -eq 0) {
                 $unassignedPolicies.EndpointDetectionProfiles += $policy
             }
@@ -174,7 +174,7 @@ function Get-IntuneUnassignedPolicy {
     $asrPolicies = $allIntentsForASRUnassigned | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAttackSurfaceReduction' }
     if ($asrPolicies) {
         foreach ($policy in $asrPolicies) {
-            $assignments = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
+            $assignments = Invoke-MgGraphRequest -Uri "$script:GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
             if ($assignments.value.Count -eq 0) {
                 $unassignedPolicies.AttackSurfaceProfiles += $policy
             }
@@ -188,7 +188,7 @@ function Get-IntuneUnassignedPolicy {
     $accountProtectionPolicies = $allIntentsForAccountProtectionUnassigned | Where-Object { $_.templateReference -and $_.templateReference.templateFamily -eq 'endpointSecurityAccountProtection' }
     if ($accountProtectionPolicies) {
         foreach ($policy in $accountProtectionPolicies) {
-            $assignments = Invoke-MgGraphRequest -Uri "$GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
+            $assignments = Invoke-MgGraphRequest -Uri "$script:GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
             if ($assignments.value.Count -eq 0) {
                 $unassignedPolicies.AccountProtectionProfiles += $policy
             }
@@ -197,7 +197,7 @@ function Get-IntuneUnassignedPolicy {
 
     # Get Unassigned Apps
     Write-Host "Fetching Unassigned Apps..." -ForegroundColor Yellow
-    $unassignedAppUri = "$GraphEndpoint/beta/deviceAppManagement/mobileApps?`$filter=isAssigned eq false"
+    $unassignedAppUri = "$script:GraphEndpoint/beta/deviceAppManagement/mobileApps?`$filter=isAssigned eq false"
     $unassignedAppResponse = Invoke-MgGraphRequest -Uri $unassignedAppUri -Method Get
     $unassignedApps = $unassignedAppResponse.value
     while ($unassignedAppResponse.'@odata.nextLink') {
