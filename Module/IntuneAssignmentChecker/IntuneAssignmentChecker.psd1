@@ -1,6 +1,6 @@
 @{
     RootModule        = 'IntuneAssignmentChecker.psm1'
-    ModuleVersion     = '4.3.0'
+    ModuleVersion     = '4.3.1'
     GUID              = 'c6e25ec6-5787-45ef-95af-8abeb8a17daf'
     Author            = 'Ugur Koc'
     CompanyName       = 'Community'
@@ -43,6 +43,16 @@
             ProjectUri   = 'https://github.com/ugurkocde/IntuneAssignmentChecker'
             IconUri      = ''
             ReleaseNotes = @'
+Version 4.3.1:
+Security:
+- Replace the broad Group.Read.All permission with GroupMember.Read.All for group lookup, membership, and transitive membership operations. This preserves IntuneAssignmentChecker behavior without granting access to Microsoft 365 group content.
+
+Upgrade notes:
+- Interactive connections automatically request GroupMember.Read.All on the next sign-in. Administrator consent is still required.
+- Existing app-only registrations that use a certificate, client secret, managed identity, or pre-fetched token must add GroupMember.Read.All and grant administrator consent before Group.Read.All is removed and revoked.
+- Updating requiredResourceAccess alone might not remove an existing service principal consent grant. Confirm that Group.Read.All is revoked after the updated module works.
+- Member.Read.Hidden remains optional and is needed only when hidden-membership groups must be resolved.
+
 Version 4.3.0:
 - Show applications where the checked group is excluded in Get-IntuneGroupAssignment; Compare-IntuneGroupAssignment now marks excluded apps with [EXCLUDED] (issue #126).
 - Rebuild the ten category-walk cmdlets on a shared scan engine: entity sets are fetched once per run (dozens fewer Graph calls), transient per-category failures no longer abort a run, and errors are raised on the error stream for automation (issue #123).

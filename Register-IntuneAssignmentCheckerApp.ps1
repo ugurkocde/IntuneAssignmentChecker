@@ -44,7 +44,7 @@ Write-Host "Short Tenant Name: $shortTenantName" -ForegroundColor Green
 $graphAppId = "00000003-0000-0000-c000-000000000000"
 $permissions = @(
     @{ id = "df021288-bdef-4463-88db-98f22de89214"; displayName = "User.Read.All" },
-    @{ id = "5b567255-7703-4780-807c-7be8301ae99b"; displayName = "Group.Read.All" },
+    @{ id = "98830695-27a2-44f7-8c18-0c3ebc9698f6"; displayName = "GroupMember.Read.All" },
     @{ id = "7438b122-aefc-4978-80ed-43db9fcc7715"; displayName = "Device.Read.All" },
     @{ id = "7a6ee1e7-141e-4cec-ae74-d9db155731ff"; displayName = "DeviceManagementApps.Read.All" },
     @{ id = "dc377aa6-52d8-4e23-b271-2a7ae04cedf3"; displayName = "DeviceManagementConfiguration.Read.All" },
@@ -143,4 +143,3 @@ Write-Host "You can now connect IntuneAssignmentChecker with the following comma
 Write-Host "Connect-IntuneAssignmentChecker -AppId `"$appId`" -TenantId `"$tenantId`" -CertificateThumbprint `"$certificateThumbprint`"" -ForegroundColor Yellow
 Write-Host "Afterwards, run 'IntuneAssignmentChecker' to start the interactive menu." -ForegroundColor Cyan
 Write-Host "----------------------------"
-

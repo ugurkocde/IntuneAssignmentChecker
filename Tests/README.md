@@ -17,6 +17,10 @@ network. Runs in well under a second.
   filter-suffixed status strings
 - `Add-ExportData` - regex extraction of FilterName and FilterType from
   AssignmentReason into dedicated CSV columns
+- Permission configuration - verifies the registration script, runtime check,
+  and README use the least-privilege `GroupMember.Read.All` application role
+- Group membership Graph helpers - verifies the transitive group membership
+  endpoint and pagination behavior
 
 **Why these tests matter:** most regressions in this codebase are string-format
 changes that slip past static analysis. Unit tests at this layer catch them.
