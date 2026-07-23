@@ -112,10 +112,11 @@ IntuneAssignmentChecker
 ### Required Permissions
 
 Your Entra ID application registration needs these permissions:
+
 | Permission | Type | Description |
 |------------|------|-------------|
 | User.Read.All | Application | Read all users' full profiles |
-| Group.Read.All | Application | Read all groups |
+| GroupMember.Read.All | Application | Read group memberships and basic group properties |
 | Device.Read.All | Application | Read all devices |
 | DeviceManagementApps.Read.All | Application | Read Microsoft Intune apps |
 | DeviceManagementConfiguration.Read.All | Application | Read Microsoft Intune device configuration and policies |
@@ -123,6 +124,16 @@ Your Entra ID application registration needs these permissions:
 | DeviceManagementScripts.Read.All | Application | Read device management and health scripts |
 | CloudPC.Read.All | Application | Read Windows 365 Cloud PC provisioning policies and settings |
 | DeviceManagementRBAC.Read.All | Application | Read role scope tags for scope tag display and filtering |
+
+For interactive authentication, IntuneAssignmentChecker automatically requests the delegated versions of these permissions during sign-in. Administrator consent is still required.
+
+For certificate, client secret, managed identity, or pre-fetched token authentication, configure the listed application permissions on the app registration and grant administrator consent. App-only authentication cannot add or consent permissions automatically.
+
+`GroupMember.Read.All` provides the group and membership data used by IntuneAssignmentChecker without granting access to Microsoft 365 group content.
+
+> **Existing app registrations**: Add `GroupMember.Read.All` and grant administrator consent before removing `Group.Read.All`. After confirming the updated module works, remove `Group.Read.All` from the configured API permissions and revoke its application consent. Updating the app registration manifest alone might not remove an existing service principal consent grant.
+
+> **Hidden memberships**: Reading groups with hidden membership requires the additional `Member.Read.Hidden` application permission. IntuneAssignmentChecker does not request this permission by default.
 
 > **Note**: The automated setup script ([`Register-IntuneAssignmentCheckerApp.ps1`](./Register-IntuneAssignmentCheckerApp.ps1)) additionally grants `DeviceManagementServiceConfig.Read.All`, which covers Intune service configuration such as enrollment settings. It is not validated by `Connect-IntuneAssignmentChecker`, but granting it avoids gaps when reading enrollment-related configurations.
 

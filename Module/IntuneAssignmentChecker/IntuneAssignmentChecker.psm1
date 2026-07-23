@@ -21,7 +21,7 @@ $script:IntentTemplateSubtypeToFamily = @{
 # Required Microsoft Graph permissions (shared by Connect-IntuneAssignmentChecker and Switch-Tenant)
 $script:RequiredPermissions = @(
     @{ Permission = "User.Read.All";                         Reason = "Required to read user profile information and check group memberships" }
-    @{ Permission = "Group.Read.All";                        Reason = "Needed to read group information and memberships" }
+    @{ Permission = "GroupMember.Read.All";                  Reason = "Required to read group memberships and basic group properties" }
     @{ Permission = "DeviceManagementConfiguration.Read.All"; Reason = "Allows reading Intune device configuration policies and their assignments" }
     @{ Permission = "DeviceManagementApps.Read.All";         Reason = "Necessary to read mobile app management policies and app configurations" }
     @{ Permission = "DeviceManagementManagedDevices.Read.All"; Reason = "Required to read managed device information and compliance policies" }
