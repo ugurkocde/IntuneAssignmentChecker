@@ -11,8 +11,11 @@ function Get-HtmlAssignmentInfo {
 
     if ($null -eq $Assignments -or $Assignments.Count -eq 0) {
         return @{
-            Type   = "None"
-            Target = "Not Assigned"
+            Type       = "None"
+            Target     = "Not Assigned"
+            FilterName = "None"
+            FilterType = "None"
+            Filter     = "None"
         }
     }
 
@@ -20,6 +23,7 @@ function Get-HtmlAssignmentInfo {
     $targets = @()
     $filterNames = @()
     $filterTypes = @()
+    $filterDisplays = @()
 
     foreach ($assignment in $Assignments) {
         $type = "None"
@@ -58,9 +62,10 @@ function Get-HtmlAssignmentInfo {
         # Handle standard format (with Reason and GroupId)
         else {
             $type = switch ($assignment.Reason) {
-                "All Users" { "All Users"; break }
-                "All Devices" { "All Devices"; break }
+                "All Users" { $target = "All Users"; "All Users"; break }
+                "All Devices" { $target = "All Devices"; "All Devices"; break }
                 "Group Assignment" { "Group"; break }
+                "Group Exclusion" { "Exclude"; break }
                 "Exclude" { "Exclude"; break }
                 default { "None" }
             }
@@ -92,11 +97,18 @@ function Get-HtmlAssignmentInfo {
                 default   { $filterType }
             }
         }
+        else {
+            $filterName = 'None'
+            $filterTypeLabel = 'None'
+        }
+
+        # Keep filter entries positionally aligned with the assignment targets.
+        $filterNames += $filterName
+        $filterTypes += $filterTypeLabel
+        $filterDisplays += if ($filterId) { "$filterName [$filterTypeLabel]" } else { 'None' }
 
         $types += $type
         $targets += $target
-        $filterNames += $filterName
-        $filterTypes += $filterTypeLabel
     }
 
     # Determine the primary type (prioritize All Users/Devices over Group)
@@ -116,17 +128,12 @@ function Get-HtmlAssignmentInfo {
         "None"
     }
 
-    $filterDisplay = ($filterNames | Where-Object { $_ } | ForEach-Object -Begin { $i = 0 } -Process {
-        $lbl = $filterTypes[$i]; $i++
-        "$_ [$lbl]"
-    }) -join "; "
-
     return @{
         Type       = $primaryType
         Target     = ($targets -join "; ")
-        FilterName = ($filterNames -join "; ").TrimEnd(';', ' ')
-        FilterType = ($filterTypes -join "; ").TrimEnd(';', ' ')
-        Filter     = $filterDisplay
+        FilterName = $filterNames -join "; "
+        FilterType = $filterTypes -join "; "
+        Filter     = $filterDisplays -join "; "
     }
 }
 
@@ -134,10 +141,32 @@ function Get-HtmlAssignmentInfo {
 # Get-IntentTemplateFamilyLookup, Add-IntentTemplateFamilyInfo) comes from the
 # module scope, since this file is dot-sourced inside the module.
 
+function ConvertTo-IntuneCsvSafeValue {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param (
+        [Parameter(Mandatory = $false)]
+        [AllowNull()]
+        [object]$Value
+    )
+
+    $text = if ($null -eq $Value) { '' } else { [string]$Value }
+    # Quoting alone does not stop spreadsheet formula injection. Prefix tenant-
+    # controlled values that spreadsheet applications can interpret as formulas.
+    if ($text -match '^[=+\-@\t\r]') { return "'$text" }
+    return $text
+}
+
 function Export-HTMLReport {
     param (
         [Parameter(Mandatory = $true)]
-        [string]$FilePath
+        [string]$FilePath,
+
+        [Parameter(Mandatory = $false)]
+        [string]$CSVReportPath,
+
+        [Parameter(Mandatory = $false)]
+        [switch]$SkipCSVReport
     )
 
     # HTML template with placeholders for $tabHeaders, $tabContent, summary stats, and chart
@@ -585,10 +614,10 @@ function Export-HTMLReport {
     # Initialize collections
     $policies = @{
         DeviceConfigs             = @()
+        ImportedAdministrativeTemplates = @()
         SettingsCatalog           = @()
         CompliancePolicies        = @()
         AppProtectionPolicies     = @()
-        AppConfigurationPolicies  = @()
         PlatformScripts           = @()
         HealthScripts             = @()
         RequiredApps              = @()
@@ -618,6 +647,24 @@ function Export-HTMLReport {
             Type           = "Device Configuration"
             Platform       = Get-PolicyPlatform -Policy $config
             ScopeTags      = Get-ScopeTagNames -ScopeTagIds $config.roleScopeTagIds -ScopeTagLookup $script:ScopeTagLookup
+            AssignmentType = $assignmentInfo.Type
+            AssignedTo     = $assignmentInfo.Target
+            Filter         = $assignmentInfo.Filter
+        }
+    }
+
+    Write-Host "Fetching Imported Administrative Templates..." -ForegroundColor Yellow
+    $importedTemplates = Get-IntuneEntities -EntityType "groupPolicyConfigurations" |
+        Where-Object { Test-ImportedAdministrativeTemplate -Policy $_ }
+    foreach ($policy in $importedTemplates) {
+        $assignments = Get-IntuneAssignments -EntityType "groupPolicyConfigurations" -EntityId $policy.id
+        $assignmentInfo = Get-HtmlAssignmentInfo -Assignments $assignments
+        $policies.ImportedAdministrativeTemplates += @{
+            Name           = $policy.displayName
+            ID             = $policy.id
+            Type           = "Imported Administrative Template"
+            Platform       = "Windows"
+            ScopeTags      = Get-ScopeTagNames -ScopeTagIds $policy.roleScopeTagIds -ScopeTagLookup $script:ScopeTagLookup
             AssignmentType = $assignmentInfo.Type
             AssignedTo     = $assignmentInfo.Target
             Filter         = $assignmentInfo.Filter
@@ -674,7 +721,7 @@ function Export-HTMLReport {
             try {
                 $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
                 # Pass the raw .value to Get-HtmlAssignmentInfo as it expects an array of assignment objects
-                $assignmentInfo = Get-HtmlAssignmentInfo -Assignments $assignmentResponse.value 
+                $assignmentInfo = Get-HtmlAssignmentInfo -Assignments $assignmentResponse.value
 
                 $policies.AppProtectionPolicies += @{
                     Name           = $policy.displayName
@@ -732,15 +779,15 @@ function Export-HTMLReport {
     # Get Autopilot Deployment Profiles
     Write-Host "Fetching Autopilot Deployment Profiles..." -ForegroundColor Yellow
     $autoProfiles = Get-IntuneEntities -EntityType "windowsAutopilotDeploymentProfiles"
-    foreach ($profile in $autoProfiles) {
-        $assignments = Get-IntuneAssignments -EntityType "windowsAutopilotDeploymentProfiles" -EntityId $profile.id
+    foreach ($autoProfile in $autoProfiles) {
+        $assignments = Get-IntuneAssignments -EntityType "windowsAutopilotDeploymentProfiles" -EntityId $autoProfile.id
         $assignmentInfo = Get-HtmlAssignmentInfo -Assignments $assignments
         $policies.DeploymentProfiles += @{
-            Name           = $profile.displayName
-            ID             = $profile.id
+            Name           = $autoProfile.displayName
+            ID             = $autoProfile.id
             Type           = "Autopilot Deployment Profile"
             Platform       = "Windows"
-            ScopeTags      = Get-ScopeTagNames -ScopeTagIds $profile.roleScopeTagIds -ScopeTagLookup $script:ScopeTagLookup
+            ScopeTags      = Get-ScopeTagNames -ScopeTagIds $autoProfile.roleScopeTagIds -ScopeTagLookup $script:ScopeTagLookup
             AssignmentType = $assignmentInfo.Type
             AssignedTo     = $assignmentInfo.Target
             Filter         = $assignmentInfo.Filter
@@ -868,18 +915,18 @@ function Export-HTMLReport {
                             AssignedTo     = $assignmentInfo.Target
                             Filter         = $assignmentInfo.Filter
                         }
-                    } 
+                    }
                     catch {
                         Write-Host "Error fetching assignments for $($esCategory.Name) intent $($policy.displayName): $($_.Exception.Message)" -ForegroundColor Red
                     }
-                } 
-            } 
-        } 
+                }
+            }
+        }
     }
 
     # Get Apps
     Write-Host "Fetching Applications..." -ForegroundColor Yellow
-    $appUri = "$script:GraphEndpoint/beta/deviceAppManagement/mobileApps?`$filter=isAssigned eq true"
+    $appUri = "$script:GraphEndpoint/beta/deviceAppManagement/mobileApps?`$filter=isAssigned eq true&`$select=id,displayName,roleScopeTagIds"
     $allApps = [System.Collections.Generic.List[object]]::new()
     try {
         $appResponse = Invoke-MgGraphRequest -Uri $appUri -Method Get
@@ -895,11 +942,6 @@ function Export-HTMLReport {
     }
 
     foreach ($app in $allApps) {
-        # Skip built-in and Microsoft apps
-        if ($app.isFeatured -or $app.isBuiltIn) {
-            continue
-        }
-
         $appId = $app.id
         $assignmentsUri = "$script:GraphEndpoint/beta/deviceAppManagement/mobileApps('$appId')/assignments"
         try {
@@ -917,7 +959,7 @@ function Export-HTMLReport {
             # We need to wrap it in an array for Get-HtmlAssignmentInfo.
             $currentAssignmentArray = @($assignment) # Ensure it's an array
             $assignmentInfo = Get-HtmlAssignmentInfo -Assignments $currentAssignmentArray
-            
+
             $appInfo = @{
                 Name           = $app.displayName
                 ID             = $app.id
@@ -979,8 +1021,9 @@ function Export-HTMLReport {
     }
 
     $categories = @(
-        @{ Key = 'all'; Name = 'All Policies & Apps' }, 
+        @{ Key = 'all'; Name = 'All Policies & Apps' },
         @{ Key = 'DeviceConfigs'; Name = 'Device Configurations' },
+        @{ Key = 'ImportedAdministrativeTemplates'; Name = 'Imported Administrative Templates' },
         @{ Key = 'SettingsCatalog'; Name = 'Settings Catalog' },
         @{ Key = 'CompliancePolicies'; Name = 'Compliance Policies' },
         @{ Key = 'AppProtectionPolicies'; Name = 'App Protection Policies' },
@@ -1005,7 +1048,7 @@ function Export-HTMLReport {
     foreach ($category in $categories | Where-Object { $_.Key -ne 'all' }) {
         if ($policies.ContainsKey($category.Key)) {
             $items = $policies[$category.Key]
-            if ($null -ne $items) { 
+            if ($null -ne $items) {
                 $summaryStats.TotalPolicies += $items.Count
                 $summaryStats.AllUsers += ($items | Where-Object { $_.AssignmentType -eq "All Users" }).Count
                 $summaryStats.AllDevices += ($items | Where-Object { $_.AssignmentType -eq "All Devices" }).Count
@@ -1014,7 +1057,7 @@ function Export-HTMLReport {
             }
         }
     }
-    
+
     # Build dynamic tab headers and tab content
     $tabHeaders = ""
     $tabContent = ""
@@ -1244,11 +1287,12 @@ function Export-HTMLReport {
     var policyTypesChart = new Chart(ctx2, {
         type: 'bar',
         data: {
-            labels: ['Device Configs', 'Settings Catalog', 'Compliance', 'App Protection', 'Autopilot Profiles', 'ESP Profiles', 'Windows 365 Provisioning', 'Windows 365 User Settings', 'Scripts', 'Antivirus', 'Disk Encryption', 'Firewall', 'EDR', 'ASR', 'Account Protection'],
+            labels: ['Device Configs', 'Imported Admin Templates', 'Settings Catalog', 'Compliance', 'App Protection', 'Autopilot Profiles', 'ESP Profiles', 'Windows 365 Provisioning', 'Windows 365 User Settings', 'Scripts', 'Antivirus', 'Disk Encryption', 'Firewall', 'EDR', 'ASR', 'Account Protection'],
             datasets: [{
                 label: 'Number of Policies',
                 data: [
                     $($policies.DeviceConfigs.Count),
+                    $($policies.ImportedAdministrativeTemplates.Count),
                     $($policies.SettingsCatalog.Count),
                     $($policies.CompliancePolicies.Count),
                     $($policies.AppProtectionPolicies.Count),
@@ -1309,5 +1353,77 @@ function Export-HTMLReport {
     # Output file
     $htmlContent | Out-File -FilePath $FilePath -Encoding UTF8
     Write-Host "HTML report exported to: $FilePath" -ForegroundColor Green
-}
 
+    if ($SkipCSVReport) { return }
+
+    # Export the same report data as a flat CSV for Log Analytics, workbooks,
+    # and other centralized processing. The aggregate "all" tab is skipped so
+    # every policy/app appears exactly once under its source category.
+    $resolvedCsvPath = $CSVReportPath
+    try {
+        if ([string]::IsNullOrWhiteSpace($CSVReportPath)) {
+            $resolvedCsvPath = [System.IO.Path]::ChangeExtension($FilePath, '.csv')
+        }
+        else {
+            # Resolve relative paths against PowerShell's current provider
+            # location. The .NET process directory does not follow Set-Location.
+            $requestedCsvPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($CSVReportPath)
+            $csvFileName = [System.IO.Path]::ChangeExtension([System.IO.Path]::GetFileName($FilePath), '.csv')
+            if (Test-Path -Path $requestedCsvPath -PathType Container) {
+                $resolvedCsvPath = Join-Path $requestedCsvPath $csvFileName
+            }
+            elseif ($requestedCsvPath -match '\.csv$') {
+                $resolvedCsvPath = $requestedCsvPath
+            }
+            else {
+                if (Test-Path -Path $requestedCsvPath -PathType Leaf) {
+                    throw "CSV report path '$requestedCsvPath' is an existing file without a .csv extension."
+                }
+                if ([System.IO.Path]::GetExtension($requestedCsvPath)) {
+                    throw "CSV report path '$requestedCsvPath' must be a .csv file or an existing/new directory without a file extension."
+                }
+                New-Item -ItemType Directory -Path $requestedCsvPath -Force -ErrorAction Stop | Out-Null
+                $resolvedCsvPath = Join-Path $requestedCsvPath $csvFileName
+            }
+        }
+
+        $csvParent = Split-Path -Path $resolvedCsvPath -Parent
+        if ($csvParent -and -not (Test-Path -Path $csvParent -PathType Container)) {
+            New-Item -ItemType Directory -Path $csvParent -Force -ErrorAction Stop | Out-Null
+        }
+        if (Test-Path -Path $resolvedCsvPath -PathType Leaf) {
+            Write-Host "Replacing existing CSV report: $resolvedCsvPath" -ForegroundColor Yellow
+        }
+
+        $csvRows = [System.Collections.Generic.List[object]]::new()
+        foreach ($category in $categories | Where-Object { $_.Key -ne 'all' }) {
+            if (-not $policies.ContainsKey($category.Key)) { continue }
+            foreach ($policy in @($policies[$category.Key])) {
+                $csvRows.Add([PSCustomObject][ordered]@{
+                        Category       = ConvertTo-IntuneCsvSafeValue $category.Name
+                        Name           = ConvertTo-IntuneCsvSafeValue $policy.Name
+                        ID             = ConvertTo-IntuneCsvSafeValue $policy.ID
+                        Type           = ConvertTo-IntuneCsvSafeValue $policy.Type
+                        Platform       = ConvertTo-IntuneCsvSafeValue $policy.Platform
+                        ScopeTags      = ConvertTo-IntuneCsvSafeValue $policy.ScopeTags
+                        AssignmentType = ConvertTo-IntuneCsvSafeValue $policy.AssignmentType
+                        AssignedTo     = ConvertTo-IntuneCsvSafeValue $policy.AssignedTo
+                        Filter         = ConvertTo-IntuneCsvSafeValue $policy.Filter
+                    })
+            }
+        }
+
+        if ($csvRows.Count -gt 0) {
+            $csvRows | Export-Csv -Path $resolvedCsvPath -NoTypeInformation -Encoding UTF8 -ErrorAction Stop
+        }
+        else {
+            # Keep a stable header even when the tenant returns no supported policies.
+            '"Category","Name","ID","Type","Platform","ScopeTags","AssignmentType","AssignedTo","Filter"' |
+                Set-Content -Path $resolvedCsvPath -Encoding UTF8 -ErrorAction Stop
+        }
+        Write-Host "CSV report exported to: $resolvedCsvPath" -ForegroundColor Green
+    }
+    catch {
+        Write-Warning "Failed to export CSV report to '$resolvedCsvPath': $($_.Exception.Message)"
+    }
+}

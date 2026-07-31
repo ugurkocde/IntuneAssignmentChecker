@@ -94,6 +94,7 @@ function Test-IntuneGroupMembership {
 
     # Resolve target group
     Write-Host "Looking up group: $simGroupInput" -ForegroundColor Yellow
+    $simResolvedGroupInfo = $null
     if ($simGroupInput -match '^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$') {
         $simGroupInfo = Get-GroupInfo -GroupId $simGroupInput
         if (-not $simGroupInfo.Success) {
@@ -102,11 +103,13 @@ function Test-IntuneGroupMembership {
         }
         $simTargetGroupId = $simGroupInfo.Id
         $simTargetGroupName = $simGroupInfo.DisplayName
+        $simResolvedGroupInfo = $simGroupInfo
     }
     else {
         # Single quotes escaped for the OData filter (F9)
         $escapedSimGroupName = $simGroupInput -replace "'", "''"
-        $simGroupUri = "$script:GraphEndpoint/v1.0/groups?`$filter=displayName eq '$escapedSimGroupName'"
+        $simGroupSelect = 'id,displayName,groupTypes,mailEnabled,securityEnabled,mail'
+        $simGroupUri = "$script:GraphEndpoint/v1.0/groups?`$filter=displayName eq '$escapedSimGroupName'&`$select=$simGroupSelect"
         $simGroupResponse = Invoke-MgGraphRequest -Uri $simGroupUri -Method Get
 
         if ($simGroupResponse.value.Count -eq 0) {
@@ -116,16 +119,23 @@ function Test-IntuneGroupMembership {
         elseif ($simGroupResponse.value.Count -gt 1) {
             Write-Host "Multiple groups found with name: $simGroupInput. Please use the Object ID instead:" -ForegroundColor Red
             foreach ($g in $simGroupResponse.value) {
-                Write-Host "  - $($g.displayName) (ID: $($g.id))" -ForegroundColor Yellow
+                $candidateInfo = ConvertTo-IntuneGroupInfo -Group $g
+                Write-Host "  - $($candidateInfo.DisplayName) (ID: $($candidateInfo.Id); Type: $($candidateInfo.GroupType); Membership: $($candidateInfo.MembershipType))" -ForegroundColor Yellow
             }
             return
         }
 
-        $simTargetGroupId = $simGroupResponse.value[0].id
-        $simTargetGroupName = $simGroupResponse.value[0].displayName
+        $simResolvedGroupInfo = ConvertTo-IntuneGroupInfo -Group $simGroupResponse.value[0]
+        if (-not $simResolvedGroupInfo.Success) {
+            Write-Host "The group lookup for '$simGroupInput' returned an invalid response without an Object ID." -ForegroundColor Red
+            return
+        }
+        $simTargetGroupId = $simResolvedGroupInfo.Id
+        $simTargetGroupName = $simResolvedGroupInfo.DisplayName
     }
 
     Write-Host "Target group: $simTargetGroupName (ID: $simTargetGroupId)" -ForegroundColor Green
+    Write-Host "Group details: Type: $($simResolvedGroupInfo.GroupType); Membership: $($simResolvedGroupInfo.MembershipType)$(if ($simResolvedGroupInfo.Mail) { "; Mail: $($simResolvedGroupInfo.Mail)" })" -ForegroundColor Green
 
     # Get current group memberships (union of user and device, depending on what was supplied)
     $simCurrentGroupIds = @()
@@ -159,14 +169,14 @@ function Test-IntuneGroupMembership {
 
     Write-Host "Analyzing impact..." -ForegroundColor Yellow
 
-    # The legacy 18-step walk matches the UserContext registry entries (same display names, no
-    # Settings Catalog ES filter): reorder to the legacy sequence and make Autopilot/ESP fetchable.
+    # The legacy walk matches the UserContext registry entries (same display names, no
+    # Settings Catalog ES filter); Imported Administrative Templates add one step.
     $categoriesById = @{}
     foreach ($category in (Get-IntuneCategoryDefinition -Audience 'UserContext')) { $categoriesById[$category.Id] = $category }
     $categoriesById['DeploymentProfiles'].BucketOnly = $false
     $categoriesById['ESPProfiles'].BucketOnly = $false
     $categories = @(
-        @('DeviceConfigurations', 'SettingsCatalog', 'CompliancePolicies', 'AppProtectionPolicies', 'AppConfigurationPolicies',
+        @('DeviceConfigurations', 'ImportedAdministrativeTemplates', 'SettingsCatalog', 'CompliancePolicies', 'AppProtectionPolicies', 'AppConfigurationPolicies',
             'Applications', 'PlatformScripts', 'HealthScripts', 'ESAntivirus', 'ESDiskEncryption', 'ESFirewall',
             'ESEndpointDetection', 'ESAttackSurface', 'ESAccountProtection', 'DeploymentProfiles', 'ESPProfiles',
             'CloudPCProvisioningPolicies', 'CloudPCUserSettings') | ForEach-Object { $categoriesById[$_] })
@@ -195,7 +205,7 @@ function Test-IntuneGroupMembership {
                 # Legacy progress counted against the unfiltered app list
                 $allCachedApps = @($entityCache[$ctx.Category.EntityType])
                 $appProgress.Total = $allCachedApps.Count
-                $appProgress.FilteredTotal = @($allCachedApps | Where-Object { -not ($_.isFeatured -or $_.isBuiltIn) }).Count
+                $appProgress.FilteredTotal = @($allCachedApps).Count
             }
             $appProgress.Current++
             Write-Host "`rFetching Application $($appProgress.Current) of $($appProgress.Total)" -NoNewline
@@ -319,7 +329,8 @@ function Test-IntuneGroupMembership {
 
     # Category display mapping (legacy section order and labels)
     $categoryDisplay = [ordered]@{
-        DeviceConfigs = "Device Configurations"; SettingsCatalog = "Settings Catalog Policies"
+        DeviceConfigs = "Device Configurations"; ImportedAdministrativeTemplates = "Imported Administrative Templates"
+        SettingsCatalog = "Settings Catalog Policies"
         CompliancePolicies = "Compliance Policies"; AppProtectionPolicies = "App Protection Policies"
         AppConfigurationPolicies = "App Configuration Policies"; AppsRequired = "Required Apps"
         AppsAvailable = "Available Apps"; AppsUninstall = "Uninstall Apps"
@@ -421,7 +432,8 @@ function Test-IntuneGroupMembership {
 
     # Legacy CSV order and labels for the NEW-policy rows
     $exportSections = [ordered]@{
-        'NEW: Device Configuration' = 'DeviceConfigs'; 'NEW: Settings Catalog Policy' = 'SettingsCatalog'
+        'NEW: Device Configuration' = 'DeviceConfigs'; 'NEW: Imported Administrative Template' = 'ImportedAdministrativeTemplates'
+        'NEW: Settings Catalog Policy' = 'SettingsCatalog'
         'NEW: Compliance Policy' = 'CompliancePolicies'; 'NEW: App Protection Policy' = 'AppProtectionPolicies'
         'NEW: App Configuration Policy' = 'AppConfigurationPolicies'; 'NEW: Required App' = 'AppsRequired'
         'NEW: Available App' = 'AppsAvailable'; 'NEW: Uninstall App' = 'AppsUninstall'

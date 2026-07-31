@@ -5,6 +5,7 @@ BeforeAll {
     $moduleRoot = Join-Path $PSScriptRoot '../../Module/IntuneAssignmentChecker'
     $modulePrivate = Join-Path $moduleRoot 'Private'
 
+    . (Join-Path $modulePrivate 'ConvertTo-IntuneGroupInfo.ps1')
     . (Join-Path $modulePrivate 'Get-Separator.ps1')
     . (Join-Path $modulePrivate 'Get-ScopeTagNames.ps1')
     . (Join-Path $modulePrivate 'Format-AssignmentFilter.ps1')
@@ -12,6 +13,7 @@ BeforeAll {
     . (Join-Path $modulePrivate 'Resolve-SimulatedAssignmentDelta.ps1')
     . (Join-Path $modulePrivate 'Add-ExportData.ps1')
     . (Join-Path $modulePrivate 'Get-AppProtectionAssignmentUri.ps1')
+    . (Join-Path $modulePrivate 'Test-ImportedAdministrativeTemplate.ps1')
     . (Join-Path $modulePrivate 'Get-IntuneCategoryDefinition.ps1')
     . (Join-Path $modulePrivate 'Invoke-IntuneCategoryScan.ps1')
     . (Join-Path $moduleRoot 'Public/Test-IntuneGroupRemoval.ps1')
@@ -265,14 +267,15 @@ Describe 'Test-IntuneGroupRemoval' {
             $row.Item | Should -Be 'AP AllDev (ID: ap-alldev)'
         }
 
-        It 'walks the 18 categories in the legacy order' {
-            $headers = @($script:hostLines | Where-Object { $_ -match '^\[\d+/18\] Fetching ' })
-            $headers | Should -HaveCount 18
-            $headers[0] | Should -Be '[1/18] Fetching Device Configurations...'
-            $headers[5] | Should -Be '[6/18] Fetching Applications...'
-            $headers[8] | Should -Be '[9/18] Fetching Antivirus Policies...'
-            $headers[14] | Should -Be '[15/18] Fetching Autopilot Deployment Profiles...'
-            $headers[17] | Should -Be '[18/18] Fetching Windows 365 Cloud PC User Settings...'
+        It 'walks the 19 categories including Imported Administrative Templates' {
+            $headers = @($script:hostLines | Where-Object { $_ -match '^\[\d+/19\] Fetching ' })
+            $headers | Should -HaveCount 19
+            $headers[0] | Should -Be '[1/19] Fetching Device Configurations...'
+            $headers[1] | Should -Be '[2/19] Fetching Imported Administrative Templates...'
+            $headers[6] | Should -Be '[7/19] Fetching Applications...'
+            $headers[9] | Should -Be '[10/19] Fetching Antivirus Policies...'
+            $headers[15] | Should -Be '[16/19] Fetching Autopilot Deployment Profiles...'
+            $headers[18] | Should -Be '[19/19] Fetching Windows 365 Cloud PC User Settings...'
         }
 
         It 'skips unlicensed Windows 365 categories without failing the run' {

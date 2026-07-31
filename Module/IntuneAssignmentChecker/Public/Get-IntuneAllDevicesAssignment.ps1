@@ -33,9 +33,9 @@ function Get-IntuneAllDevicesAssignment {
     foreach ($category in (Get-IntuneCategoryDefinition -Audience 'UserContext')) { $categoryById[$category.Id] = $category }
     foreach ($id in @('DeploymentProfiles', 'ESPProfiles')) { $categoryById[$id].BucketOnly = $false }
 
-    # Fetch order matches the pre-migration cmdlet (16 categories).
+    # Fetch order extends the pre-migration sequence with Imported Administrative Templates.
     $scanCategories = foreach ($id in @(
-            'DeviceConfigurations', 'SettingsCatalog', 'CompliancePolicies', 'AppProtectionPolicies',
+            'DeviceConfigurations', 'ImportedAdministrativeTemplates', 'SettingsCatalog', 'CompliancePolicies', 'AppProtectionPolicies',
             'AppConfigurationPolicies', 'Applications', 'PlatformScripts', 'HealthScripts',
             'DeploymentProfiles', 'ESPProfiles',
             'ESAntivirus', 'ESDiskEncryption', 'ESFirewall', 'ESEndpointDetection', 'ESAttackSurface', 'ESAccountProtection')) {
@@ -102,6 +102,7 @@ function Get-IntuneAllDevicesAssignment {
 
     $displaySpecs = @(
         @{ Bucket = 'DeviceConfigs'; Header = 'Device Configurations'; Empty = 'Device Configurations'; Line = { param($item) "Device Configuration Name: $(Get-NamePreferringName $item), Platform: $(Get-PolicyPlatform -Policy $item), Configuration ID: $($item.id)" } }
+        @{ Bucket = 'ImportedAdministrativeTemplates'; Header = 'Imported Administrative Templates'; Empty = 'Imported Administrative Templates'; Line = { param($item) "Imported Administrative Template Name: $($item.displayName), Policy ID: $($item.id)" } }
         @{ Bucket = 'SettingsCatalog'; Header = 'Settings Catalog Policies'; Empty = 'Settings Catalog Policies'; Line = { param($item) "Settings Catalog Policy Name: $(Get-NamePreferringName $item), Policy ID: $($item.id)" } }
         @{ Bucket = 'CompliancePolicies'; Header = 'Compliance Policies'; Empty = 'Compliance Policies'; Line = { param($item) "Compliance Policy Name: $(Get-NamePreferringName $item), Platform: $(Get-PolicyPlatform -Policy $item), Policy ID: $($item.id)" } }
         @{ Bucket = 'AppProtectionPolicies'; Header = 'App Protection Policies'; Empty = 'App Protection Policies'; Line = {
@@ -145,7 +146,7 @@ function Get-IntuneAllDevicesAssignment {
 
     # Export rows in the pre-migration CSV order (apps after scripts, Autopilot/ESP last).
     $exportCategories = foreach ($id in @(
-            'DeviceConfigurations', 'SettingsCatalog', 'CompliancePolicies', 'AppProtectionPolicies',
+            'DeviceConfigurations', 'ImportedAdministrativeTemplates', 'SettingsCatalog', 'CompliancePolicies', 'AppProtectionPolicies',
             'AppConfigurationPolicies', 'PlatformScripts', 'HealthScripts', 'Applications',
             'ESAntivirus', 'ESDiskEncryption', 'ESFirewall', 'ESEndpointDetection', 'ESAttackSurface', 'ESAccountProtection',
             'DeploymentProfiles', 'ESPProfiles')) {

@@ -16,7 +16,11 @@ function Add-CategoryExportData {
 
         # Passed through to Add-ExportData when provided (string or scriptblock).
         [Parameter(Mandatory = $false)]
-        [object]$AssignmentReason
+        [object]$AssignmentReason,
+
+        # Optional attribution columns added uniformly to every exported row.
+        [Parameter(Mandatory = $false)]
+        [System.Collections.IDictionary]$AdditionalProperties
     )
 
     # Categories may share a bucket (e.g. Compare's ShellScripts feed PlatformScripts);
@@ -46,6 +50,9 @@ function Add-CategoryExportData {
             }
             if ($PSBoundParameters.ContainsKey('AssignmentReason')) {
                 $addParams.AssignmentReason = $AssignmentReason
+            }
+            if ($PSBoundParameters.ContainsKey('AdditionalProperties')) {
+                $addParams.AdditionalProperties = $AdditionalProperties
             }
             Add-ExportData @addParams
         }

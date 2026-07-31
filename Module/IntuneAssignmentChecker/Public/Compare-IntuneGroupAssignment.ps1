@@ -132,15 +132,22 @@ function Compare-IntuneGroupAssignment {
         # Initialize variables
         $groupId = $null
         $groupName = $null
+        $resolvedGroupInfo = $null
+        $groupSelect = 'id,displayName,groupTypes,mailEnabled,securityEnabled,mail'
 
         # Check if input is a GUID
         if ($groupInput -match '^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$') {
             try {
                 # Get group info from Graph API
-                $groupUri = "$script:GraphEndpoint/v1.0/groups/$groupInput"
+                $groupUri = "$script:GraphEndpoint/v1.0/groups/$groupInput`?`$select=$groupSelect"
                 $groupResponse = Invoke-MgGraphRequest -Uri $groupUri -Method Get
-                $groupId = $groupResponse.id
-                $groupName = $groupResponse.displayName
+                $resolvedGroupInfo = ConvertTo-IntuneGroupInfo -Group $groupResponse
+                if (-not $resolvedGroupInfo.Success) {
+                    Write-Host "The group lookup for '$groupInput' returned an invalid response without an Object ID." -ForegroundColor Red
+                    continue
+                }
+                $groupId = $resolvedGroupInfo.Id
+                $groupName = $resolvedGroupInfo.DisplayName
                 $resolvedGroups[$groupId] = $groupName
                 Write-Host "Found group by ID: $groupName" -ForegroundColor Green
             }
@@ -152,7 +159,7 @@ function Compare-IntuneGroupAssignment {
         else {
             # Try to find group by display name (single quotes escaped for the OData filter)
             $escapedGroupName = $groupInput -replace "'", "''"
-            $groupUri = "$script:GraphEndpoint/v1.0/groups?`$filter=displayName eq '$escapedGroupName'"
+            $groupUri = "$script:GraphEndpoint/v1.0/groups?`$filter=displayName eq '$escapedGroupName'&`$select=$groupSelect"
             $groupResponse = Invoke-MgGraphRequest -Uri $groupUri -Method Get
 
             if ($groupResponse.value.Count -eq 0) {
@@ -162,16 +169,24 @@ function Compare-IntuneGroupAssignment {
             elseif ($groupResponse.value.Count -gt 1) {
                 Write-Host "Multiple groups found with name: $groupInput. Please use the Object ID instead:" -ForegroundColor Red
                 foreach ($group in $groupResponse.value) {
-                    Write-Host "  - $($group.displayName) (ID: $($group.id))" -ForegroundColor Yellow
+                    $candidateInfo = ConvertTo-IntuneGroupInfo -Group $group
+                    Write-Host "  - $($candidateInfo.DisplayName) (ID: $($candidateInfo.Id); Type: $($candidateInfo.GroupType); Membership: $($candidateInfo.MembershipType))" -ForegroundColor Yellow
                 }
                 continue
             }
 
-            $groupId = $groupResponse.value[0].id
-            $groupName = $groupResponse.value[0].displayName
+            $resolvedGroupInfo = ConvertTo-IntuneGroupInfo -Group $groupResponse.value[0]
+            if (-not $resolvedGroupInfo.Success) {
+                Write-Host "The group lookup for '$groupInput' returned an invalid response without an Object ID." -ForegroundColor Red
+                continue
+            }
+            $groupId = $resolvedGroupInfo.Id
+            $groupName = $resolvedGroupInfo.DisplayName
             $resolvedGroups[$groupId] = $groupName
             Write-Host "Found group by name: $groupName (ID: $groupId)" -ForegroundColor Green
         }
+
+        Write-Host "Group details: Type: $($resolvedGroupInfo.GroupType); Membership: $($resolvedGroupInfo.MembershipType)$(if ($resolvedGroupInfo.Mail) { "; Mail: $($resolvedGroupInfo.Mail)" })" -ForegroundColor Green
 
         # Build effective group IDs for nested group support (direct + transitive parents)
         $allGroupIds = @($groupId)
@@ -222,6 +237,7 @@ function Compare-IntuneGroupAssignment {
     # Update categories to include "Proactive Remediation Scripts"
     $categories = [ordered]@{
         "Device Configurations"               = "DeviceConfigs"
+        "Imported Administrative Templates"   = "ImportedAdministrativeTemplates"
         "Settings Catalog"                    = "SettingsCatalog"
         "Compliance Policies"                 = "CompliancePolicies"
         "Required Apps"                       = "RequiredApps"

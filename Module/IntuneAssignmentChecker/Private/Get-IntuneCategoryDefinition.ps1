@@ -52,15 +52,19 @@ function Get-IntuneCategoryDefinition {
     }
 
     $espEntityFilter = { $_.'@odata.type' -match 'EnrollmentCompletionPageConfiguration' }
-    $mobileAppsEntityFilter = { -not ($_.isFeatured -or $_.isBuiltIn) }
+    # Imported Administrative Templates are group policy configurations whose settings
+    # were ingested by an administrator. A mixed configuration contains both imported
+    # and built-in definitions and must remain visible as an imported template policy.
+    $importedAdministrativeTemplateFilter = { Test-ImportedAdministrativeTemplate -Policy $_ }
 
     $baseCategories = @{
         DeviceConfigurations        = @{ Id = 'DeviceConfigurations'; EntityType = 'deviceConfigurations'; BucketKeys = @('DeviceConfigs'); DisplayName = 'Device Configurations'; ExportCategory = 'Device Configuration' }
+        ImportedAdministrativeTemplates = @{ Id = 'ImportedAdministrativeTemplates'; EntityType = 'groupPolicyConfigurations'; EntityFilter = $importedAdministrativeTemplateFilter; BucketKeys = @('ImportedAdministrativeTemplates'); DisplayName = 'Imported Administrative Templates'; ExportCategory = 'Imported Administrative Template' }
         SettingsCatalog             = @{ Id = 'SettingsCatalog'; EntityType = 'configurationPolicies'; BucketKeys = @('SettingsCatalog'); DisplayName = 'Settings Catalog Policies'; ExportCategory = 'Settings Catalog Policy' }
         CompliancePolicies          = @{ Id = 'CompliancePolicies'; EntityType = 'deviceCompliancePolicies'; BucketKeys = @('CompliancePolicies'); DisplayName = 'Compliance Policies'; ExportCategory = 'Compliance Policy' }
         AppProtectionPolicies       = @{ Id = 'AppProtectionPolicies'; Kind = 'AppProtection'; EntityType = 'deviceAppManagement/managedAppPolicies'; BucketKeys = @('AppProtectionPolicies'); DisplayName = 'App Protection Policies'; ExportCategory = 'App Protection Policy' }
         AppConfigurationPolicies    = @{ Id = 'AppConfigurationPolicies'; EntityType = 'deviceAppManagement/mobileAppConfigurations'; AssignmentEntityType = 'mobileAppConfigurations'; BucketKeys = @('AppConfigurationPolicies'); DisplayName = 'App Configuration Policies'; ExportCategory = 'App Configuration Policy' }
-        Applications                = @{ Id = 'Applications'; Kind = 'MobileApps'; EntityType = 'deviceAppManagement/mobileApps'; EntityFilter = $mobileAppsEntityFilter; BucketKeys = @('AppsRequired', 'AppsAvailable', 'AppsUninstall'); BucketExportCategories = @{ AppsRequired = 'Required Apps'; AppsAvailable = 'Available Apps'; AppsUninstall = 'Uninstall Apps' }; DisplayName = 'Applications' }
+        Applications                = @{ Id = 'Applications'; Kind = 'MobileApps'; EntityType = 'deviceAppManagement/mobileApps'; BucketKeys = @('AppsRequired', 'AppsAvailable', 'AppsUninstall'); BucketExportCategories = @{ AppsRequired = 'Required Apps'; AppsAvailable = 'Available Apps'; AppsUninstall = 'Uninstall Apps' }; DisplayName = 'Applications' }
         PlatformScripts             = @{ Id = 'PlatformScripts'; EntityType = 'deviceManagementScripts'; BucketKeys = @('PlatformScripts'); DisplayName = 'Platform Scripts'; ExportCategory = 'Platform Scripts' }
         HealthScripts               = @{ Id = 'HealthScripts'; EntityType = 'deviceHealthScripts'; BucketKeys = @('HealthScripts'); DisplayName = 'Proactive Remediation Scripts'; ExportCategory = 'Proactive Remediation Scripts' }
         DeploymentProfiles          = @{ Id = 'DeploymentProfiles'; EntityType = 'windowsAutopilotDeploymentProfiles'; BucketKeys = @('DeploymentProfiles'); DisplayName = 'Autopilot Deployment Profiles'; ExportCategory = 'Autopilot Deployment Profile' }
@@ -104,9 +108,10 @@ function Get-IntuneCategoryDefinition {
 
     switch ($Audience) {
         'UserContext' {
-            # Order and display names from Get-IntuneUserAssignment.ps1 (16 progress steps).
+            # Order and display names from Get-IntuneUserAssignment.ps1 (17 progress steps).
             $categories = @(
                 & $use 'DeviceConfigurations'
+                & $use 'ImportedAdministrativeTemplates'
                 # UserContext applies no ES exclusion to Settings Catalog (Get-IntuneUserAssignment.ps1:125-133)
                 & $use 'SettingsCatalog'
                 & $use 'CompliancePolicies'
@@ -128,11 +133,12 @@ function Get-IntuneCategoryDefinition {
             return $categories
         }
         'DeviceContext' {
-            # Order and display names from Get-IntuneDeviceAssignment.ps1 (16 fetch steps).
+            # Order and display names from Get-IntuneDeviceAssignment.ps1 (17 fetch steps).
             # Autopilot/ESP are Windows-only conditional fetches there; the migrated cmdlet
             # decides whether to flip BucketOnly off for Windows devices.
             $categories = @(
                 & $use 'DeviceConfigurations'
+                & $use 'ImportedAdministrativeTemplates'
                 # DeviceContext applies no ES exclusion to Settings Catalog (Get-IntuneDeviceAssignment.ps1:171-180)
                 & $use 'SettingsCatalog'
                 & $use 'CompliancePolicies'
@@ -152,9 +158,10 @@ function Get-IntuneCategoryDefinition {
             return $categories
         }
         'GroupContext' {
-            # Order and display names from Get-IntuneGroupAssignment.ps1 (18 fetch steps).
+            # Order and display names from Get-IntuneGroupAssignment.ps1 (19 fetch steps).
             $categories = @(
                 & $use 'DeviceConfigurations'
+                & $use 'ImportedAdministrativeTemplates'
                 & $use 'SettingsCatalog' @{ EntityFilter = $groupSettingsCatalogFilter }
                 & $use 'CompliancePolicies'
                 & $use 'AppProtectionPolicies'
@@ -173,9 +180,10 @@ function Get-IntuneCategoryDefinition {
             return $categories
         }
         'AllPolicies' {
-            # Order and display names from Get-IntuneAllPolicies.ps1 (17 categories, no Applications).
+            # Order and display names from Get-IntuneAllPolicies.ps1 (18 categories, no Applications).
             $categories = @(
                 & $use 'DeviceConfigurations'
+                & $use 'ImportedAdministrativeTemplates'
                 # AllPolicies applies no ES exclusion to Settings Catalog (Get-IntuneAllPolicies.ps1:83-92)
                 & $use 'SettingsCatalog'
                 & $use 'CompliancePolicies'
@@ -192,11 +200,12 @@ function Get-IntuneCategoryDefinition {
             return $categories
         }
         'Search' {
-            # Order, display names and export labels from Search-IntunePolicy.ps1 (18 categories).
+            # Order, display names and export labels from Search-IntunePolicy.ps1 (19 categories).
             # All Search categories feed one flat SearchResults bucket (grouped rows at display time).
             $searchBucket = @{ BucketKeys = @('SearchResults'); BucketExportCategories = $null }
             $categories = @(
                 & $use 'DeviceConfigurations' $searchBucket
+                & $use 'ImportedAdministrativeTemplates' $searchBucket
                 & $use 'SettingsCatalog' ($searchBucket + @{ EntityFilter = $searchSettingsCatalogFilter; ExportCategory = 'Settings Catalog' })
                 & $use 'CompliancePolicies' $searchBucket
                 & $use 'AppProtectionPolicies' $searchBucket
@@ -215,11 +224,12 @@ function Get-IntuneCategoryDefinition {
             return $categories
         }
         'Compare' {
-            # Categories Compare-IntuneGroupAssignment.ps1 currently walks (13 fetch categories).
+            # Categories Compare-IntuneGroupAssignment.ps1 currently walks (14 fetch categories).
             # Compare currently checks intents only for ES; the shared EndpointSecurity kind adds
             # the configurationPolicies phase when Compare is migrated onto the engine.
             $categories = @(
                 & $use 'DeviceConfigurations' @{ ExportCategory = 'Device Configurations' }
+                & $use 'ImportedAdministrativeTemplates' @{ ExportCategory = 'Imported Administrative Templates' }
                 # Compare applies no ES exclusion to Settings Catalog (Compare-IntuneGroupAssignment.ps1:214-252)
                 & $use 'SettingsCatalog' @{ ExportCategory = 'Settings Catalog' }
                 & $use 'CompliancePolicies' @{ ExportCategory = 'Compliance Policies' }

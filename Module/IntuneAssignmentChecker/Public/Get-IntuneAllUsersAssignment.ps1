@@ -96,6 +96,11 @@ function Get-IntuneAllUsersAssignment {
         "Device Configuration Name: $configName, Platform: $platform, Configuration ID: $($config.id)"
     }
 
+    Show-AllUsersSection -Header "Imported Administrative Templates" -EmptyLabel "Imported Administrative Templates" -Items $allUsersAssignments.ImportedAdministrativeTemplates -Line {
+        param($policy)
+        "Imported Administrative Template Name: $($policy.displayName), Policy ID: $($policy.id)"
+    }
+
     Show-AllUsersSection -Header "Settings Catalog Policies" -EmptyLabel "Settings Catalog Policies" -Items $allUsersAssignments.SettingsCatalog -Line {
         param($policy)
         $policyName = if ([string]::IsNullOrWhiteSpace($policy.name)) { $policy.displayName } else { $policy.name }
@@ -175,7 +180,7 @@ function Get-IntuneAllUsersAssignment {
     # where the app buckets came after the script categories, so export in that order
     # rather than fetch order.
     $exportOrderIds = @(
-        'DeviceConfigurations', 'SettingsCatalog', 'CompliancePolicies', 'AppProtectionPolicies',
+        'DeviceConfigurations', 'ImportedAdministrativeTemplates', 'SettingsCatalog', 'CompliancePolicies', 'AppProtectionPolicies',
         'AppConfigurationPolicies', 'PlatformScripts', 'HealthScripts', 'Applications',
         'ESAntivirus', 'ESDiskEncryption', 'ESFirewall', 'ESEndpointDetection', 'ESAttackSurface',
         'ESAccountProtection', 'DeploymentProfiles', 'ESPProfiles'

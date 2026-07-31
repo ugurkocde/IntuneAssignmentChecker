@@ -39,7 +39,10 @@ function Get-IntuneDeviceAssignment {
 
     $categories = Get-IntuneCategoryDefinition -Audience 'DeviceContext'
     # Categories the legacy code fetched only for Windows (or unknown-OS) devices
-    $windowsOnlyCategoryIds = @('DeploymentProfiles', 'ESPProfiles', 'CloudPCProvisioningPolicies', 'CloudPCUserSettings')
+    $windowsOnlyCategoryIds = @('ImportedAdministrativeTemplates', 'DeploymentProfiles', 'ESPProfiles', 'CloudPCProvisioningPolicies', 'CloudPCUserSettings')
+    # These legacy categories retain their historical first-match assignment walk.
+    # Imported templates use standard exclusion precedence instead.
+    $firstMatchCategoryIds = @('DeploymentProfiles', 'ESPProfiles', 'CloudPCProvisioningPolicies', 'CloudPCUserSettings')
     # Shared across devices so each entity set is fetched from Graph once per run
     $entityCache = @{}
 
@@ -293,7 +296,7 @@ function Get-IntuneDeviceAssignment {
                 return
             }
 
-            if ($ctx.Category.Id -in $windowsOnlyCategoryIds) {
+            if ($ctx.Category.Id -in $firstMatchCategoryIds) {
                 # First-match walk with no platform filtering: All Devices or a member group
                 # assignment includes; a member group exclusion shows as "Excluded".
                 foreach ($assignment in $ctx.Assignments) {
@@ -345,6 +348,7 @@ function Get-IntuneDeviceAssignment {
 
         $displaySections = @(
             @{ Title = 'Device Configurations'; Bucket = 'DeviceConfigs'; GetName = $nameFirst }
+            @{ Title = 'Imported Administrative Templates'; Bucket = 'ImportedAdministrativeTemplates'; GetName = $displayNameFirst }
             @{ Title = 'Settings Catalog Policies'; Bucket = 'SettingsCatalog'; GetName = $nameFirst }
             @{ Title = 'Compliance Policies'; Bucket = 'CompliancePolicies'; GetName = $nameFirst }
             @{ Title = 'App Protection Policies'; Bucket = 'AppProtectionPolicies'; GetName = $displayNameOnly }
@@ -377,7 +381,7 @@ function Get-IntuneDeviceAssignment {
 
         $reasonProperty = { param($item) $item.AssignmentReason }
         $exportBatches = @(
-            @{ Ids = @('DeviceConfigurations', 'SettingsCatalog', 'CompliancePolicies'); Reason = $reasonProperty }
+            @{ Ids = @('DeviceConfigurations', 'ImportedAdministrativeTemplates', 'SettingsCatalog', 'CompliancePolicies'); Reason = $reasonProperty }
             # App Protection rows export the AssignmentSummary built above
             @{ Ids = @('AppProtectionPolicies'); Reason = { param($item) $item.AssignmentSummary } }
             @{ Ids = @('AppConfigurationPolicies', 'PlatformScripts', 'HealthScripts', 'DeploymentProfiles', 'ESPProfiles',

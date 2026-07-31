@@ -1,14 +1,20 @@
 function New-IntuneHTMLReport {
-    [CmdletBinding()]
+    [CmdletBinding(DefaultParameterSetName = 'CsvCompanion')]
     param (
         [Parameter()]
-        [string]$HTMLReportPath
+        [string]$HTMLReportPath,
+
+        [Parameter(ParameterSetName = 'CsvCompanion')]
+        [string]$CSVReportPath,
+
+        [Parameter(Mandatory, ParameterSetName = 'HtmlOnly')]
+        [switch]$NoCSVReport
     )
 
     Write-Host "Generating HTML Report..." -ForegroundColor Green
 
     # Dot-source html-export.ps1 shipped with the module
-    $htmlExportScript = Join-Path $PSScriptRoot '..' 'html-export.ps1'
+    $htmlExportScript = Join-Path -Path (Join-Path -Path $PSScriptRoot -ChildPath '..') -ChildPath 'html-export.ps1'
 
     try {
         . $htmlExportScript
@@ -16,8 +22,9 @@ function New-IntuneHTMLReport {
         $defaultFileName = "IntuneAssignmentReport.html"
 
         if ($HTMLReportPath) {
-            # Resolve to absolute path to avoid writing to CWD (e.g. System32 on Windows)
-            $HTMLReportPath = [System.IO.Path]::GetFullPath($HTMLReportPath)
+            # Resolve relative paths against PowerShell's current provider
+            # location. The .NET process directory does not follow Set-Location.
+            $HTMLReportPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($HTMLReportPath)
 
             if (Test-Path $HTMLReportPath -PathType Container) {
                 # Existing directory - append default filename
@@ -54,8 +61,17 @@ function New-IntuneHTMLReport {
             $filePath = Join-Path $defaultReportPath $defaultFileName
         }
 
-        Write-Host "Report will be saved to: $filePath" -ForegroundColor Cyan
-        Export-HTMLReport -FilePath $filePath
+        Write-Host "HTML report will be saved to: $filePath" -ForegroundColor Cyan
+        if ($NoCSVReport) {
+            Write-Host "CSV companion report disabled." -ForegroundColor Gray
+        }
+        elseif ($CSVReportPath) {
+            Write-Host "CSV report requested at: $CSVReportPath" -ForegroundColor Cyan
+        }
+        else {
+            Write-Host "CSV report will use the HTML report base path." -ForegroundColor Cyan
+        }
+        Export-HTMLReport -FilePath $filePath -CSVReportPath $CSVReportPath -SkipCSVReport:$NoCSVReport
     }
     catch {
         Write-Host "Error: Failed to generate the HTML report. $($_.Exception.Message)" -ForegroundColor Red

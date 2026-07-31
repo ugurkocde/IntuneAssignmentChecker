@@ -60,6 +60,7 @@ function Get-IntuneGroupAssignment {
         # Initialize variables
         $groupId = $null
         $groupName = $null
+        $resolvedGroupInfo = $null
 
         # Check if input is a GUID
         if ($groupInput -match '^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$') {
@@ -70,11 +71,13 @@ function Get-IntuneGroupAssignment {
             }
             $groupId = $groupInfo.Id
             $groupName = $groupInfo.DisplayName
+            $resolvedGroupInfo = $groupInfo
         }
         else {
             # Try to find group by display name (single quotes escaped for the OData filter)
             $escapedGroupName = $groupInput -replace "'", "''"
-            $groupUri = "$script:GraphEndpoint/v1.0/groups?`$filter=displayName eq '$escapedGroupName'"
+            $groupSelect = 'id,displayName,groupTypes,mailEnabled,securityEnabled,mail'
+            $groupUri = "$script:GraphEndpoint/v1.0/groups?`$filter=displayName eq '$escapedGroupName'&`$select=$groupSelect"
             $groupResponse = Invoke-MgGraphRequest -Uri $groupUri -Method Get
 
             if ($groupResponse.value.Count -eq 0) {
@@ -84,16 +87,27 @@ function Get-IntuneGroupAssignment {
             elseif ($groupResponse.value.Count -gt 1) {
                 Write-Host "Multiple groups found with name: $groupInput. Please use the Object ID instead:" -ForegroundColor Red
                 foreach ($group in $groupResponse.value) {
-                    Write-Host "  - $($group.displayName) (ID: $($group.id))" -ForegroundColor Yellow
+                    $candidateInfo = ConvertTo-IntuneGroupInfo -Group $group
+                    $candidateDetails = "ID: $($candidateInfo.Id); Type: $($candidateInfo.GroupType); Membership: $($candidateInfo.MembershipType)"
+                    if ($candidateInfo.Mail) { $candidateDetails += "; Mail: $($candidateInfo.Mail)" }
+                    Write-Host "  - $($candidateInfo.DisplayName) ($candidateDetails)" -ForegroundColor Yellow
                 }
                 continue
             }
 
-            $groupId = $groupResponse.value[0].id
-            $groupName = $groupResponse.value[0].displayName
+            $resolvedGroupInfo = ConvertTo-IntuneGroupInfo -Group $groupResponse.value[0]
+            if (-not $resolvedGroupInfo.Success) {
+                Write-Host "The group lookup for '$groupInput' returned an invalid response without an Object ID." -ForegroundColor Red
+                continue
+            }
+            $groupId = $resolvedGroupInfo.Id
+            $groupName = $resolvedGroupInfo.DisplayName
         }
 
         Write-Host "Found group: $groupName (ID: $groupId)" -ForegroundColor Green
+        $groupDetails = "Type: $($resolvedGroupInfo.GroupType); Membership: $($resolvedGroupInfo.MembershipType)"
+        if ($resolvedGroupInfo.Mail) { $groupDetails += "; Mail: $($resolvedGroupInfo.Mail)" }
+        Write-Host "Group details: $groupDetails" -ForegroundColor Green
 
         # Build effective group IDs list (direct + parent groups if nested checking enabled)
         $allGroupIds = @($groupId)
@@ -198,6 +212,7 @@ function Get-IntuneGroupAssignment {
 
         $displaySections = @(
             @{ Title = 'Device Configurations'; Bucket = 'DeviceConfigs'; GetName = $nameFirst }
+            @{ Title = 'Imported Administrative Templates'; Bucket = 'ImportedAdministrativeTemplates'; GetName = $displayNameFirst }
             @{ Title = 'Settings Catalog Policies'; Bucket = 'SettingsCatalog'; GetName = $nameFirst }
             @{ Title = 'Compliance Policies'; Bucket = 'CompliancePolicies'; GetName = $nameFirst }
             @{ Title = 'App Protection Policies'; Bucket = 'AppProtectionPolicies'; GetName = $displayNameOnly }
@@ -230,15 +245,22 @@ function Get-IntuneGroupAssignment {
 
         # Add to export data: the Group row first, then categories in the legacy CSV order
         # (Endpoint Security after the Windows 365 categories, the app buckets last).
+        $groupExportProperties = [ordered]@{
+            GroupId        = $groupId
+            GroupName      = $groupName
+            GroupType      = $resolvedGroupInfo.GroupType
+            MembershipType = $resolvedGroupInfo.MembershipType
+            GroupMail      = $resolvedGroupInfo.Mail
+        }
         Add-ExportData -ExportData $exportData -Category "Group" -Items @([PSCustomObject]@{
                 displayName      = $groupName
                 id               = $groupId
                 AssignmentReason = "N/A"
-            })
+            }) -AdditionalProperties $groupExportProperties
 
         $reasonProperty = { param($item) $item.AssignmentReason }
         $exportBatches = @(
-            @{ Ids = @('DeviceConfigurations', 'SettingsCatalog', 'CompliancePolicies'); Reason = $reasonProperty }
+            @{ Ids = @('DeviceConfigurations', 'ImportedAdministrativeTemplates', 'SettingsCatalog', 'CompliancePolicies'); Reason = $reasonProperty }
             # Historical quirk preserved: App Protection rows export AssignmentSummary,
             # a property this cmdlet never sets, so their AssignmentReason column stays empty.
             @{ Ids = @('AppProtectionPolicies'); Reason = { param($item) $item.AssignmentSummary } }
@@ -248,7 +270,7 @@ function Get-IntuneGroupAssignment {
         )
         foreach ($batch in $exportBatches) {
             $batchCategories = foreach ($id in $batch.Ids) { $categories | Where-Object { $_.Id -eq $id } }
-            Add-CategoryExportData -ExportData $exportData -Categories $batchCategories -Buckets $relevantPolicies -AssignmentReason $batch.Reason
+            Add-CategoryExportData -ExportData $exportData -Categories $batchCategories -Buckets $relevantPolicies -AssignmentReason $batch.Reason -AdditionalProperties $groupExportProperties
         }
     }
 

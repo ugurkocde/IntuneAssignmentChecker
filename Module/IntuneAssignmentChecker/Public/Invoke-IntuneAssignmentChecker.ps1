@@ -58,6 +58,12 @@ function Invoke-IntuneAssignmentChecker {
         [Parameter(Mandatory = $false, HelpMessage = "Path for the exported HTML report file")]
         [string]$HTMLReportPath,
 
+        [Parameter(Mandatory = $false, HelpMessage = "Path for the CSV companion to the HTML report")]
+        [string]$CSVReportPath,
+
+        [Parameter(Mandatory = $false, HelpMessage = "Generate only the HTML report without its CSV companion")]
+        [switch]$NoCSVReport,
+
         [Parameter(Mandatory = $false, HelpMessage = "Show policies and apps without assignments")]
         [switch]$ShowPoliciesWithoutAssignments,
 
@@ -114,6 +120,12 @@ function Invoke-IntuneAssignmentChecker {
         [string]$ScopeTagFilter
     )
 
+    # Reject contradictory report output options before authentication or any
+    # other work. New-IntuneHTMLReport enforces the same rule via parameter sets.
+    if ($NoCSVReport -and $CSVReportPath) {
+        throw "-NoCSVReport cannot be combined with -CSVReportPath."
+    }
+
     # ── Determine parameter mode ──────────────────────────────────────────
     $parameterMode  = $false
     $selectedOption = $null
@@ -135,8 +147,8 @@ function Invoke-IntuneAssignmentChecker {
     elseif ($SearchSetting)            { $parameterMode = $true; $selectedOption = '15' }
     elseif ($CheckUserAndDevice)       { $parameterMode = $true; $selectedOption = '16' }
 
-    # HTMLReportPath implies GenerateHTMLReport
-    if (-not $parameterMode -and $HTMLReportPath) {
+    # Any report output option implies GenerateHTMLReport.
+    if (-not $parameterMode -and ($HTMLReportPath -or $CSVReportPath -or $NoCSVReport)) {
         $parameterMode  = $true
         $selectedOption = '7'
     }
@@ -211,8 +223,11 @@ function Invoke-IntuneAssignmentChecker {
                     -ScopeTagFilter $ScopeTagFilter
             }
             '7' {
-                New-IntuneHTMLReport `
-                    -HTMLReportPath $HTMLReportPath
+                $reportParams = @{}
+                if ($HTMLReportPath) { $reportParams['HTMLReportPath'] = $HTMLReportPath }
+                if ($CSVReportPath)  { $reportParams['CSVReportPath'] = $CSVReportPath }
+                if ($NoCSVReport)    { $reportParams['NoCSVReport'] = $true }
+                New-IntuneHTMLReport @reportParams
             }
             '8' {
                 Get-IntuneUnassignedPolicy `

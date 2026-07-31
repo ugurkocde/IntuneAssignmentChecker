@@ -32,6 +32,7 @@ function Get-IntuneEmptyGroup {
     # Initialize collections for policies with empty group assignments
     $emptyGroupAssignments = @{
         DeviceConfigs             = @()
+        ImportedAdministrativeTemplates = @()
         SettingsCatalog           = @()
         CompliancePolicies        = @()
         AppProtectionPolicies     = @()
@@ -57,6 +58,24 @@ function Get-IntuneEmptyGroup {
                 if ($groupInfo.Success -and (Test-EmptyGroup -GroupId $assignment.GroupId)) {
                     $config | Add-Member -NotePropertyName 'EmptyGroupInfo' -NotePropertyValue "Assigned to empty group: $($groupInfo.DisplayName)" -Force
                     $emptyGroupAssignments.DeviceConfigs += $config
+                    break
+                }
+            }
+        }
+    }
+
+    # Get Imported Administrative Templates
+    Write-Host "Fetching Imported Administrative Templates..." -ForegroundColor Yellow
+    $importedTemplates = Get-IntuneEntities -EntityType "groupPolicyConfigurations" |
+        Where-Object { Test-ImportedAdministrativeTemplate -Policy $_ }
+    foreach ($policy in $importedTemplates) {
+        $assignments = Get-IntuneAssignments -EntityType "groupPolicyConfigurations" -EntityId $policy.id
+        foreach ($assignment in $assignments) {
+            if ($assignment.Reason -eq "Group Assignment" -and $assignment.GroupId) {
+                $groupInfo = Get-GroupInfo -GroupId $assignment.GroupId
+                if ($groupInfo.Success -and (Test-EmptyGroup -GroupId $assignment.GroupId)) {
+                    $policy | Add-Member -NotePropertyName 'EmptyGroupInfo' -NotePropertyValue "Assigned to empty group: $($groupInfo.DisplayName)" -Force
+                    $emptyGroupAssignments.ImportedAdministrativeTemplates += $policy
                     break
                 }
             }
@@ -214,6 +233,21 @@ function Get-IntuneEmptyGroup {
             Write-Host "$($config.EmptyGroupInfo)" -ForegroundColor Yellow
             Write-Host ""
             Add-ExportData -ExportData $exportData -Category "Device Configuration" -Items @($config) -AssignmentReason $config.EmptyGroupInfo
+        }
+    }
+
+    # Display Imported Administrative Templates
+    Write-Host "`n------- Imported Administrative Templates -------" -ForegroundColor Cyan
+    if ($emptyGroupAssignments.ImportedAdministrativeTemplates.Count -eq 0) {
+        Write-Host "No Imported Administrative Templates assigned to empty groups" -ForegroundColor Gray
+    }
+    else {
+        foreach ($policy in $emptyGroupAssignments.ImportedAdministrativeTemplates) {
+            Write-Host "Imported Administrative Template Name: $($policy.displayName)" -ForegroundColor White
+            Write-Host "Policy ID: $($policy.id)" -ForegroundColor Gray
+            Write-Host "$($policy.EmptyGroupInfo)" -ForegroundColor Yellow
+            Write-Host ""
+            Add-ExportData -ExportData $exportData -Category "Imported Administrative Template" -Items @($policy) -AssignmentReason $policy.EmptyGroupInfo
         }
     }
 

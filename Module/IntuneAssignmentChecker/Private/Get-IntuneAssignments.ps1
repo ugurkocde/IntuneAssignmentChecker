@@ -52,6 +52,10 @@ function Get-IntuneAssignments {
         # Example: virtualEndpoint/provisioningPolicies or virtualEndpoint/userSettings
         $actualAssignmentsUri = "$script:GraphEndpoint/beta/deviceManagement/$EntityType/$EntityId/assignments"
     }
+    elseif ($EntityType -eq "groupPolicyConfigurations") {
+        # Imported Administrative Templates use the documented resource-path form.
+        $actualAssignmentsUri = "$script:GraphEndpoint/beta/deviceManagement/groupPolicyConfigurations/$EntityId/assignments"
+    }
     else {
         # General device management entities
         $actualAssignmentsUri = "$script:GraphEndpoint/beta/deviceManagement/$EntityType('$EntityId')/assignments"
