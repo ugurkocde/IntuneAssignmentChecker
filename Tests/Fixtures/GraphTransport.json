@@ -1,0 +1,53 @@
+{
+  "pages": {
+    "first": {
+      "@odata.context": "https://graph.test/beta/$metadata#groups",
+      "value": [
+        {
+          "id": "group-1",
+          "displayName": "First Group"
+        }
+      ],
+      "@odata.nextLink": "https://graph.test/beta/groups?$skiptoken=fixture-page-2"
+    },
+    "second": {
+      "value": [
+        {
+          "id": "group-2",
+          "displayName": "Second Group"
+        }
+      ]
+    }
+  },
+  "errors": {
+    "badRequest": {
+      "statusCode": 400,
+      "code": "BadRequest",
+      "message": "The request is not valid.",
+      "requestId": "request-400",
+      "clientRequestId": "client-400"
+    },
+    "forbidden": {
+      "statusCode": 403,
+      "code": "Authorization_RequestDenied",
+      "message": "Insufficient privileges to complete the operation.",
+      "requestId": "request-403",
+      "clientRequestId": "client-403"
+    },
+    "throttled": {
+      "statusCode": 429,
+      "code": "TooManyRequests",
+      "message": "Too many requests.",
+      "requestId": "request-429",
+      "clientRequestId": "client-429",
+      "retryAfter": 7
+    },
+    "serviceUnavailable": {
+      "statusCode": 503,
+      "code": "ServiceUnavailable",
+      "message": "The service is temporarily unavailable.",
+      "requestId": "request-503",
+      "clientRequestId": "client-503"
+    }
+  }
+}

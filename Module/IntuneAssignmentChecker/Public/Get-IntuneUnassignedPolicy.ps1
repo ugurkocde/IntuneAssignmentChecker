@@ -1,5 +1,6 @@
 function Get-IntuneUnassignedPolicy {
     [CmdletBinding()]
+    [OutputType('IntuneAssignmentChecker.AssignmentRecord')]
     param (
         [Parameter()]
         [switch]$ExportToCSV,
@@ -8,7 +9,10 @@ function Get-IntuneUnassignedPolicy {
         [string]$ExportPath,
 
         [Parameter()]
-        [string]$ScopeTagFilter
+        [string]$ScopeTagFilter,
+
+        [Parameter()]
+        [switch]$PassThru
     )
 
     Write-Host "Fetching policies without assignments..." -ForegroundColor Green
@@ -24,6 +28,16 @@ function Get-IntuneUnassignedPolicy {
         AppConfigurationPolicies = @()
         PlatformScripts          = @()
         HealthScripts            = @()
+        AntivirusProfiles        = @()
+        DiskEncryptionProfiles   = @()
+        FirewallProfiles         = @()
+        EndpointDetectionProfiles = @()
+        AttackSurfaceProfiles    = @()
+        AccountProtectionProfiles = @()
+        WindowsFeatureUpdates     = @()
+        WindowsQualityUpdates     = @()
+        WindowsDriverUpdates      = @()
+        WindowsQualityUpdatePolicies = @()
         Apps                     = @()
     }
 
@@ -77,7 +91,7 @@ function Get-IntuneUnassignedPolicy {
 
         if ($assignmentsUri) {
             try {
-                $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
+                $assignmentResponse = Invoke-IACGraphRequest -Uri $assignmentsUri -Method Get
                 if ($assignmentResponse.value.Count -eq 0) {
                     $unassignedPolicies.AppProtectionPolicies += $policy
                 }
@@ -126,7 +140,7 @@ function Get-IntuneUnassignedPolicy {
     if ($antivirusPolicies) {
         foreach ($policy in $antivirusPolicies) {
             try {
-                $assignments = Invoke-MgGraphRequest -Uri "$script:GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
+                $assignments = Invoke-IACGraphRequest -Uri "$script:GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
                 if ($assignments.value.Count -eq 0) {
                     $unassignedPolicies.AntivirusProfiles += $policy
                 }
@@ -146,7 +160,7 @@ function Get-IntuneUnassignedPolicy {
     if ($diskEncryptionPolicies) {
         foreach ($policy in $diskEncryptionPolicies) {
             try {
-                $assignments = Invoke-MgGraphRequest -Uri "$script:GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
+                $assignments = Invoke-IACGraphRequest -Uri "$script:GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
                 if ($assignments.value.Count -eq 0) {
                     $unassignedPolicies.DiskEncryptionProfiles += $policy
                 }
@@ -166,7 +180,7 @@ function Get-IntuneUnassignedPolicy {
     if ($firewallPolicies) {
         foreach ($policy in $firewallPolicies) {
             try {
-                $assignments = Invoke-MgGraphRequest -Uri "$script:GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
+                $assignments = Invoke-IACGraphRequest -Uri "$script:GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
                 if ($assignments.value.Count -eq 0) {
                     $unassignedPolicies.FirewallProfiles += $policy
                 }
@@ -186,7 +200,7 @@ function Get-IntuneUnassignedPolicy {
     if ($edrPolicies) {
         foreach ($policy in $edrPolicies) {
             try {
-                $assignments = Invoke-MgGraphRequest -Uri "$script:GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
+                $assignments = Invoke-IACGraphRequest -Uri "$script:GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
                 if ($assignments.value.Count -eq 0) {
                     $unassignedPolicies.EndpointDetectionProfiles += $policy
                 }
@@ -206,7 +220,7 @@ function Get-IntuneUnassignedPolicy {
     if ($asrPolicies) {
         foreach ($policy in $asrPolicies) {
             try {
-                $assignments = Invoke-MgGraphRequest -Uri "$script:GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
+                $assignments = Invoke-IACGraphRequest -Uri "$script:GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
                 if ($assignments.value.Count -eq 0) {
                     $unassignedPolicies.AttackSurfaceProfiles += $policy
                 }
@@ -226,7 +240,7 @@ function Get-IntuneUnassignedPolicy {
     if ($accountProtectionPolicies) {
         foreach ($policy in $accountProtectionPolicies) {
             try {
-                $assignments = Invoke-MgGraphRequest -Uri "$script:GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
+                $assignments = Invoke-IACGraphRequest -Uri "$script:GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
                 if ($assignments.value.Count -eq 0) {
                     $unassignedPolicies.AccountProtectionProfiles += $policy
                 }
@@ -238,17 +252,28 @@ function Get-IntuneUnassignedPolicy {
         }
     }
 
+    # Get Windows Update policies. These optional beta workloads quietly return
+    # no entities when the tenant does not expose the corresponding feature.
+    foreach ($updateSpec in @(
+            @{ EntityType = 'windowsFeatureUpdateProfiles'; Bucket = 'WindowsFeatureUpdates'; Name = 'Windows Feature Update Profiles' }
+            @{ EntityType = 'windowsQualityUpdateProfiles'; Bucket = 'WindowsQualityUpdates'; Name = 'Windows Quality Update Profiles' }
+            @{ EntityType = 'windowsDriverUpdateProfiles'; Bucket = 'WindowsDriverUpdates'; Name = 'Windows Driver Update Profiles' }
+            @{ EntityType = 'windowsQualityUpdatePolicies'; Bucket = 'WindowsQualityUpdatePolicies'; Name = 'Windows Quality Update Policies' }
+        )) {
+        Write-Host "Fetching $($updateSpec.Name)..." -ForegroundColor Yellow
+        foreach ($policy in @(Get-IntuneEntities -EntityType $updateSpec.EntityType -Quiet)) {
+            $assignments = @(Get-IntuneAssignments -EntityType $updateSpec.EntityType -EntityId $policy.id)
+            if ($assignments.Count -eq 0) { $unassignedPolicies[$updateSpec.Bucket] += $policy }
+        }
+    }
+
     # Get Unassigned Apps
     Write-Host "Fetching Unassigned Apps..." -ForegroundColor Yellow
     $unassignedAppUri = "$script:GraphEndpoint/beta/deviceAppManagement/mobileApps?`$filter=isAssigned eq false&`$select=id,displayName,roleScopeTagIds"
     $unassignedApps = [System.Collections.Generic.List[object]]::new()
     try {
-        $unassignedAppResponse = Invoke-MgGraphRequest -Uri $unassignedAppUri -Method Get
-        if ($unassignedAppResponse.value) { $unassignedApps.AddRange([object[]]$unassignedAppResponse.value) }
-        while ($unassignedAppResponse.'@odata.nextLink') {
-            $unassignedAppResponse = Invoke-MgGraphRequest -Uri $unassignedAppResponse.'@odata.nextLink' -Method Get
-            if ($unassignedAppResponse.value) { $unassignedApps.AddRange([object[]]$unassignedAppResponse.value) }
-        }
+        $pagedApps = @((Invoke-IACGraphRequest -Uri $unassignedAppUri -Method Get).value)
+        if ($pagedApps.Count -gt 0) { $unassignedApps.AddRange([object[]]$pagedApps) }
     }
     catch {
         Write-Host "Error fetching unassigned applications: $($_.Exception.Message)" -ForegroundColor Red
@@ -377,6 +402,27 @@ function Get-IntuneUnassignedPolicy {
         }
     }
 
+    # Display Windows Update workloads
+    foreach ($updateSpec in @(
+            @{ Bucket = 'WindowsFeatureUpdates'; Header = 'Windows Feature Update Profiles'; Category = 'Windows Feature Update Profile' }
+            @{ Bucket = 'WindowsQualityUpdates'; Header = 'Windows Quality Update Profiles'; Category = 'Windows Quality Update Profile' }
+            @{ Bucket = 'WindowsDriverUpdates'; Header = 'Windows Driver Update Profiles'; Category = 'Windows Driver Update Profile' }
+            @{ Bucket = 'WindowsQualityUpdatePolicies'; Header = 'Windows Quality Update Policies'; Category = 'Windows Quality Update Policy' }
+        )) {
+        Write-Host "`n------- $($updateSpec.Header) -------" -ForegroundColor Cyan
+        $items = @($unassignedPolicies[$updateSpec.Bucket])
+        if ($items.Count -eq 0) {
+            Write-Host "No unassigned $($updateSpec.Header) found" -ForegroundColor Gray
+        }
+        else {
+            foreach ($item in $items) {
+                $name = if ($item.displayName) { $item.displayName } else { $item.name }
+                Write-Host "$($updateSpec.Category) Name: $name, ID: $($item.id)" -ForegroundColor White
+                Add-ExportData -ExportData $exportData -Category $updateSpec.Category -Items @($item) -AssignmentReason 'No Assignment'
+            }
+        }
+    }
+
     # Display Endpoint Security - Antivirus Profiles
     Write-Host "`n------- Endpoint Security - Antivirus Profiles -------" -ForegroundColor Cyan
     if ($unassignedPolicies.AntivirusProfiles.Count -eq 0) {
@@ -463,5 +509,42 @@ function Get-IntuneUnassignedPolicy {
     }
 
     # Export results if requested
-    Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneUnassignedPolicies.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath -ExportToCSV:$ExportToCSV -ParameterMode:$parameterMode
+    Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneUnassignedPolicies.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath -ExportToCSV:$ExportToCSV -ParameterMode:($parameterMode -or $PassThru)
+    if ($PassThru) {
+        $categoryMap = [ordered]@{
+            DeviceConfigs = @('DeviceConfigurations', 'Device Configuration')
+            ImportedAdministrativeTemplates = @('ImportedAdministrativeTemplates', 'Imported Administrative Template')
+            SettingsCatalog = @('SettingsCatalog', 'Settings Catalog Policy')
+            CompliancePolicies = @('CompliancePolicies', 'Compliance Policy')
+            AppProtectionPolicies = @('AppProtectionPolicies', 'App Protection Policy')
+            AppConfigurationPolicies = @('AppConfigurationPolicies', 'App Configuration Policy')
+            PlatformScripts = @('PlatformScripts', 'Platform Scripts')
+            HealthScripts = @('HealthScripts', 'Proactive Remediation Scripts')
+            AntivirusProfiles = @('ESAntivirus', 'Endpoint Security - Antivirus')
+            DiskEncryptionProfiles = @('ESDiskEncryption', 'Endpoint Security - Disk Encryption')
+            FirewallProfiles = @('ESFirewall', 'Endpoint Security - Firewall')
+            EndpointDetectionProfiles = @('ESEndpointDetection', 'Endpoint Security - EDR')
+            AttackSurfaceProfiles = @('ESAttackSurface', 'Endpoint Security - ASR')
+            AccountProtectionProfiles = @('ESAccountProtection', 'Endpoint Security - Account Protection')
+            WindowsFeatureUpdates = @('WindowsFeatureUpdates', 'Windows Feature Update Profile', 'Windows')
+            WindowsQualityUpdates = @('WindowsQualityUpdates', 'Windows Quality Update Profile', 'Windows')
+            WindowsDriverUpdates = @('WindowsDriverUpdates', 'Windows Driver Update Profile', 'Windows')
+            WindowsQualityUpdatePolicies = @('WindowsQualityUpdatePolicies', 'Windows Quality Update Policy', 'Windows')
+            Apps = @('Applications', 'Application')
+        }
+        foreach ($bucketName in $categoryMap.Keys) {
+            foreach ($entity in @($unassignedPolicies[$bucketName])) {
+                $scopeTagIds = @($entity.roleScopeTagIds | ForEach-Object { "$_" })
+                $scopeTags = if ($scopeTagIds.Count -eq 0) { @('Default') }
+                    elseif ($script:ScopeTagLookup) { @((Get-ScopeTagNames -ScopeTagIds $scopeTagIds -ScopeTagLookup $script:ScopeTagLookup) -split ', ') }
+                    else { @($scopeTagIds | ForEach-Object { "Tag:$_" }) }
+                $policyName = if ($entity.displayName) { $entity.displayName } elseif ($entity.name) { $entity.name } else { 'Unnamed Policy' }
+                $platform = if ($categoryMap[$bucketName].Count -gt 2) { $categoryMap[$bucketName][2] } else { Get-PolicyPlatform -Policy $entity }
+                New-IACAssignmentRecord -CategoryId $categoryMap[$bucketName][0] -Category $categoryMap[$bucketName][1] `
+                    -PolicyId "$($entity.id)" -PolicyName $policyName -Platform $platform `
+                    -ScopeTagIds $scopeTagIds -ScopeTags $scopeTags -AssignmentMode None -TargetType None `
+                    -SubjectType Tenant -SubjectName Unassigned -AssignmentReason 'No Assignment' -Source 'Get-IntuneUnassignedPolicy'
+            }
+        }
+    }
 }

@@ -109,8 +109,8 @@ function Test-IntuneGroupMembership {
         # Single quotes escaped for the OData filter (F9)
         $escapedSimGroupName = $simGroupInput -replace "'", "''"
         $simGroupSelect = 'id,displayName,groupTypes,mailEnabled,securityEnabled,mail'
-        $simGroupUri = "$script:GraphEndpoint/v1.0/groups?`$filter=displayName eq '$escapedSimGroupName'&`$select=$simGroupSelect"
-        $simGroupResponse = Invoke-MgGraphRequest -Uri $simGroupUri -Method Get
+        $simGroupUri = "$script:GraphEndpoint/beta/groups?`$filter=displayName eq '$escapedSimGroupName'&`$select=$simGroupSelect"
+        $simGroupResponse = Invoke-IACGraphRequest -Uri $simGroupUri -Method Get
 
         if ($simGroupResponse.value.Count -eq 0) {
             Write-Host "No group found with name: $simGroupInput" -ForegroundColor Red
@@ -179,6 +179,7 @@ function Test-IntuneGroupMembership {
         @('DeviceConfigurations', 'ImportedAdministrativeTemplates', 'SettingsCatalog', 'CompliancePolicies', 'AppProtectionPolicies', 'AppConfigurationPolicies',
             'Applications', 'PlatformScripts', 'HealthScripts', 'ESAntivirus', 'ESDiskEncryption', 'ESFirewall',
             'ESEndpointDetection', 'ESAttackSurface', 'ESAccountProtection', 'DeploymentProfiles', 'ESPProfiles',
+            'WindowsFeatureUpdates', 'WindowsQualityUpdates', 'WindowsDriverUpdates', 'WindowsQualityUpdatePolicies',
             'CloudPCProvisioningPolicies', 'CloudPCUserSettings') | ForEach-Object { $categoriesById[$_] })
 
     # Legacy conflict-row category labels: registry export labels except these five

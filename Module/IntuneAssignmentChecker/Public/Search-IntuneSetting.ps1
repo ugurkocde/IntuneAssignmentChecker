@@ -157,21 +157,15 @@ function Search-IntuneSetting {
 
     $allPolicies = [System.Collections.ArrayList]::new()
     $policyUri = "$($script:GraphEndpoint)/beta/deviceManagement/configurationPolicies?`$select=id,name,description,templateReference"
-    do {
-        try {
-            $policyResponse = Invoke-MgGraphRequest -Uri $policyUri -Method Get
-            if ($policyResponse.value) {
-                foreach ($p in $policyResponse.value) {
-                    $null = $allPolicies.Add($p)
-                }
-            }
-            $policyUri = $policyResponse.'@odata.nextLink'
+    try {
+        foreach ($policy in @((Invoke-IACGraphRequest -Uri $policyUri -Method Get).value)) {
+            $null = $allPolicies.Add($policy)
         }
-        catch {
-            Write-Host "Error fetching policies: $($_.Exception.Message)" -ForegroundColor Red
-            return
-        }
-    } while (![string]::IsNullOrEmpty($policyUri))
+    }
+    catch {
+        Write-Host "Error fetching policies: $($_.Exception.Message)" -ForegroundColor Red
+        return
+    }
 
     Write-Host "Found $($allPolicies.Count) configuration policies. Scanning settings..." -ForegroundColor Gray
 
@@ -192,9 +186,9 @@ function Search-IntuneSetting {
 
         $settingsUri = "$($script:GraphEndpoint)/beta/deviceManagement/configurationPolicies('$($policy.id)')/settings"
         try {
-            $settingsResponse = Invoke-MgGraphRequest -Uri $settingsUri -Method Get
-            if ($settingsResponse.value) {
-                foreach ($setting in $settingsResponse.value) {
+            $settings = @((Invoke-IACGraphRequest -Uri $settingsUri -Method Get).value)
+            if ($settings.Count -gt 0) {
+                foreach ($setting in $settings) {
                     $instance = $setting.settingInstance
                     if ($null -eq $instance) { continue }
 

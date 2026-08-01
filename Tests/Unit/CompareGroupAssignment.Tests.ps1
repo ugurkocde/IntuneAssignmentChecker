@@ -8,6 +8,12 @@ BeforeAll {
     . (Join-Path $modulePrivate 'ConvertTo-IntuneGroupInfo.ps1')
     . (Join-Path $modulePrivate 'Test-ImportedAdministrativeTemplate.ps1')
     . (Join-Path $modulePrivate 'Get-IntuneCategoryDefinition.ps1')
+    . (Join-Path $modulePrivate 'Get-PolicyPlatform.ps1')
+    . (Join-Path $modulePrivate 'Get-ScopeTagNames.ps1')
+    . (Join-Path $modulePrivate 'New-IACAssignmentRecord.ps1')
+    . (Join-Path $modulePrivate 'ConvertTo-IACAssignmentRecord.ps1')
+    . (Join-Path $modulePrivate 'ConvertTo-IACNormalizedAssignment.ps1')
+    . (Join-Path $modulePrivate 'Get-IACNoAssignmentPlaceholder.ps1')
     . (Join-Path $modulePrivate 'Invoke-IntuneCategoryScan.ps1')
     . (Join-Path $modulePrivate 'Format-AssignmentFilter.ps1')
     . (Join-Path $moduleRoot 'Public/Compare-IntuneGroupAssignment.ps1')
@@ -17,7 +23,7 @@ BeforeAll {
 
     # Stub collaborators so Pester can mock them per test
     function Get-IntuneEntities {
-        param([string]$EntityType, [string]$Filter, [string]$Select, [string]$Expand)
+        param([string]$EntityType, [string]$Filter, [string]$Select, [string]$Expand, [switch]$Quiet)
         @()
     }
     function Get-IntuneAssignments {
@@ -27,7 +33,7 @@ BeforeAll {
     function Add-IntentTemplateFamilyInfo {
         param($IntentPolicies)
     }
-    function Invoke-MgGraphRequest {
+    function Invoke-IACGraphRequest {
         param($Uri, $Method)
         @{ value = @() }
     }
@@ -87,6 +93,9 @@ Describe 'Compare-IntuneGroupAssignment' {
                         [PSCustomObject]@{ id = 'intent-av'; displayName = 'AV Intent Policy'; templateId = 'tmpl-av'; templateReference = [PSCustomObject]@{ templateFamily = 'endpointSecurityAntivirus' } }
                     )
                 }
+                'windowsFeatureUpdateProfiles' {
+                    @([PSCustomObject]@{ id = 'feature-1'; displayName = 'Windows 11 24H2'; roleScopeTagIds = @('0') })
+                }
                 default { @() }
             }
         }
@@ -108,23 +117,24 @@ Describe 'Compare-IntuneGroupAssignment' {
                 'ps-2' { @([PSCustomObject]@{ Reason = 'Direct Exclusion'; GroupId = $script:groupA; FilterId = $null; FilterType = $null }) }
                 'hs-1' { @([PSCustomObject]@{ Reason = 'Direct Assignment'; GroupId = $script:groupA; FilterId = $null; FilterType = $null }) }
                 'hs-2' { @([PSCustomObject]@{ Reason = 'Direct Exclusion'; GroupId = $script:groupA; FilterId = $null; FilterType = $null }) }
+                'feature-1' { @([PSCustomObject]@{ Reason = 'Direct Assignment'; GroupId = $script:groupA; FilterId = $null; FilterType = $null }) }
                 default { @() }
             }
             # Mirror the real helper: only assignments targeting the requested group ids
             @($records | Where-Object { $GroupIds -contains $_.GroupId })
         }
 
-        Mock Invoke-MgGraphRequest {
-            if ($Uri -like "*/v1.0/groups*displayName eq*") {
+        Mock Invoke-IACGraphRequest {
+            if ($Uri -like "*/beta/groups*displayName eq*") {
                 if ($Uri -like "*O''Brien Team*") {
                     return @{ value = @(@{ id = $script:groupB; displayName = "O'Brien Team" }) }
                 }
                 return @{ value = @() }
             }
-            if ($Uri -like "*/v1.0/groups/$($script:groupA)*") {
+            if ($Uri -like "*/beta/groups/$($script:groupA)*") {
                 return @{ id = $script:groupA; displayName = 'Group A'; groupTypes = @(); mailEnabled = $false; securityEnabled = $true }
             }
-            if ($Uri -like "*/v1.0/groups/$($script:groupB)*") {
+            if ($Uri -like "*/beta/groups/$($script:groupB)*") {
                 return @{ id = $script:groupB; displayName = 'Group B'; groupTypes = @('Unified'); mailEnabled = $true; securityEnabled = $false; mail = 'groupb@contoso.com' }
             }
             if ($Uri -like '*mobileApps*isAssigned eq true*') {
@@ -182,13 +192,13 @@ Describe 'Compare-IntuneGroupAssignment' {
         It 'escapes single quotes in group name lookups' {
             Compare-IntuneGroupAssignment -CompareGroupNames "O'Brien Team, $($script:groupA)" -ExportToCSV -ExportPath $script:csvPath
 
-            Should -Invoke Invoke-MgGraphRequest -ParameterFilter { $Uri -like "*displayName eq 'O''Brien Team'*" }
+            Should -Invoke Invoke-IACGraphRequest -ParameterFilter { $Uri -like "*displayName eq 'O''Brien Team'*" }
         }
 
         It 'skips a GUID lookup response that omits the group Object ID' {
-            Mock Invoke-MgGraphRequest {
+            Mock Invoke-IACGraphRequest {
                 @{ displayName = 'Incomplete Group'; groupTypes = @('Unified'); mailEnabled = $true }
-            } -ParameterFilter { $Uri -like "*/v1.0/groups/$($script:groupA)*" }
+            } -ParameterFilter { $Uri -like "*/beta/groups/$($script:groupA)*" }
 
             Compare-IntuneGroupAssignment -CompareGroupNames "$($script:groupA), $($script:groupB)" -ExportToCSV -ExportPath $script:csvPath
 
@@ -283,6 +293,13 @@ Describe 'Compare-IntuneGroupAssignment' {
             $cpRows[0].'Group A' | Should -BeExactly 'Included'
         }
 
+        It 'includes Windows Update policies in the comparison matrix' {
+            $row = $script:rows | Where-Object { $_.PolicyName -eq 'Windows 11 24H2' }
+            $row.Category | Should -BeExactly 'Windows Feature Update Profiles'
+            $row.'Group A' | Should -BeExactly 'Included'
+            $row.'Group B' | Should -BeExactly ''
+        }
+
         It 'never fetches assignments for ES configurationPolicies policies (prefilter)' {
             # escp-1 assignments are fetched once per group by the Settings Catalog
             # category; the Endpoint Security phase 1 must not add extra fetches
@@ -293,7 +310,7 @@ Describe 'Compare-IntuneGroupAssignment' {
             Should -Invoke Get-IntuneEntities -Exactly 1 -ParameterFilter { $EntityType -eq 'deviceConfigurations' }
             Should -Invoke Get-IntuneEntities -Exactly 1 -ParameterFilter { $EntityType -eq 'deviceManagement/intents' }
             Should -Invoke Get-IntuneEntities -Exactly 1 -ParameterFilter { $EntityType -eq 'deviceShellScripts' }
-            Should -Invoke Invoke-MgGraphRequest -Exactly 1 -ParameterFilter { $Uri -like '*mobileApps*isAssigned eq true*' }
+            Should -Invoke Invoke-IACGraphRequest -Exactly 1 -ParameterFilter { $Uri -like '*mobileApps*isAssigned eq true*' }
         }
     }
 

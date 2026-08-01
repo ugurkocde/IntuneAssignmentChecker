@@ -15,6 +15,11 @@ BeforeAll {
     . (Join-Path $modulePrivate 'Get-AppProtectionAssignmentUri.ps1')
     . (Join-Path $modulePrivate 'Test-ImportedAdministrativeTemplate.ps1')
     . (Join-Path $modulePrivate 'Get-IntuneCategoryDefinition.ps1')
+    . (Join-Path $modulePrivate 'Get-PolicyPlatform.ps1')
+    . (Join-Path $modulePrivate 'New-IACAssignmentRecord.ps1')
+    . (Join-Path $modulePrivate 'ConvertTo-IACAssignmentRecord.ps1')
+    . (Join-Path $modulePrivate 'ConvertTo-IACNormalizedAssignment.ps1')
+    . (Join-Path $modulePrivate 'Get-IACNoAssignmentPlaceholder.ps1')
     . (Join-Path $modulePrivate 'Invoke-IntuneCategoryScan.ps1')
     . (Join-Path $moduleRoot 'Public/Test-IntuneGroupMembership.ps1')
 
@@ -44,7 +49,7 @@ BeforeAll {
         @()
     }
     function Get-IntuneEntities {
-        param([string]$EntityType, [string]$Filter, [string]$Select, [string]$Expand)
+        param([string]$EntityType, [string]$Filter, [string]$Select, [string]$Expand, [switch]$Quiet)
         @()
     }
     function Get-IntuneAssignments {
@@ -54,7 +59,7 @@ BeforeAll {
     function Add-IntentTemplateFamilyInfo {
         param($IntentPolicies)
     }
-    function Invoke-MgGraphRequest {
+    function Invoke-IACGraphRequest {
         param($Uri, $Method)
         @{ value = @() }
     }
@@ -146,8 +151,8 @@ Describe 'Test-IntuneGroupMembership' {
                 default { @() }
             }
         }
-        Mock Invoke-MgGraphRequest {
-            if ($Uri -like '*v1.0/groups?*') {
+        Mock Invoke-IACGraphRequest {
+            if ($Uri -like '*beta/groups?*') {
                 return @{ value = @([PSCustomObject]@{ id = 'g-target'; displayName = 'Target Group' }) }
             }
             if ($Uri -like '*mobileApps?*isAssigned*') {
@@ -288,26 +293,28 @@ Describe 'Test-IntuneGroupMembership' {
         Should -Invoke Get-IntuneEntities -Times 1 -Exactly -ParameterFilter { $EntityType -eq 'configurationPolicies' }
         Should -Invoke Get-IntuneEntities -Times 1 -Exactly -ParameterFilter { $EntityType -eq 'deviceManagement/intents' }
         Should -Invoke Get-IntuneEntities -Times 1 -Exactly -ParameterFilter { $EntityType -eq 'deviceConfigurations' }
-        Should -Invoke Invoke-MgGraphRequest -Times 1 -Exactly -ParameterFilter { $Uri -like '*mobileApps?*isAssigned*' }
+        Should -Invoke Invoke-IACGraphRequest -Times 1 -Exactly -ParameterFilter { $Uri -like '*mobileApps?*isAssigned*' }
     }
 
-    It 'emits the 19-step progress lines including Imported Administrative Templates' {
+    It 'emits the 23-step progress lines including Windows Update workloads' {
         Test-IntuneGroupMembership -UserPrincipalNames 'user1@contoso.com' -SimulateTargetGroup 'Target Group'
 
-        $script:hostLines | Should -Contain '[1/19] Fetching Device Configurations...'
-        $script:hostLines | Should -Contain '[2/19] Fetching Imported Administrative Templates...'
-        $script:hostLines | Should -Contain '[7/19] Fetching Applications...'
-        $script:hostLines | Should -Contain '[10/19] Fetching Antivirus Policies...'
-        $script:hostLines | Should -Contain '[13/19] Fetching Endpoint Detection and Response Policies...'
-        $script:hostLines | Should -Contain '[16/19] Fetching Autopilot Deployment Profiles...'
-        $script:hostLines | Should -Contain '[17/19] Fetching Enrollment Status Page Profiles...'
-        $script:hostLines | Should -Contain '[19/19] Fetching Windows 365 Cloud PC User Settings...'
+        $script:hostLines | Should -Contain '[1/23] Fetching Device Configurations...'
+        $script:hostLines | Should -Contain '[2/23] Fetching Imported Administrative Templates...'
+        $script:hostLines | Should -Contain '[7/23] Fetching Applications...'
+        $script:hostLines | Should -Contain '[10/23] Fetching Antivirus Policies...'
+        $script:hostLines | Should -Contain '[13/23] Fetching Endpoint Detection and Response Policies...'
+        $script:hostLines | Should -Contain '[16/23] Fetching Autopilot Deployment Profiles...'
+        $script:hostLines | Should -Contain '[17/23] Fetching Enrollment Status Page Profiles...'
+        $script:hostLines | Should -Contain '[18/23] Fetching Windows Feature Update Profiles...'
+        $script:hostLines | Should -Contain '[21/23] Fetching Windows Quality Update Policies...'
+        $script:hostLines | Should -Contain '[23/23] Fetching Windows 365 Cloud PC User Settings...'
     }
 
     It 'escapes single quotes in the group name OData filter (F9)' {
         Test-IntuneGroupMembership -UserPrincipalNames 'user1@contoso.com' -SimulateTargetGroup "O'Brien Team"
 
-        Should -Invoke Invoke-MgGraphRequest -Times 1 -Exactly -ParameterFilter { $Uri -like "*displayName eq 'O''Brien Team'*" }
+        Should -Invoke Invoke-IACGraphRequest -Times 1 -Exactly -ParameterFilter { $Uri -like "*displayName eq 'O''Brien Team'*" }
     }
 
     It 'emits export categories in the legacy CSV order' {
@@ -323,6 +330,8 @@ Describe 'Test-IntuneGroupMembership' {
             'NEW: Endpoint Security - Firewall', 'NEW: Endpoint Security - EDR',
             'NEW: Endpoint Security - ASR', 'NEW: Endpoint Security - Account Protection',
             'NEW: Autopilot Deployment Profile', 'NEW: Enrollment Status Page Profile',
+            'NEW: Windows Feature Update Profile', 'NEW: Windows Quality Update Profile',
+            'NEW: Windows Driver Update Profile', 'NEW: Windows Quality Update Policy',
             'NEW: Cloud PC Provisioning Policy', 'NEW: Cloud PC User Setting',
             'CONFLICT: Device Configuration', 'CONFLICT: Application (required)'
         )

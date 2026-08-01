@@ -633,6 +633,10 @@ function Export-HTMLReport {
         AccountProtectionProfiles = @()
         CloudPCProvisioningPolicies = @()
         CloudPCUserSettings       = @()
+        WindowsFeatureUpdates     = @()
+        WindowsQualityUpdates     = @()
+        WindowsDriverUpdates      = @()
+        WindowsQualityUpdatePolicies = @()
     }
 
     # Fetch all policies
@@ -719,7 +723,7 @@ function Export-HTMLReport {
 
         if ($assignmentsUri) {
             try {
-                $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
+                $assignmentResponse = Invoke-IACGraphRequest -Uri $assignmentsUri -Method Get
                 # Pass the raw .value to Get-HtmlAssignmentInfo as it expects an array of assignment objects
                 $assignmentInfo = Get-HtmlAssignmentInfo -Assignments $assignmentResponse.value
 
@@ -859,6 +863,31 @@ function Export-HTMLReport {
         Write-Warning "Unable to fetch Windows 365 Cloud PC User Settings: $($_.Exception.Message)"
     }
 
+    # Windows Update for Business reports. Each workload is optional so a tenant
+    # that lacks one feature cannot hide unrelated report categories.
+    foreach ($updateSpec in @(
+            @{ EntityType = 'windowsFeatureUpdateProfiles'; Key = 'WindowsFeatureUpdates'; Type = 'Windows Feature Update Profile'; Label = 'Windows Feature Update Profiles' }
+            @{ EntityType = 'windowsQualityUpdateProfiles'; Key = 'WindowsQualityUpdates'; Type = 'Windows Quality Update Profile'; Label = 'Windows Quality Update Profiles' }
+            @{ EntityType = 'windowsDriverUpdateProfiles'; Key = 'WindowsDriverUpdates'; Type = 'Windows Driver Update Profile'; Label = 'Windows Driver Update Profiles' }
+            @{ EntityType = 'windowsQualityUpdatePolicies'; Key = 'WindowsQualityUpdatePolicies'; Type = 'Windows Quality Update Policy'; Label = 'Windows Quality Update Policies' }
+        )) {
+        Write-Host "Fetching $($updateSpec.Label)..." -ForegroundColor Yellow
+        foreach ($policy in @(Get-IntuneEntities -EntityType $updateSpec.EntityType -Quiet)) {
+            $assignments = Get-IntuneAssignments -EntityType $updateSpec.EntityType -EntityId $policy.id
+            $assignmentInfo = Get-HtmlAssignmentInfo -Assignments $assignments
+            $policies[$updateSpec.Key] += @{
+                Name           = if ([string]::IsNullOrWhiteSpace($policy.displayName)) { $policy.name } else { $policy.displayName }
+                ID             = $policy.id
+                Type           = $updateSpec.Type
+                Platform       = 'Windows'
+                ScopeTags      = Get-ScopeTagNames -ScopeTagIds $policy.roleScopeTagIds -ScopeTagLookup $script:ScopeTagLookup
+                AssignmentType = $assignmentInfo.Type
+                AssignedTo     = $assignmentInfo.Target
+                Filter         = $assignmentInfo.Filter
+            }
+        }
+    }
+
     # Endpoint Security Policies Fetching
     $endpointSecurityCategories = @(
         @{ Name = "Antivirus"; Key = "AntivirusProfiles"; TemplateFamily = "endpointSecurityAntivirus"; UserFriendlyType = "Antivirus Profile" },
@@ -903,7 +932,7 @@ function Export-HTMLReport {
             foreach ($policy in $intentPolicies) {
                 if ($processedIds.Add($policy.id)) {
                     try {
-                        $assignmentsResponse = Invoke-MgGraphRequest -Uri "$script:GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
+                        $assignmentsResponse = Invoke-IACGraphRequest -Uri "$script:GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
                         $assignmentInfo = Get-HtmlAssignmentInfo -Assignments $assignmentsResponse.value # This expects an array
                         $policies[$esCategory.Key] += @{
                             Name           = if (-not [string]::IsNullOrWhiteSpace($policy.displayName)) { $policy.displayName } else { $policy.name }
@@ -929,12 +958,8 @@ function Export-HTMLReport {
     $appUri = "$script:GraphEndpoint/beta/deviceAppManagement/mobileApps?`$filter=isAssigned eq true&`$select=id,displayName,roleScopeTagIds"
     $allApps = [System.Collections.Generic.List[object]]::new()
     try {
-        $appResponse = Invoke-MgGraphRequest -Uri $appUri -Method Get
-        if ($appResponse.value) { $allApps.AddRange([object[]]$appResponse.value) }
-        while ($appResponse.'@odata.nextLink') {
-            $appResponse = Invoke-MgGraphRequest -Uri $appResponse.'@odata.nextLink' -Method Get
-            if ($appResponse.value) { $allApps.AddRange([object[]]$appResponse.value) }
-        }
+        $pagedApps = @((Invoke-IACGraphRequest -Uri $appUri -Method Get).value)
+        if ($pagedApps.Count -gt 0) { $allApps.AddRange([object[]]$pagedApps) }
     }
     catch {
         Write-Host "Error fetching applications: $($_.Exception.Message)" -ForegroundColor Red
@@ -945,7 +970,7 @@ function Export-HTMLReport {
         $appId = $app.id
         $assignmentsUri = "$script:GraphEndpoint/beta/deviceAppManagement/mobileApps('$appId')/assignments"
         try {
-            $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
+            $assignmentResponse = Invoke-IACGraphRequest -Uri $assignmentsUri -Method Get
         }
         catch {
             Write-Host "Error fetching assignments for app $($app.displayName): $($_.Exception.Message)" -ForegroundColor Red
@@ -1036,6 +1061,10 @@ function Export-HTMLReport {
         @{ Key = 'ESPProfiles'; Name = 'Enrollment Status Page Profiles' },
         @{ Key = 'CloudPCProvisioningPolicies'; Name = 'Windows 365 Cloud PC Provisioning Policies' },
         @{ Key = 'CloudPCUserSettings'; Name = 'Windows 365 Cloud PC User Settings' },
+        @{ Key = 'WindowsFeatureUpdates'; Name = 'Windows Feature Update Profiles' },
+        @{ Key = 'WindowsQualityUpdates'; Name = 'Windows Quality Update Profiles' },
+        @{ Key = 'WindowsDriverUpdates'; Name = 'Windows Driver Update Profiles' },
+        @{ Key = 'WindowsQualityUpdatePolicies'; Name = 'Windows Quality Update Policies' },
         @{ Key = 'AntivirusProfiles'; Name = 'Endpoint Security - Antivirus' },
         @{ Key = 'DiskEncryptionProfiles'; Name = 'Endpoint Security - Disk Encryption' },
         @{ Key = 'FirewallProfiles'; Name = 'Endpoint Security - Firewall' },
@@ -1287,7 +1316,7 @@ function Export-HTMLReport {
     var policyTypesChart = new Chart(ctx2, {
         type: 'bar',
         data: {
-            labels: ['Device Configs', 'Imported Admin Templates', 'Settings Catalog', 'Compliance', 'App Protection', 'Autopilot Profiles', 'ESP Profiles', 'Windows 365 Provisioning', 'Windows 365 User Settings', 'Scripts', 'Antivirus', 'Disk Encryption', 'Firewall', 'EDR', 'ASR', 'Account Protection'],
+            labels: ['Device Configs', 'Imported Admin Templates', 'Settings Catalog', 'Compliance', 'App Protection', 'Autopilot Profiles', 'ESP Profiles', 'Windows 365 Provisioning', 'Windows 365 User Settings', 'Feature Updates', 'Quality Profiles', 'Driver Updates', 'Quality Policies', 'Scripts', 'Antivirus', 'Disk Encryption', 'Firewall', 'EDR', 'ASR', 'Account Protection'],
             datasets: [{
                 label: 'Number of Policies',
                 data: [
@@ -1300,6 +1329,10 @@ function Export-HTMLReport {
                     $($policies.ESPProfiles.Count),
                     $($policies.CloudPCProvisioningPolicies.Count),
                     $($policies.CloudPCUserSettings.Count),
+                    $($policies.WindowsFeatureUpdates.Count),
+                    $($policies.WindowsQualityUpdates.Count),
+                    $($policies.WindowsDriverUpdates.Count),
+                    $($policies.WindowsQualityUpdatePolicies.Count),
                     ($($policies.PlatformScripts.Count) + $($policies.HealthScripts.Count)),
                     $($policies.AntivirusProfiles.Count),
                     $($policies.DiskEncryptionProfiles.Count),
@@ -1310,7 +1343,7 @@ function Export-HTMLReport {
                 ],
                 backgroundColor: [
                     '#4e73df', '#1cc88a', '#36b9cc', '#f6c23e', '#e74a3b', '#6f42c1', '#20c997',
-                    '#17a2b8', '#fd7e14', '#858796', '#5a5c69', '#f8f9fc', '#dddfeb', '#d1d3e2', '#b4b6c2', '#6610f2'
+                    '#17a2b8', '#fd7e14', '#0d6efd', '#198754', '#ffc107', '#dc3545', '#858796', '#5a5c69', '#f8f9fc', '#dddfeb', '#d1d3e2', '#b4b6c2', '#6610f2'
                 ]
             }]
         },

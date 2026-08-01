@@ -1,5 +1,6 @@
 function Get-IntuneAllPolicies {
     [CmdletBinding()]
+    [OutputType('IntuneAssignmentChecker.AssignmentRecord')]
     param (
         [Parameter()]
         [switch]$ExportToCSV,
@@ -8,7 +9,10 @@ function Get-IntuneAllPolicies {
         [string]$ExportPath,
 
         [Parameter()]
-        [string]$ScopeTagFilter
+        [string]$ScopeTagFilter,
+
+        [Parameter()]
+        [switch]$PassThru
     )
 
     Write-Host "Fetching all policies and their assignments..." -ForegroundColor Green
@@ -107,7 +111,7 @@ function Get-IntuneAllPolicies {
         $ctx.Buckets[$bucketKey].Add($entity)
     }
 
-    $scanResult = Invoke-IntuneCategoryScan -Categories $categories -ProcessEntity $processEntity -ShowProgress
+    $scanResult = Invoke-IntuneCategoryScan -Categories $categories -ProcessEntity $processEntity -ShowProgress -BuildRecords:$PassThru
     $allPolicies = $scanResult.Buckets
 
     # Apply scope tag filter if specified
@@ -130,6 +134,10 @@ function Get-IntuneAllPolicies {
     Invoke-PolicyAssignments -Policies $allPolicies.ESPProfiles -DisplayName "Enrollment Status Page Profiles"
     Invoke-PolicyAssignments -Policies $allPolicies.CloudPCProvisioningPolicies -DisplayName "Windows 365 Cloud PC Provisioning Policies"
     Invoke-PolicyAssignments -Policies $allPolicies.CloudPCUserSettings -DisplayName "Windows 365 Cloud PC User Settings"
+    Invoke-PolicyAssignments -Policies $allPolicies.WindowsFeatureUpdates -DisplayName "Windows Feature Update Profiles"
+    Invoke-PolicyAssignments -Policies $allPolicies.WindowsQualityUpdates -DisplayName "Windows Quality Update Profiles"
+    Invoke-PolicyAssignments -Policies $allPolicies.WindowsDriverUpdates -DisplayName "Windows Driver Update Profiles"
+    Invoke-PolicyAssignments -Policies $allPolicies.WindowsQualityUpdatePolicies -DisplayName "Windows Quality Update Policies"
     Invoke-PolicyAssignments -Policies $allPolicies.AntivirusProfiles -DisplayName "Endpoint Security - Antivirus Profiles"
     Invoke-PolicyAssignments -Policies $allPolicies.DiskEncryptionProfiles -DisplayName "Endpoint Security - Disk Encryption Profiles"
     Invoke-PolicyAssignments -Policies $allPolicies.FirewallProfiles -DisplayName "Endpoint Security - Firewall Profiles"
@@ -141,5 +149,8 @@ function Get-IntuneAllPolicies {
     Add-CategoryExportData -ExportData $exportData -Categories $categories -Buckets $allPolicies -AssignmentReason { param($item) $item.AssignmentSummary }
 
     # Export results if requested
-    Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneAllPolicies.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath -ExportToCSV:$ExportToCSV -ParameterMode:$parameterMode
+    Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneAllPolicies.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath -ExportToCSV:$ExportToCSV -ParameterMode:($parameterMode -or $PassThru)
+    if ($PassThru) {
+        Select-IACAssignmentRecord -Records $scanResult.Records -Buckets $allPolicies -SubjectType 'Tenant' -SubjectName 'All Policies' -Source 'Get-IntuneAllPolicies'
+    }
 }

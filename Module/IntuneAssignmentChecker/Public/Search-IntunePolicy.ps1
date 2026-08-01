@@ -1,5 +1,6 @@
 function Search-IntunePolicy {
     [CmdletBinding()]
+    [OutputType('IntuneAssignmentChecker.AssignmentRecord')]
     param(
         [Parameter()]
         [string]$PolicySearchTerm,
@@ -8,7 +9,10 @@ function Search-IntunePolicy {
         [switch]$ExportToCSV,
 
         [Parameter()]
-        [string]$ExportPath
+        [string]$ExportPath,
+
+        [Parameter()]
+        [switch]$PassThru
     )
 
     Write-Host "Policy Search / Reverse Lookup selected" -ForegroundColor Green
@@ -199,7 +203,7 @@ function Search-IntunePolicy {
         Resolve-SearchAssignments -Assignments $ctx.Assignments -CategoryLabel $ctx.Category.ExportCategory -PolicyName $policyName -PolicyId $ctx.Entity.id -Results $results
     }
 
-    $scanResult = Invoke-IntuneCategoryScan -Categories $categories -ProcessEntity $processEntity -EntityPreFilter $entityPreFilter -ShowProgress -ProgressVerb 'Searching'
+    $scanResult = Invoke-IntuneCategoryScan -Categories $categories -ProcessEntity $processEntity -EntityPreFilter $entityPreFilter -ShowProgress -ProgressVerb 'Searching' -BuildRecords:$PassThru
     $allSearchResults = $scanResult.Buckets['SearchResults']
 
     # --- Display Results ---
@@ -281,5 +285,9 @@ function Search-IntunePolicy {
             })
     }
 
-    Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntunePolicySearch.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath -ExportToCSV:$ExportToCSV -ParameterMode:$parameterMode
+    Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntunePolicySearch.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath -ExportToCSV:$ExportToCSV -ParameterMode:($parameterMode -or $PassThru)
+    if ($PassThru) {
+        Select-IACAssignmentRecord -Records $scanResult.Records -Buckets $scanResult.Buckets `
+            -SubjectType 'Search' -SubjectName $searchTerm -Source 'Search-IntunePolicy'
+    }
 }

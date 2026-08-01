@@ -16,6 +16,11 @@ BeforeAll {
     . (Join-Path $modulePrivate 'Get-AppProtectionAssignmentUri.ps1')
     . (Join-Path $modulePrivate 'Test-ImportedAdministrativeTemplate.ps1')
     . (Join-Path $modulePrivate 'Get-IntuneCategoryDefinition.ps1')
+    . (Join-Path $modulePrivate 'New-IACAssignmentRecord.ps1')
+    . (Join-Path $modulePrivate 'ConvertTo-IACAssignmentRecord.ps1')
+    . (Join-Path $modulePrivate 'ConvertTo-IACNormalizedAssignment.ps1')
+    . (Join-Path $modulePrivate 'Get-IACNoAssignmentPlaceholder.ps1')
+    . (Join-Path $modulePrivate 'Select-IACAssignmentRecord.ps1')
     . (Join-Path $modulePrivate 'Invoke-IntuneCategoryScan.ps1')
     . (Join-Path $moduleRoot 'Public/Get-IntuneUserAssignment.ps1')
 
@@ -33,7 +38,7 @@ BeforeAll {
         @()
     }
     function Get-IntuneEntities {
-        param([string]$EntityType, [string]$Filter, [string]$Select, [string]$Expand)
+        param([string]$EntityType, [string]$Filter, [string]$Select, [string]$Expand, [switch]$Quiet)
         @()
     }
     function Get-IntuneAssignments {
@@ -43,7 +48,7 @@ BeforeAll {
     function Add-IntentTemplateFamilyInfo {
         param($IntentPolicies)
     }
-    function Invoke-MgGraphRequest {
+    function Invoke-IACGraphRequest {
         param($Uri, $Method)
         @{ value = @() }
     }
@@ -112,6 +117,9 @@ Describe 'Get-IntuneUserAssignment' {
                 'deviceManagement/intents' {
                     @([PSCustomObject]@{ id = 'av-intent'; displayName = 'AV Intent Legacy' })
                 }
+                'windowsFeatureUpdateProfiles' {
+                    @([PSCustomObject]@{ id = 'feature-excl'; displayName = 'Feature Update Excluded'; roleScopeTagIds = @('0') })
+                }
                 default { @() }
             }
         }
@@ -127,10 +135,16 @@ Describe 'Get-IntuneUserAssignment' {
                     )
                 }
                 'av-cfg' { @([PSCustomObject]@{ Reason = 'All Users'; GroupId = $null; FilterId = $null; FilterType = $null }) }
+                'feature-excl' {
+                    @(
+                        [PSCustomObject]@{ Reason = 'All Users'; GroupId = $null; FilterId = $null; FilterType = $null }
+                        [PSCustomObject]@{ Reason = 'Group Exclusion'; GroupId = 'g-a'; FilterId = $null; FilterType = $null }
+                    )
+                }
                 default { @() }
             }
         }
-        Mock Invoke-MgGraphRequest {
+        Mock Invoke-IACGraphRequest {
             if ($Uri -like '*mobileApps?*isAssigned*') {
                 return @{ value = @(
                         [PSCustomObject]@{ id = 'app-req-inc'; displayName = 'Required Included App'; isFeatured = $false; isBuiltIn = $false }
@@ -186,6 +200,23 @@ Describe 'Get-IntuneUserAssignment' {
         }
     }
 
+    It 'streams only canonical records from PassThru with structured Graph metadata' {
+        $records = @(Get-IntuneUserAssignment -UserPrincipalNames 'user1@contoso.com' -PassThru)
+
+        $records.Count | Should -BeGreaterThan 0
+        @($records | Where-Object { $_.PSObject.TypeNames[0] -ne 'IntuneAssignmentChecker.AssignmentRecord' }) | Should -BeNullOrEmpty
+        $groupRecord = $records | Where-Object PolicyId -eq 'dc-mine' | Select-Object -First 1
+        $groupRecord.CategoryId | Should -BeExactly DeviceConfigurations
+        $groupRecord.TargetType | Should -BeExactly Group
+        $groupRecord.TargetId | Should -BeExactly g-a
+        $groupRecord.FilterId | Should -BeExactly f1
+        $appRecord = $records | Where-Object PolicyId -eq 'app-avail-inc' | Select-Object -First 1
+        $appRecord.Intent | Should -BeExactly available
+        foreach ($record in $records) {
+            @($script:capturedExport | Where-Object { $_.Item -match "\(ID: $([regex]::Escape($record.PolicyId))\)$" }).Count | Should -BeGreaterThan 0
+        }
+    }
+
     It 'exports the User row first with the UPN and user id' {
         Get-IntuneUserAssignment -UserPrincipalNames 'user1@contoso.com'
 
@@ -203,6 +234,14 @@ Describe 'Get-IntuneUserAssignment' {
         @($configRows | Where-Object { $_.Item -eq 'Config All Users (ID: dc-all)' -and $_.AssignmentReason -eq 'All Users' }).Count | Should -Be 1
         @($configRows | Where-Object { $_.Item -eq 'Config Excluded (ID: dc-excl)' -and $_.AssignmentReason -eq 'Excluded' }).Count | Should -Be 1
         @($configRows | Where-Object { $_.Item -like '*dc-other*' }).Count | Should -Be 0
+    }
+
+    It 'honors exclusion precedence for Windows Update policies' {
+        Get-IntuneUserAssignment -UserPrincipalNames 'user1@contoso.com'
+
+        $row = $script:capturedExport | Where-Object { $_.Item -eq 'Feature Update Excluded (ID: feature-excl)' }
+        $row.Category | Should -BeExactly 'Windows Feature Update Profile'
+        $row.AssignmentReason | Should -BeExactly Excluded
     }
 
     It 'keeps excluded apps visible in the excluding assignment intent bucket with filter suffix' {
@@ -248,7 +287,7 @@ Describe 'Get-IntuneUserAssignment' {
         Should -Invoke Get-IntuneEntities -Times 1 -Exactly -ParameterFilter { $EntityType -eq 'configurationPolicies' }
         Should -Invoke Get-IntuneEntities -Times 1 -Exactly -ParameterFilter { $EntityType -eq 'deviceConfigurations' }
         Should -Invoke Get-IntuneEntities -Times 1 -Exactly -ParameterFilter { $EntityType -eq 'deviceManagement/intents' }
-        Should -Invoke Invoke-MgGraphRequest -Times 1 -Exactly -ParameterFilter { $Uri -like '*mobileApps?*isAssigned*' }
+        Should -Invoke Invoke-IACGraphRequest -Times 1 -Exactly -ParameterFilter { $Uri -like '*mobileApps?*isAssigned*' }
     }
 
     It 'still resolves assignments per user when the entity cache is shared (second UPN)' {
@@ -275,6 +314,8 @@ Describe 'Get-IntuneUserAssignment' {
             'Windows 365 Cloud PC Provisioning Policy', 'Windows 365 Cloud PC User Setting',
             'Endpoint Security - Antivirus', 'Endpoint Security - Disk Encryption', 'Endpoint Security - Firewall',
             'Endpoint Security - EDR', 'Endpoint Security - ASR', 'Endpoint Security - Account Protection',
+            'Windows Feature Update Profile', 'Windows Quality Update Profile', 'Windows Driver Update Profile',
+            'Windows Quality Update Policy',
             'Required Apps', 'Available Apps', 'Uninstall Apps'
         )
         $actualOrder = @($script:capturedExport.Category | Select-Object -Unique)

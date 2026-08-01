@@ -4,7 +4,7 @@
 BeforeAll {
     $modulePrivate = Join-Path $PSScriptRoot '../../Module/IntuneAssignmentChecker/Private'
 
-    function Invoke-MgGraphRequest {
+    function Invoke-IACGraphRequest {
         param([string]$Uri, [string]$Method)
         $null = $Uri
         $null = $Method
@@ -65,7 +65,7 @@ Describe 'Get-GroupInfo' {
     BeforeEach {
         $script:GroupInfoCache = $null
         Mock Write-Warning {}
-        Mock Invoke-MgGraphRequest {
+        Mock Invoke-IACGraphRequest {
             [PSCustomObject]@{
                 id = 'm365-1'; displayName = 'Messaging Team'; groupTypes = @('Unified')
                 mailEnabled = $true; securityEnabled = $false; mail = 'messaging@contoso.com'
@@ -80,14 +80,14 @@ Describe 'Get-GroupInfo' {
         $first.GroupType | Should -BeExactly 'Microsoft 365'
         $first.Mail | Should -BeExactly 'messaging@contoso.com'
         $second | Should -Be $first
-        Should -Invoke Invoke-MgGraphRequest -Exactly 1 -ParameterFilter {
+        Should -Invoke Invoke-IACGraphRequest -Exactly 1 -ParameterFilter {
             $Method -eq 'Get' -and
-            $Uri -eq 'https://graph.test/v1.0/groups/m365-1?$select=id,displayName,groupTypes,mailEnabled,securityEnabled,mail'
+            $Uri -eq 'https://graph.test/beta/groups/m365-1?$select=id,displayName,groupTypes,mailEnabled,securityEnabled,mail'
         }
     }
 
     It 'returns a complete unknown result when Graph lookup fails' {
-        Mock Invoke-MgGraphRequest { throw 'service unavailable' }
+        Mock Invoke-IACGraphRequest { throw 'service unavailable' }
 
         $result = Get-GroupInfo -GroupId 'missing-group'
 
@@ -101,7 +101,7 @@ Describe 'Get-GroupInfo' {
     }
 
     It 'does not warn when Graph reports a message-only 404 for a stale group assignment' {
-        Mock Invoke-MgGraphRequest { throw '404 Request_ResourceNotFound: Group was not found' }
+        Mock Invoke-IACGraphRequest { throw '404 Request_ResourceNotFound: Group was not found' }
 
         $result = Get-GroupInfo -GroupId 'deleted-group'
 
@@ -111,7 +111,7 @@ Describe 'Get-GroupInfo' {
     }
 
     It 'rejects and diagnoses a successful response that omits the group Object ID' {
-        Mock Invoke-MgGraphRequest {
+        Mock Invoke-IACGraphRequest {
             [PSCustomObject]@{ displayName = 'Incomplete'; groupTypes = @('Unified'); mailEnabled = $true }
         }
 

@@ -40,11 +40,11 @@ function Get-AssignmentFailures {
 
             $uri = "$script:GraphEndpoint/beta/deviceManagement/reports/getMobileApplicationManagementAppStatusReport"
             $response = try {
-                Invoke-MgGraphRequest -Uri $uri -Method POST -Body $reportBody
+                Invoke-IACGraphRequest -Uri $uri -Method POST -Body $reportBody
             } catch {
                 # If the new endpoint fails, try the alternative endpoint
                 $uri = "$script:GraphEndpoint/beta/deviceManagement/reports/getAppStatusOverviewReport"
-                Invoke-MgGraphRequest -Uri $uri -Method POST -Body $reportBody
+                Invoke-IACGraphRequest -Uri $uri -Method POST -Body $reportBody
             }
 
             if ($response.values) {
@@ -92,7 +92,7 @@ function Get-AssignmentFailures {
                 } | ConvertTo-Json
 
                 $uri = "$script:GraphEndpoint/beta/deviceManagement/reports/getConfigurationPolicyDevicesReport"
-                $response = Invoke-MgGraphRequest -Uri $uri -Method POST -Body $reportBody
+                $response = Invoke-IACGraphRequest -Uri $uri -Method POST -Body $reportBody
 
                 if ($response.values) {
                     $failures = $response.values | Where-Object {
@@ -124,15 +124,8 @@ function Get-AssignmentFailures {
         $compliancePolicies = Get-IntuneEntities -EntityType "deviceCompliancePolicies"
 
         foreach ($policy in $compliancePolicies) {
-            $statuses = [System.Collections.ArrayList]::new()
             $statusUri = "$script:GraphEndpoint/beta/deviceManagement/deviceCompliancePolicies('$($policy.id)')/deviceStatuses"
-            do {
-                $statusResponse = Invoke-MgGraphRequest -Uri $statusUri -Method GET
-                if ($statusResponse -and $null -ne $statusResponse.value) {
-                    $statuses.AddRange([object[]]$statusResponse.value)
-                }
-                $statusUri = $statusResponse.'@odata.nextLink'
-            } while (![string]::IsNullOrEmpty($statusUri))
+            $statuses = @((Invoke-IACGraphRequest -Uri $statusUri -Method GET).value)
 
             $failures = $statuses | Where-Object {
                 $_.status -in @("error", "conflict", "notApplicable", "nonCompliant")

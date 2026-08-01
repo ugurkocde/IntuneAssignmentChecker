@@ -10,16 +10,11 @@ function Get-GroupMemberships {
     )
 
     $memberships = [System.Collections.ArrayList]::new()
-    $uri = "$script:GraphEndpoint/v1.0/$($ObjectType.ToLower())s/$ObjectId/transitiveMemberOf?`$select=id,displayName"
+    $uri = "$script:GraphEndpoint/beta/$($ObjectType.ToLower())s/$ObjectId/transitiveMemberOf/microsoft.graph.group?`$select=id,displayName"
 
     try {
-        do {
-            $response = Invoke-MgGraphRequest -Uri $uri -Method Get
-            if ($response -and $null -ne $response.value) {
-                $memberships.AddRange([object[]]$response.value)
-            }
-            $uri = $response.'@odata.nextLink'
-        } while (![string]::IsNullOrEmpty($uri))
+        $pagedMemberships = @((Invoke-IACGraphRequest -Uri $uri -Method Get).value)
+        if ($pagedMemberships.Count -gt 0) { $memberships.AddRange([object[]]$pagedMemberships) }
         return $memberships
     }
     catch {

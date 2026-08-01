@@ -131,8 +131,8 @@ function Test-IntuneGroupRemoval {
     else {
         $escapedSimGroupName = $simGroupInput -replace "'", "''"
         $simGroupSelect = 'id,displayName,groupTypes,mailEnabled,securityEnabled,mail'
-        $simGroupUri = "$script:GraphEndpoint/v1.0/groups?`$filter=displayName eq '$escapedSimGroupName'&`$select=$simGroupSelect"
-        $simGroupResponse = Invoke-MgGraphRequest -Uri $simGroupUri -Method Get
+        $simGroupUri = "$script:GraphEndpoint/beta/groups?`$filter=displayName eq '$escapedSimGroupName'&`$select=$simGroupSelect"
+        $simGroupResponse = Invoke-IACGraphRequest -Uri $simGroupUri -Method Get
 
         if ($simGroupResponse.value.Count -eq 0) {
             Write-Host "No group found with name: $simGroupInput" -ForegroundColor Red
@@ -215,6 +215,7 @@ function Test-IntuneGroupRemoval {
             'AppConfigurationPolicies', 'Applications', 'PlatformScripts', 'HealthScripts',
             'ESAntivirus', 'ESDiskEncryption', 'ESFirewall', 'ESEndpointDetection',
             'ESAttackSurface', 'ESAccountProtection', 'DeploymentProfiles', 'ESPProfiles',
+            'WindowsFeatureUpdates', 'WindowsQualityUpdates', 'WindowsDriverUpdates', 'WindowsQualityUpdatePolicies',
             'CloudPCProvisioningPolicies', 'CloudPCUserSettings')) {
         $categoryIndex[$id].BucketOnly = $false
         $categoryIndex[$id]

@@ -1,5 +1,6 @@
 function Get-IntuneDeviceAssignment {
     [CmdletBinding()]
+    [OutputType('IntuneAssignmentChecker.AssignmentRecord')]
     param(
         [Parameter(Mandatory = $false)]
         [string]$DeviceNames,
@@ -11,7 +12,10 @@ function Get-IntuneDeviceAssignment {
         [string]$ExportPath,
 
         [Parameter(Mandatory = $false)]
-        [string]$ScopeTagFilter
+        [string]$ScopeTagFilter,
+
+        [Parameter(Mandatory = $false)]
+        [switch]$PassThru
     )
 
     Write-Host "Device selection chosen" -ForegroundColor Green
@@ -36,10 +40,12 @@ function Get-IntuneDeviceAssignment {
     # back into one space-joined string and break multi-device input.
     $deviceNameList = $deviceInput -split ',' | ForEach-Object { $_.Trim() }
     $exportData = [System.Collections.ArrayList]::new()
+    $passThruRecords = [System.Collections.Generic.List[object]]::new()
 
     $categories = Get-IntuneCategoryDefinition -Audience 'DeviceContext'
     # Categories the legacy code fetched only for Windows (or unknown-OS) devices
-    $windowsOnlyCategoryIds = @('ImportedAdministrativeTemplates', 'DeploymentProfiles', 'ESPProfiles', 'CloudPCProvisioningPolicies', 'CloudPCUserSettings')
+    $windowsOnlyCategoryIds = @('ImportedAdministrativeTemplates', 'DeploymentProfiles', 'ESPProfiles', 'CloudPCProvisioningPolicies', 'CloudPCUserSettings',
+        'WindowsFeatureUpdates', 'WindowsQualityUpdates', 'WindowsDriverUpdates', 'WindowsQualityUpdatePolicies')
     # These legacy categories retain their historical first-match assignment walk.
     # Imported templates use standard exclusion precedence instead.
     $firstMatchCategoryIds = @('DeploymentProfiles', 'ESPProfiles', 'CloudPCProvisioningPolicies', 'CloudPCUserSettings')
@@ -116,7 +122,7 @@ function Get-IntuneDeviceAssignment {
         if ($deviceName -match '^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$') {
             try {
                 $selectProps = "id,displayName,operatingSystem,operatingSystemVersion,managementType,deviceOwnership,trustType,isCompliant,isManaged,approximateLastSignInDateTime,manufacturer,model,enrollmentProfileName"
-                $directDevice = Invoke-MgGraphRequest -Uri "$script:GraphEndpoint/beta/devices/$($deviceName)?`$select=$selectProps" -Method Get
+                $directDevice = Invoke-IACGraphRequest -Uri "$script:GraphEndpoint/beta/devices/$($deviceName)?`$select=$selectProps" -Method Get
                 $deviceInfo = @{
                     Id              = $directDevice.id
                     DisplayName     = $directDevice.displayName
@@ -326,7 +332,7 @@ function Get-IntuneDeviceAssignment {
             }
         }
 
-        $scanResult = Invoke-IntuneCategoryScan -Categories $categories -ProcessEntity $processEntity -EntityPreFilter $entityPreFilter -ShowProgress -EntityCache $entityCache
+        $scanResult = Invoke-IntuneCategoryScan -Categories $categories -ProcessEntity $processEntity -EntityPreFilter $entityPreFilter -ShowProgress -EntityCache $entityCache -BuildRecords:$PassThru
         $relevantPolicies = $scanResult.Buckets
 
         # Apply scope tag filter if specified
@@ -334,6 +340,13 @@ function Get-IntuneDeviceAssignment {
             foreach ($key in @($relevantPolicies.Keys)) {
                 $relevantPolicies[$key] = @(Filter-ByScopeTag -Items $relevantPolicies[$key] -FilterTag $ScopeTagFilter -ScopeTagLookup $script:ScopeTagLookup)
             }
+        }
+
+        if ($PassThru) {
+            $selectedRecords = @(Select-IACAssignmentRecord -Records $scanResult.Records -Buckets $relevantPolicies `
+                    -TargetTypes @('AllDevices', 'Group') -GroupIds @($groupMemberships.id) `
+                    -SubjectType 'Device' -SubjectId $deviceInfo.Id -SubjectName $deviceInfo.DisplayName -Source 'Get-IntuneDeviceAssignment')
+            foreach ($record in $selectedRecords) { $passThruRecords.Add($record) }
         }
 
         # Display results
@@ -366,6 +379,10 @@ function Get-IntuneDeviceAssignment {
             @{ Title = 'Endpoint Security - EDR Profiles'; Bucket = 'EndpointDetectionProfiles'; GetName = $esProfileName }
             @{ Title = 'Endpoint Security - ASR Profiles'; Bucket = 'AttackSurfaceProfiles'; GetName = $esProfileName }
             @{ Title = 'Endpoint Security - Account Protection Profiles'; Bucket = 'AccountProtectionProfiles'; GetName = $esProfileName }
+            @{ Title = 'Windows Feature Update Profiles'; Bucket = 'WindowsFeatureUpdates'; GetName = $displayNameFirst }
+            @{ Title = 'Windows Quality Update Profiles'; Bucket = 'WindowsQualityUpdates'; GetName = $displayNameFirst }
+            @{ Title = 'Windows Driver Update Profiles'; Bucket = 'WindowsDriverUpdates'; GetName = $displayNameFirst }
+            @{ Title = 'Windows Quality Update Policies'; Bucket = 'WindowsQualityUpdatePolicies'; GetName = $displayNameFirst }
         )
         foreach ($section in $displaySections) {
             Format-PolicyTable -Title $section.Title -Policies @($relevantPolicies[$section.Bucket]) -GetName $section.GetName
@@ -386,7 +403,8 @@ function Get-IntuneDeviceAssignment {
             @{ Ids = @('AppProtectionPolicies'); Reason = { param($item) $item.AssignmentSummary } }
             @{ Ids = @('AppConfigurationPolicies', 'PlatformScripts', 'HealthScripts', 'DeploymentProfiles', 'ESPProfiles',
                     'ESAntivirus', 'ESDiskEncryption', 'ESFirewall', 'ESEndpointDetection', 'ESAttackSurface', 'ESAccountProtection',
-                    'CloudPCProvisioningPolicies', 'CloudPCUserSettings', 'Applications'); Reason = $reasonProperty }
+                    'CloudPCProvisioningPolicies', 'CloudPCUserSettings', 'WindowsFeatureUpdates', 'WindowsQualityUpdates',
+                    'WindowsDriverUpdates', 'WindowsQualityUpdatePolicies', 'Applications'); Reason = $reasonProperty }
         )
         foreach ($batch in $exportBatches) {
             $batchCategories = foreach ($id in $batch.Ids) { $categories | Where-Object { $_.Id -eq $id } }
@@ -395,5 +413,6 @@ function Get-IntuneDeviceAssignment {
     }
 
     # Export results if requested
-    Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneDeviceAssignments.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath -ExportToCSV:$ExportToCSV -ParameterMode:$parameterMode
+    Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneDeviceAssignments.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath -ExportToCSV:$ExportToCSV -ParameterMode:($parameterMode -or $PassThru)
+    if ($PassThru) { $passThruRecords }
 }

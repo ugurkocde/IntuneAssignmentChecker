@@ -79,10 +79,14 @@ IntuneAssignmentChecker
 - 🔍 Check assignments for users, groups, and devices
 - 📱 View all 'All User' and 'All Device' assignments
 - 🎯 See Intune assignment filters (name and Include/Exclude type) inline on every assignment, in the console, CSV exports, and HTML reports
+- 🛡️ Safely test managed-device assignment-filter rules locally with `Test-IntuneAssignmentFilter` and tri-state `Match`, `NotMatch`, or `Unknown` results; tenant rule text is never executed
+- 🧭 Explain effective targeting for a user, managed device, or both with exclusion precedence, transitive group membership, assignment filters, and machine-readable reason chains
+- 📸 Capture deterministic assignment snapshots and compare Added, Removed, and Changed records between runs
 - 🔐 Support for certificate-based and client secret authentication
 - 🔄 Version check on connect with an update notice when a newer PSGallery release is available
 - 📊 Detailed reporting of Configuration Profiles, Compliance Policies, and Applications
 - 🧩 Imported Administrative Template coverage across assignment checks, search, CSV exports, and HTML reports
+- 🔄 Windows Update for Business coverage for Feature Update, Quality Update, and Driver Update profiles plus Quality Update policies
 - 👥 First-class Microsoft 365 group recognition with group type, membership mode, and mail address in group assignment checks and exports
 - 📈 Interactive HTML reports with charts and filterable tables
 
@@ -138,6 +142,10 @@ For certificate, client secret, managed identity, or pre-fetched token authentic
 > **Hidden memberships**: Reading groups with hidden membership requires the additional `Member.Read.Hidden` application permission. IntuneAssignmentChecker does not request this permission by default.
 
 > **Note**: The automated setup script ([`Register-IntuneAssignmentCheckerApp.ps1`](./Register-IntuneAssignmentCheckerApp.ps1)) additionally grants `DeviceManagementServiceConfig.Read.All`, which covers Intune service configuration such as enrollment settings. It is not validated by `Connect-IntuneAssignmentChecker`, but granting it avoids gaps when reading enrollment-related configurations.
+
+### Microsoft Graph API behavior
+
+IntuneAssignmentChecker uses the Microsoft Graph `/beta` endpoint in every supported cloud. Starting with v4.4, all Graph traffic is routed through one internal transport that follows collection paging automatically, honors throttling responses, retries transient service and network failures, and preserves Graph request identifiers in structured errors for troubleshooting. The beta endpoint can change more frequently than a generally available endpoint, so validate a new module version in a test tenant before broad automation rollout.
 
 ## 🔐 Authentication Options
 
@@ -379,7 +387,106 @@ Search-IntunePolicy -PolicySearchTerm "BitLocker"
 
 # Search configured settings across policies (Settings Catalog + Endpoint Security)
 Search-IntuneSetting -SearchTerm "BitLocker"
+
+# Return automation-friendly objects while retaining the normal console experience
+$records = Get-IntuneAllPolicies -PassThru
+$records | Where-Object AssignmentMode -eq 'Exclude'
+
+# Safely evaluate a cached tenant assignment filter for an Intune managed device
+Test-IntuneAssignmentFilter -DeviceName 'Laptop123' -FilterId '<filter-id>' -FilterMode Include
+
+# Or evaluate an ad hoc managed-device rule without executing it as PowerShell
+Test-IntuneAssignmentFilter -DeviceName 'Laptop123' -Rule '(device.deviceOwnership -eq "Corporate")'
+
+# Explain whether every discovered policy and assigned app targets a user on a managed device
+Get-IntuneEffectiveAssignment -UserPrincipalName 'user@contoso.com' -DeviceName 'Laptop123'
+
+# Export the explanation and retain typed records for automation
+$effective = Get-IntuneEffectiveAssignment -UserPrincipalName 'user@contoso.com' `
+    -DeviceName 'Laptop123' -PassThru -ExportPath 'C:\Temp\EffectiveAssignments.csv'
+$effective | Where-Object EffectiveState -in 'Excluded', 'Unknown'
+
+# Capture the tenant assignment baseline as deterministic, schema-versioned JSON
+Export-IntuneAssignmentSnapshot -Path 'C:\IntuneSnapshots\assignments.json' -Force
+
+# Compare a checked-in baseline with a newer scheduled capture
+Compare-IntuneAssignmentSnapshot `
+    -ReferencePath 'C:\IntuneSnapshots\baseline.json' `
+    -DifferencePath 'C:\IntuneSnapshots\latest.json'
 ```
+
+`Get-IntuneUserAssignment`, `Get-IntuneGroupAssignment`,
+`Get-IntuneDeviceAssignment`, `Get-IntuneAllPolicies`,
+`Get-IntuneAllUsersAssignment`, `Get-IntuneAllDevicesAssignment`,
+`Get-IntuneUnassignedPolicy`, `Get-IntuneEffectiveAssignment`, and
+`Search-IntunePolicy` support `-PassThru`.
+Using it also suppresses the interactive CSV-export prompt. Each object has the type name
+`IntuneAssignmentChecker.AssignmentRecord` and schema version `1`. The stable
+contract includes tenant and subject metadata, policy/category/platform, scope
+tags, assignment target and include/exclude mode, application intent, assignment
+filter metadata, the display reason, and source command. Console messages remain
+on the information stream, so they do not contaminate pipeline object output.
+Additive fields may be introduced without changing `SchemaVersion`; removing or
+renaming a field, changing its meaning, or changing an enum value requires a schema
+version increment. The existing CSV and HTML schemas remain backward-compatible;
+shared-scan cmdlets create canonical records from the same structured Graph data
+used for their console and CSV views, while the HTML report keeps its purpose-built
+flat reporting schema. Treat `CategoryId` as the stable machine key; `Category` is
+a presentation label and can vary where a cmdlet distinguishes app intents or uses
+search-specific wording. `Get-IntuneUserDeviceAssignment` keeps its established
+combined user/device presentation. `Get-IntuneEffectiveAssignment` adds a
+canonical explanation model whose `EffectiveState` is `Included`, `Excluded`,
+`NotTargeted`, or `Unknown` and whose `ReasonChain` records every evaluated
+assignment and the final precedence decision. It unions user and device transitive
+group memberships, evaluates All Users and All Devices, gives active or unresolved
+exclusions precedence, and applies locally evaluated device assignment filters.
+When an inclusion and exclusion match different user/device targeting dimensions,
+the result is conservatively `Unknown` because that mixed targeting design cannot
+be inferred safely. An exclusion without any matching or unresolved inclusion is
+`NotTargeted`, not `Excluded`. For combined checks, `SubjectType` is `UserDevice`
+and `SubjectId` is the user object ID and managed-device ID joined with `|`; use
+`ReasonChain[*].MembershipSources` to distinguish user-side and device-side group
+matches. Application analysis covers apps that have at least one tenant assignment;
+unassigned apps remain available through `Get-IntuneUnassignedPolicy`.
+This is targeting analysis: it does not prove delivery, platform applicability,
+installation, execution, compliance, or device check-in.
+
+If a non-optional workload cannot be scanned, `-PassThru` and CSV output include
+one typed `Unknown` record with an empty `PolicyId`, `PolicyName` set to
+`[Category scan failed]`, and reason code `Scan.CategoryFailed`. This prevents
+automation from mistaking an unreadable category for a category with no matching
+assignments. CSV rows also expose the final `DecisionCode`; inspect the full JSON
+`ReasonChain` for every target, filter, and precedence decision.
+
+Assignment snapshots use the `IntuneAssignmentChecker.AssignmentSnapshot` schema
+version `1`. They contain the UTC capture time, module version, tenant identity,
+per-category coverage and errors, and canonical assignment records sorted by a
+stable identity key. Only the documented canonical fields are serialized; arbitrary
+properties such as access tokens or client secrets are discarded. Apps are covered
+when they have at least one tenant assignment, matching the shared assignment scan.
+With a fixed `-CapturedAtUtc`, equivalent inputs produce byte-identical UTF-8 JSON
+on every platform. The normal current-time value intentionally changes per capture.
+Difference rows expose an opaque, versioned `IdentityKey`; compare it as a whole but
+do not parse it. When Graph omits an assignment ID, the fallback identity includes
+the assignment intent, so an intent change appears as an Added/Removed pair rather
+than one Changed row.
+
+For scheduled auditing, export to a dated file, compare it with the last accepted
+baseline, and archive or commit the JSON to source control. `Compare-IntuneAssignmentSnapshot`
+rejects malformed schemas, different tenants, failed or unknown scans, and mismatched
+category coverage by default, so a permission or service failure cannot masquerade
+as assignment removal. Optional workloads that cannot be fetched are marked
+`Skipped`; comparison warns and excludes those categories from both snapshots, so
+an unavailable optional workload produces neither false removals nor false additions.
+Failed and unknown categories remain blocked. The explicit `-AllowIncompleteCoverage` and
+`-AllowCoverageMismatch` switches are intended for investigated exceptions, not
+routine automation. Snapshot files contain tenant configuration and names, so use
+the same repository access controls as other Intune configuration exports.
+Snapshots built from `-InputObject` default to incomplete because the exporter
+cannot see an upstream command's error stream. Supply the full `-CoverageCategory`
+set and `-CoverageComplete` only when the producer is known to have completed;
+otherwise pass structured `-CoverageError` entries and keep the snapshot blocked
+from routine comparison.
 
 `Get-IntuneGroupAssignment` CSV/Excel exports include `GroupId`, `GroupName`,
 `GroupType`, `MembershipType`, and `GroupMail` on every group and policy/app
@@ -396,6 +503,14 @@ exported as empty fields, while the absence of an assignment filter is represent
 consistently as `None`. Values beginning with spreadsheet formula prefixes are
 escaped with a leading apostrophe. Use `-NoCSVReport` for HTML-only output.
 
+`Test-IntuneAssignmentFilter` reads the managed device from the Microsoft Graph
+beta `managedDevices` endpoint and returns an
+`IntuneAssignmentChecker.AssignmentFilterEvaluation` object. `Result` and
+`RuleResult` are always `Match`, `NotMatch`, or `Unknown`; incomplete device data,
+unsupported properties or operators, managed-app rules, filter/device platform
+mismatches, ambiguous devices, and malformed input remain `Unknown` rather than
+being guessed.
+
 Available cmdlets:
 
 | Cmdlet                             | Description                                                           |
@@ -404,6 +519,9 @@ Available cmdlets:
 | `Get-IntuneUserAssignment`         | Check assignments for specific users                                  |
 | `Get-IntuneGroupAssignment`        | Check assignments for specific groups                                 |
 | `Get-IntuneDeviceAssignment`       | Check assignments for specific devices                                |
+| `Get-IntuneEffectiveAssignment`    | Explain effective targeting for a user, managed device, or both       |
+| `Export-IntuneAssignmentSnapshot`  | Capture deterministic, schema-versioned assignment JSON              |
+| `Compare-IntuneAssignmentSnapshot` | Report Added, Removed, and Changed records between snapshots          |
 | `Get-IntuneAllPolicies`            | Show all policies and their assignments                               |
 | `Get-IntuneAllUsersAssignment`     | Show all 'All Users' assignments                                      |
 | `Get-IntuneAllDevicesAssignment`   | Show all 'All Devices' assignments                                    |
@@ -414,6 +532,7 @@ Available cmdlets:
 | `Compare-IntuneGroupAssignment`    | Compare assignments between two or more groups                        |
 | `Test-IntuneGroupMembership`       | Simulate adding a user and/or device to a group and show resulting policies |
 | `Test-IntuneGroupRemoval`          | Simulate removing a user and/or device from a group and show lost policies |
+| `Test-IntuneAssignmentFilter`      | Safely evaluate a managed-device assignment filter with tri-state output  |
 | `Search-IntunePolicy`              | Reverse lookup: find all assignment targets for a policy name         |
 | `Search-IntuneSetting`             | Search configured settings across all policies                        |
 | `Update-IntuneSettingDefinition`   | Refresh the local Settings Catalog definition cache                   |
@@ -426,6 +545,7 @@ Common parameters on assignment cmdlets:
 | `-ExportToCSV`           | Export results to CSV                                      |
 | `-ExportPath`            | Path to export the CSV file                                |
 | `-ScopeTagFilter`        | Filter results by scope tag name                           |
+| `-PassThru`              | Return `IntuneAssignmentChecker.AssignmentRecord` objects  |
 
 Common parameters on `Connect-IntuneAssignmentChecker`:
 

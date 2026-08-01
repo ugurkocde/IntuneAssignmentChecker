@@ -65,7 +65,7 @@ function Get-IntuneUserDeviceAssignment {
     if ($devName -match '^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$') {
         try {
             $selectProps = "id,displayName,operatingSystem,operatingSystemVersion"
-            $directDevice = Invoke-MgGraphRequest -Uri "$script:GraphEndpoint/beta/devices/$($devName)?`$select=$selectProps" -Method Get
+            $directDevice = Invoke-IACGraphRequest -Uri "$script:GraphEndpoint/beta/devices/$($devName)?`$select=$selectProps" -Method Get
             $deviceInfo = @{
                 Id              = $directDevice.id
                 DisplayName     = $directDevice.displayName
@@ -166,13 +166,17 @@ function Get-IntuneUserDeviceAssignment {
         ESPProfiles                 = [System.Collections.ArrayList]::new()
         CloudPCProvisioningPolicies = [System.Collections.ArrayList]::new()
         CloudPCUserSettings         = [System.Collections.ArrayList]::new()
+        WindowsFeatureUpdates       = [System.Collections.ArrayList]::new()
+        WindowsQualityUpdates       = [System.Collections.ArrayList]::new()
+        WindowsDriverUpdates        = [System.Collections.ArrayList]::new()
+        WindowsQualityUpdatePolicies = [System.Collections.ArrayList]::new()
     }
 
     # Helper: standard fetch -> resolve -> classify pattern for generic categories
     $processGeneric = {
-        param($entityType, $bucketKey, [switch]$SkipPlatformCheck)
+        param($entityType, $bucketKey, [switch]$SkipPlatformCheck, [switch]$Quiet)
 
-        $items = Get-IntuneEntities -EntityType $entityType
+        $items = Get-IntuneEntities -EntityType $entityType -Quiet:$Quiet
         foreach ($item in $items) {
             $assignments = Get-IntuneAssignments -EntityType $entityType -EntityId $item.id
             $reason = Resolve-AssignmentReason -Assignments $assignments -GroupMembershipIds $combinedGroupIds -IncludeReasons $includeReasons
@@ -209,7 +213,7 @@ function Get-IntuneUserDeviceAssignment {
         foreach ($policy in $matchingIntents) {
             if (-not $processedSet.Add($policy.id)) { continue }
             try {
-                $resp = Invoke-MgGraphRequest -Uri "$script:GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
+                $resp = Invoke-IACGraphRequest -Uri "$script:GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
             }
             catch {
                 Write-Host "Error fetching assignments for intent $($policy.displayName): $($_.Exception.Message)" -ForegroundColor Red
@@ -311,12 +315,16 @@ function Get-IntuneUserDeviceAssignment {
             [void]$relevantPolicies.ESPProfiles.Add($esp)
         }
 
-        Write-Host "  Cloud PC Provisioning / User Settings..." -ForegroundColor Yellow
+        Write-Host "  Cloud PC and Windows Update policies..." -ForegroundColor Yellow
         try {
-            & $processGeneric "virtualEndpoint/provisioningPolicies" "CloudPCProvisioningPolicies" -SkipPlatformCheck
-            & $processGeneric "virtualEndpoint/userSettings" "CloudPCUserSettings" -SkipPlatformCheck
+            & $processGeneric "virtualEndpoint/provisioningPolicies" "CloudPCProvisioningPolicies" -SkipPlatformCheck -Quiet
+            & $processGeneric "virtualEndpoint/userSettings" "CloudPCUserSettings" -SkipPlatformCheck -Quiet
+            & $processGeneric "windowsFeatureUpdateProfiles" "WindowsFeatureUpdates" -SkipPlatformCheck -Quiet
+            & $processGeneric "windowsQualityUpdateProfiles" "WindowsQualityUpdates" -SkipPlatformCheck -Quiet
+            & $processGeneric "windowsDriverUpdateProfiles" "WindowsDriverUpdates" -SkipPlatformCheck -Quiet
+            & $processGeneric "windowsQualityUpdatePolicies" "WindowsQualityUpdatePolicies" -SkipPlatformCheck -Quiet
         }
-        catch { Write-Verbose "Skipping - Windows 365 may not be licensed for this tenant" }
+        catch { Write-Verbose "Skipping an optional Cloud PC or Windows Update workload: $($_.Exception.Message)" }
     }
 
     # ── App Protection (per-platform endpoints, user-targeted only) ──────────
@@ -327,7 +335,7 @@ function Get-IntuneUserDeviceAssignment {
         $assignmentsUri = Get-AppProtectionAssignmentUri -Policy $policy
         if (-not $assignmentsUri) { continue }
         try {
-            $resp = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
+            $resp = Invoke-IACGraphRequest -Uri $assignmentsUri -Method Get
             $assignmentList = foreach ($a in $resp.value) {
                 [PSCustomObject]@{
                     Reason  = switch ($a.target.'@odata.type') {
@@ -375,12 +383,8 @@ function Get-IntuneUserDeviceAssignment {
     $appUri = "$script:GraphEndpoint/beta/deviceAppManagement/mobileApps?`$filter=isAssigned eq true&`$select=id,displayName,roleScopeTagIds"
     $allApps = [System.Collections.Generic.List[object]]::new()
     try {
-        $appResponse = Invoke-MgGraphRequest -Uri $appUri -Method Get
-        if ($appResponse.value) { $allApps.AddRange([object[]]$appResponse.value) }
-        while ($appResponse.'@odata.nextLink') {
-            $appResponse = Invoke-MgGraphRequest -Uri $appResponse.'@odata.nextLink' -Method Get
-            if ($appResponse.value) { $allApps.AddRange([object[]]$appResponse.value) }
-        }
+        $pagedApps = @((Invoke-IACGraphRequest -Uri $appUri -Method Get).value)
+        if ($pagedApps.Count -gt 0) { $allApps.AddRange([object[]]$pagedApps) }
     }
     catch {
         Write-Host "Error fetching applications: $($_.Exception.Message)" -ForegroundColor Red
@@ -392,7 +396,7 @@ function Get-IntuneUserDeviceAssignment {
 
         try {
             $assignmentsUri = "$script:GraphEndpoint/beta/deviceAppManagement/mobileApps('$($app.id)')/assignments"
-            $resp = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
+            $resp = Invoke-IACGraphRequest -Uri $assignmentsUri -Method Get
 
             # Single pass: capture exclusion membership, the winning include, and the intent.
             # We need the intent from an inclusion to know which app bucket to route into,
@@ -517,6 +521,10 @@ function Get-IntuneUserDeviceAssignment {
         ESPProfiles                 = "Enrollment Status Page Profiles"
         CloudPCProvisioningPolicies = "Cloud PC Provisioning"
         CloudPCUserSettings         = "Cloud PC User Settings"
+        WindowsFeatureUpdates       = "Windows Feature Update Profiles"
+        WindowsQualityUpdates       = "Windows Quality Update Profiles"
+        WindowsDriverUpdates        = "Windows Driver Update Profiles"
+        WindowsQualityUpdatePolicies = "Windows Quality Update Policies"
     }
 
     $totalEffective = 0
@@ -589,6 +597,10 @@ function Get-IntuneUserDeviceAssignment {
     Add-ExportData -ExportData $exportData -Category "Enrollment Status Page Profile"        -Items $relevantPolicies.ESPProfiles                 -AssignmentReason { param($i) "$($i.Source) | $($i.AssignmentReason)" }
     Add-ExportData -ExportData $exportData -Category "Cloud PC Provisioning Policy"          -Items $relevantPolicies.CloudPCProvisioningPolicies -AssignmentReason { param($i) "$($i.Source) | $($i.AssignmentReason)" }
     Add-ExportData -ExportData $exportData -Category "Cloud PC User Setting"                 -Items $relevantPolicies.CloudPCUserSettings         -AssignmentReason { param($i) "$($i.Source) | $($i.AssignmentReason)" }
+    Add-ExportData -ExportData $exportData -Category "Windows Feature Update Profile"        -Items $relevantPolicies.WindowsFeatureUpdates       -AssignmentReason { param($i) "$($i.Source) | $($i.AssignmentReason)" }
+    Add-ExportData -ExportData $exportData -Category "Windows Quality Update Profile"        -Items $relevantPolicies.WindowsQualityUpdates       -AssignmentReason { param($i) "$($i.Source) | $($i.AssignmentReason)" }
+    Add-ExportData -ExportData $exportData -Category "Windows Driver Update Profile"         -Items $relevantPolicies.WindowsDriverUpdates        -AssignmentReason { param($i) "$($i.Source) | $($i.AssignmentReason)" }
+    Add-ExportData -ExportData $exportData -Category "Windows Quality Update Policy"         -Items $relevantPolicies.WindowsQualityUpdatePolicies -AssignmentReason { param($i) "$($i.Source) | $($i.AssignmentReason)" }
 
     Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneUserDeviceAssignments.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath -ExportToCSV:$ExportToCSV -ParameterMode:$parameterMode
 }

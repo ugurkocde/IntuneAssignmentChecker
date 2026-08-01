@@ -1,5 +1,6 @@
 function Get-IntuneUserAssignment {
     [CmdletBinding()]
+    [OutputType('IntuneAssignmentChecker.AssignmentRecord')]
     param(
         [Parameter(Mandatory = $false)]
         [string]$UserPrincipalNames,
@@ -11,7 +12,10 @@ function Get-IntuneUserAssignment {
         [string]$ExportPath,
 
         [Parameter(Mandatory = $false)]
-        [string]$ScopeTagFilter
+        [string]$ScopeTagFilter,
+
+        [Parameter(Mandatory = $false)]
+        [switch]$PassThru
     )
 
     Write-Host "User selection chosen" -ForegroundColor Green
@@ -54,6 +58,7 @@ function Get-IntuneUserAssignment {
     }
 
     $exportData = [System.Collections.ArrayList]::new()
+    $passThruRecords = [System.Collections.Generic.List[object]]::new()
 
     # Renders one legacy three-column section (name/ID/assignment). The Device
     # Configurations and App Protection sections keep their bespoke extra column below.
@@ -240,7 +245,7 @@ function Get-IntuneUserAssignment {
         $memberGroupIds = @($groupMemberships.id)
         $appProgress = @{ Current = 0; Total = $null; FilteredTotal = $null }
 
-        $scanResult = Invoke-IntuneCategoryScan -Categories $categories -ProcessEntity $processEntity -ShowProgress -EntityCache $entityCache
+        $scanResult = Invoke-IntuneCategoryScan -Categories $categories -ProcessEntity $processEntity -ShowProgress -EntityCache $entityCache -BuildRecords:$PassThru
         $relevantPolicies = $scanResult.Buckets
 
         # Apply scope tag filter if specified
@@ -250,11 +255,18 @@ function Get-IntuneUserAssignment {
             }
         }
 
+        if ($PassThru) {
+            $selectedRecords = @(Select-IACAssignmentRecord -Records $scanResult.Records -Buckets $relevantPolicies `
+                    -TargetTypes @('AllUsers', 'Group') -GroupIds $memberGroupIds `
+                    -SubjectType 'User' -SubjectId $userInfo.Id -SubjectName $upn -Source 'Get-IntuneUserAssignment')
+            foreach ($record in $selectedRecords) { $passThruRecords.Add($record) }
+        }
+
         # Display results
         Write-Host "`nAssignments for User: $upn" -ForegroundColor Green
 
         # Calculate category summary
-        $categoryNames = @('DeviceConfigs', 'ImportedAdministrativeTemplates', 'SettingsCatalog', 'CompliancePolicies', 'AppProtectionPolicies', 'AppConfigurationPolicies', 'PlatformScripts', 'HealthScripts', 'AppsRequired', 'AppsAvailable', 'AppsUninstall', 'AntivirusProfiles', 'DiskEncryptionProfiles', 'FirewallProfiles', 'EndpointDetectionProfiles', 'AttackSurfaceProfiles', 'AccountProtectionProfiles', 'CloudPCProvisioningPolicies', 'CloudPCUserSettings')
+        $categoryNames = @('DeviceConfigs', 'ImportedAdministrativeTemplates', 'SettingsCatalog', 'CompliancePolicies', 'AppProtectionPolicies', 'AppConfigurationPolicies', 'PlatformScripts', 'HealthScripts', 'AppsRequired', 'AppsAvailable', 'AppsUninstall', 'AntivirusProfiles', 'DiskEncryptionProfiles', 'FirewallProfiles', 'EndpointDetectionProfiles', 'AttackSurfaceProfiles', 'AccountProtectionProfiles', 'WindowsFeatureUpdates', 'WindowsQualityUpdates', 'WindowsDriverUpdates', 'WindowsQualityUpdatePolicies', 'CloudPCProvisioningPolicies', 'CloudPCUserSettings')
         $nonEmptyCount = ($categoryNames | Where-Object { $relevantPolicies[$_].Count -gt 0 }).Count
         $totalDisplayCategories = $categoryNames.Count
         Write-Host "`nFound assignments in $nonEmptyCount of $totalDisplayCategories categories." -ForegroundColor Cyan
@@ -339,6 +351,10 @@ function Get-IntuneUserAssignment {
             @{ Title = 'Endpoint Security - Endpoint Detection and Response Profiles'; Bucket = 'EndpointDetectionProfiles'; NameLabel = 'Profile Name'; IdLabel = 'Profile ID'; GetName = $profileNameFirst }
             @{ Title = 'Endpoint Security - Attack Surface Reduction Profiles'; Bucket = 'AttackSurfaceProfiles'; NameLabel = 'Profile Name'; IdLabel = 'Profile ID'; GetName = $profileNameFirst }
             @{ Title = 'Endpoint Security - Account Protection Profiles'; Bucket = 'AccountProtectionProfiles'; NameLabel = 'Profile Name'; IdLabel = 'Profile ID'; GetName = $profileNameFirst }
+            @{ Title = 'Windows Feature Update Profiles'; Bucket = 'WindowsFeatureUpdates'; NameLabel = 'Profile Name'; IdLabel = 'Profile ID'; GetName = $profileNameFirst }
+            @{ Title = 'Windows Quality Update Profiles'; Bucket = 'WindowsQualityUpdates'; NameLabel = 'Profile Name'; IdLabel = 'Profile ID'; GetName = $profileNameFirst }
+            @{ Title = 'Windows Driver Update Profiles'; Bucket = 'WindowsDriverUpdates'; NameLabel = 'Profile Name'; IdLabel = 'Profile ID'; GetName = $profileNameFirst }
+            @{ Title = 'Windows Quality Update Policies'; Bucket = 'WindowsQualityUpdatePolicies'; NameLabel = 'Policy Name'; IdLabel = 'Policy ID'; GetName = $policyNameFirst }
             @{ Title = 'Windows 365 Cloud PC Provisioning Policies'; Bucket = 'CloudPCProvisioningPolicies'; NameLabel = 'Policy Name'; IdLabel = 'Policy ID'; GetName = $policyNameFirst }
             @{ Title = 'Windows 365 Cloud PC User Settings'; Bucket = 'CloudPCUserSettings'; NameLabel = 'Setting Name'; IdLabel = 'Setting ID'; GetName = $settingNameFirst }
         )
@@ -369,7 +385,8 @@ function Get-IntuneUserAssignment {
             @{ Ids = @('AppProtectionPolicies'); Reason = { param($item) $item.AssignmentSummary } }
             @{ Ids = @('AppConfigurationPolicies', 'PlatformScripts', 'HealthScripts', 'DeploymentProfiles', 'ESPProfiles',
                     'CloudPCProvisioningPolicies', 'CloudPCUserSettings', 'ESAntivirus', 'ESDiskEncryption', 'ESFirewall',
-                    'ESEndpointDetection', 'ESAttackSurface', 'ESAccountProtection', 'Applications'); Reason = $reasonProperty }
+                    'ESEndpointDetection', 'ESAttackSurface', 'ESAccountProtection', 'WindowsFeatureUpdates', 'WindowsQualityUpdates',
+                    'WindowsDriverUpdates', 'WindowsQualityUpdatePolicies', 'Applications'); Reason = $reasonProperty }
         )
         foreach ($batch in $exportBatches) {
             $batchCategories = foreach ($id in $batch.Ids) { $categories | Where-Object { $_.Id -eq $id } }
@@ -378,5 +395,6 @@ function Get-IntuneUserAssignment {
     }
 
     # Export results if requested
-    Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneUserAssignments.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath -ExportToCSV:$ExportToCSV -ParameterMode:$parameterMode
+    Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneUserAssignments.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath -ExportToCSV:$ExportToCSV -ParameterMode:($parameterMode -or $PassThru)
+    if ($PassThru) { $passThruRecords }
 }

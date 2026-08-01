@@ -27,7 +27,7 @@ function Get-IntuneAssignments {
         # For generic App Protection Policies, determine the specific policy type first
         $policyDetailsUri = "$script:GraphEndpoint/beta/deviceAppManagement/managedAppPolicies/$EntityId"
         try {
-            $policyDetailsResponse = Invoke-MgGraphRequest -Uri $policyDetailsUri -Method Get
+            $policyDetailsResponse = Invoke-IACGraphRequest -Uri $policyDetailsUri -Method Get
             $actualAssignmentsUri = Get-AppProtectionAssignmentUri -Policy $policyDetailsResponse
             if (-not $actualAssignmentsUri) {
                 Write-Warning "Could not determine specific App Protection Policy type for $EntityId from OData type '$($policyDetailsResponse.'@odata.type')'."
@@ -56,6 +56,10 @@ function Get-IntuneAssignments {
         # Imported Administrative Templates use the documented resource-path form.
         $actualAssignmentsUri = "$script:GraphEndpoint/beta/deviceManagement/groupPolicyConfigurations/$EntityId/assignments"
     }
+    elseif ($EntityType -in @('windowsFeatureUpdateProfiles', 'windowsQualityUpdateProfiles', 'windowsDriverUpdateProfiles', 'windowsQualityUpdatePolicies')) {
+        # Windows Update workloads expose assignments on the documented resource path.
+        $actualAssignmentsUri = "$script:GraphEndpoint/beta/deviceManagement/$EntityType/$EntityId/assignments"
+    }
     else {
         # General device management entities
         $actualAssignmentsUri = "$script:GraphEndpoint/beta/deviceManagement/$EntityType('$EntityId')/assignments"
@@ -69,85 +73,18 @@ function Get-IntuneAssignments {
 
     $assignmentsToReturn = [System.Collections.ArrayList]::new()
     try {
-        $allAssignmentsForEntity = [System.Collections.ArrayList]::new()
-        $currentAssignmentsPageUri = $actualAssignmentsUri
-        do {
-            $pagedAssignmentResponse = Invoke-MgGraphRequest -Uri $currentAssignmentsPageUri -Method Get
-            if ($pagedAssignmentResponse -and $null -ne $pagedAssignmentResponse.value) {
-                $allAssignmentsForEntity.AddRange($pagedAssignmentResponse.value)
-            }
-            $currentAssignmentsPageUri = $pagedAssignmentResponse.'@odata.nextLink'
-        } while (![string]::IsNullOrEmpty($currentAssignmentsPageUri))
+        $allAssignmentsForEntity = @((Invoke-IACGraphRequest -Uri $actualAssignmentsUri -Method Get).value)
 
         # Ensure $allAssignmentsForEntity is not null before trying to iterate
         $assignmentList = if ($allAssignmentsForEntity) { $allAssignmentsForEntity } else { @() }
 
         foreach ($assignment in $assignmentList) {
-            $currentAssignmentReason = $null
-            $currentTargetGroupId = $null # Initialize to null
-
-            if ($assignment.target -and $assignment.target.'@odata.type') {
-                $odataType = $assignment.target.'@odata.type'
-
-                if ($odataType -eq '#microsoft.graph.groupAssignmentTarget') {
-                    $currentTargetGroupId = $assignment.target.groupId
-                    if ($effectiveGroupIds.Count -gt 0) {
-                        # Specific group check requested
-                        if ($effectiveGroupIds -contains $currentTargetGroupId) {
-                            $currentAssignmentReason = "Direct Assignment"
-                        }
-                    }
-                    else {
-                        # No specific group, list all group assignments
-                        $currentAssignmentReason = "Group Assignment"
-                    }
-                }
-                elseif ($odataType -eq '#microsoft.graph.exclusionGroupAssignmentTarget') {
-                    $currentTargetGroupId = $assignment.target.groupId
-                    if ($effectiveGroupIds.Count -gt 0) {
-                        # Specific group check requested
-                        if ($effectiveGroupIds -contains $currentTargetGroupId) {
-                            $currentAssignmentReason = "Direct Exclusion"
-                        }
-                    }
-                    else {
-                        # No specific group, list all group exclusions
-                        $currentAssignmentReason = "Group Exclusion"
-                    }
-                }
-                elseif ($effectiveGroupIds.Count -eq 0) {
-                    # Only consider non-group assignments if NOT querying for a specific group
-                    $currentAssignmentReason = switch ($odataType) {
-                        '#microsoft.graph.allLicensedUsersAssignmentTarget' { "All Users" }
-                        '#microsoft.graph.allDevicesAssignmentTarget' { "All Devices" }
-                        default { $null }
-                    }
-                }
-            }
-            else {
+            if (-not $assignment.target -or -not $assignment.target.'@odata.type') {
                 Write-Warning "Assignment item for EntityId '$EntityId' (URI: $actualAssignmentsUri) is missing 'target' or 'target.@odata.type' property. Assignment data: $($assignment | ConvertTo-Json -Depth 3)"
+                continue
             }
-
-            if ($currentAssignmentReason) {
-                $filterId   = $null
-                $filterType = $null
-                if ($assignment.target) {
-                    $rawFilterId   = $assignment.target.deviceAndAppManagementAssignmentFilterId
-                    $rawFilterType = $assignment.target.deviceAndAppManagementAssignmentFilterType
-                    if ($rawFilterType -and $rawFilterType -ne 'none' -and $rawFilterId -and $rawFilterId -ne '00000000-0000-0000-0000-000000000000') {
-                        $filterId   = $rawFilterId
-                        $filterType = $rawFilterType
-                    }
-                }
-
-                $null = $assignmentsToReturn.Add([PSCustomObject]@{
-                        Reason     = $currentAssignmentReason
-                        GroupId    = $currentTargetGroupId
-                        Apps       = $null # 'Apps' property is not directly available from general assignments endpoint
-                        FilterId   = $filterId
-                        FilterType = $filterType
-                    })
-            }
+            $normalizedAssignment = ConvertTo-IACNormalizedAssignment -Assignment $assignment -GroupIds $effectiveGroupIds
+            if ($normalizedAssignment) { $null = $assignmentsToReturn.Add($normalizedAssignment) }
         }
     }
     catch {

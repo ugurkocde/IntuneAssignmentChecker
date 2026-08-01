@@ -1,5 +1,6 @@
 function Get-IntuneAllDevicesAssignment {
     [CmdletBinding()]
+    [OutputType('IntuneAssignmentChecker.AssignmentRecord')]
     param (
         [Parameter()]
         [switch]$ExportToCSV,
@@ -8,7 +9,10 @@ function Get-IntuneAllDevicesAssignment {
         [string]$ExportPath,
 
         [Parameter()]
-        [string]$ScopeTagFilter
+        [string]$ScopeTagFilter,
+
+        [Parameter()]
+        [switch]$PassThru
     )
 
     Write-Host "Fetching all 'All Devices' assignments..." -ForegroundColor Green
@@ -38,6 +42,7 @@ function Get-IntuneAllDevicesAssignment {
             'DeviceConfigurations', 'ImportedAdministrativeTemplates', 'SettingsCatalog', 'CompliancePolicies', 'AppProtectionPolicies',
             'AppConfigurationPolicies', 'Applications', 'PlatformScripts', 'HealthScripts',
             'DeploymentProfiles', 'ESPProfiles',
+            'WindowsFeatureUpdates', 'WindowsQualityUpdates', 'WindowsDriverUpdates', 'WindowsQualityUpdatePolicies',
             'ESAntivirus', 'ESDiskEncryption', 'ESFirewall', 'ESEndpointDetection', 'ESAttackSurface', 'ESAccountProtection')) {
         $categoryById[$id]
     }
@@ -87,7 +92,7 @@ function Get-IntuneAllDevicesAssignment {
         }
     }
 
-    $scanResult = Invoke-IntuneCategoryScan -Categories $scanCategories -ProcessEntity $processEntity -ShowProgress
+    $scanResult = Invoke-IntuneCategoryScan -Categories $scanCategories -ProcessEntity $processEntity -ShowProgress -BuildRecords:$PassThru
     $allDevicesAssignments = $scanResult.Buckets
 
     # Apply scope tag filter if specified
@@ -130,6 +135,10 @@ function Get-IntuneAllDevicesAssignment {
         @{ Bucket = 'AccountProtectionProfiles'; Header = 'Endpoint Security - Account Protection Profiles'; Empty = 'Account Protection Profiles'; Line = { param($item) "Account Protection Profile Name: $(Get-NameWithUnnamedFallback $item 'Unnamed Account Protection Profile'), Profile ID: $($item.id)" } }
         @{ Bucket = 'DeploymentProfiles'; Header = 'Autopilot Deployment Profiles'; Empty = 'Autopilot Deployment Profiles'; Line = { param($item) "Deployment Profile Name: $(Get-NamePreferringDisplayName $item), Profile ID: $($item.id)" } }
         @{ Bucket = 'ESPProfiles'; Header = 'Enrollment Status Page Profiles'; Empty = 'Enrollment Status Page Profiles'; Line = { param($item) "Enrollment Status Page Name: $(Get-NamePreferringDisplayName $item), Profile ID: $($item.id)" } }
+        @{ Bucket = 'WindowsFeatureUpdates'; Header = 'Windows Feature Update Profiles'; Empty = 'Windows Feature Update Profiles'; Line = { param($item) "Feature Update Profile Name: $(Get-NamePreferringDisplayName $item), Profile ID: $($item.id)" } }
+        @{ Bucket = 'WindowsQualityUpdates'; Header = 'Windows Quality Update Profiles'; Empty = 'Windows Quality Update Profiles'; Line = { param($item) "Quality Update Profile Name: $(Get-NamePreferringDisplayName $item), Profile ID: $($item.id)" } }
+        @{ Bucket = 'WindowsDriverUpdates'; Header = 'Windows Driver Update Profiles'; Empty = 'Windows Driver Update Profiles'; Line = { param($item) "Driver Update Profile Name: $(Get-NamePreferringDisplayName $item), Profile ID: $($item.id)" } }
+        @{ Bucket = 'WindowsQualityUpdatePolicies'; Header = 'Windows Quality Update Policies'; Empty = 'Windows Quality Update Policies'; Line = { param($item) "Quality Update Policy Name: $(Get-NamePreferringDisplayName $item), Policy ID: $($item.id)" } }
     )
 
     foreach ($spec in $displaySpecs) {
@@ -149,11 +158,16 @@ function Get-IntuneAllDevicesAssignment {
             'DeviceConfigurations', 'ImportedAdministrativeTemplates', 'SettingsCatalog', 'CompliancePolicies', 'AppProtectionPolicies',
             'AppConfigurationPolicies', 'PlatformScripts', 'HealthScripts', 'Applications',
             'ESAntivirus', 'ESDiskEncryption', 'ESFirewall', 'ESEndpointDetection', 'ESAttackSurface', 'ESAccountProtection',
-            'DeploymentProfiles', 'ESPProfiles')) {
+            'DeploymentProfiles', 'ESPProfiles', 'WindowsFeatureUpdates', 'WindowsQualityUpdates', 'WindowsDriverUpdates',
+            'WindowsQualityUpdatePolicies')) {
         $categoryById[$id]
     }
     Add-CategoryExportData -ExportData $exportData -Categories $exportCategories -Buckets $allDevicesAssignments -AssignmentReason "All Devices"
 
     # Export results if requested
-    Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneAllDevicesAssignments.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath -ExportToCSV:$ExportToCSV -ParameterMode:$parameterMode
+    Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneAllDevicesAssignments.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath -ExportToCSV:$ExportToCSV -ParameterMode:($parameterMode -or $PassThru)
+    if ($PassThru) {
+        Select-IACAssignmentRecord -Records $scanResult.Records -Buckets $allDevicesAssignments `
+            -TargetTypes @('AllDevices') -SubjectType 'Tenant' -SubjectName 'All Devices' -Source 'Get-IntuneAllDevicesAssignment'
+    }
 }

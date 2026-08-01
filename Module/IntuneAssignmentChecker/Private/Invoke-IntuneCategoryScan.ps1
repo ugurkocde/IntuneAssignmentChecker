@@ -3,6 +3,7 @@ function Invoke-IntuneCategoryScan {
     # PSReviewUnusedParameter cannot trace usage inside the nested helper functions below
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'ProcessEntity')]
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'EntityPreFilter')]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'BuildRecords')]
     param (
         [Parameter(Mandatory = $true)]
         [object[]]$Categories,
@@ -30,7 +31,10 @@ function Invoke-IntuneCategoryScan {
         # Caller-owned cache keyed by EntityType string; lets multi-target loops fetch
         # each entity set once per run.
         [Parameter(Mandatory = $false)]
-        [hashtable]$EntityCache
+        [hashtable]$EntityCache,
+
+        [Parameter(Mandatory = $false)]
+        [switch]$BuildRecords
     )
 
     if ($null -eq $EntityCache) { $EntityCache = @{} }
@@ -45,27 +49,20 @@ function Invoke-IntuneCategoryScan {
     }
 
     $scanErrors = [System.Collections.Generic.List[object]]::new()
+    $skippedCategories = [System.Collections.Generic.List[object]]::new()
+    $records = [System.Collections.Generic.List[object]]::new()
 
     function Get-CachedEntitySet {
-        param([string]$EntityType)
+        param([string]$EntityType, [switch]$Quiet)
         if (-not $EntityCache.ContainsKey($EntityType)) {
-            $EntityCache[$EntityType] = @(Get-IntuneEntities -EntityType $EntityType)
+            $EntityCache[$EntityType] = @(Get-IntuneEntities -EntityType $EntityType -Quiet:$Quiet)
         }
         return , @($EntityCache[$EntityType])
     }
 
     function Get-PagedGraphValue {
         param([string]$Uri)
-        $items = [System.Collections.Generic.List[object]]::new()
-        $currentUri = $Uri
-        do {
-            $response = Invoke-MgGraphRequest -Uri $currentUri -Method Get
-            if ($response -and $null -ne $response.value) {
-                $items.AddRange(@($response.value))
-            }
-            $currentUri = $response.'@odata.nextLink'
-        } while (![string]::IsNullOrEmpty($currentUri))
-        return , $items
+        return , @((Invoke-IACGraphRequest -Uri $Uri -Method Get).value)
     }
 
     # Normalizes raw Graph assignment objects to the standard record shape, reproducing
@@ -76,55 +73,8 @@ function Invoke-IntuneCategoryScan {
         param([object[]]$RawAssignments)
         $normalized = [System.Collections.Generic.List[object]]::new()
         foreach ($assignment in $RawAssignments) {
-            $reason = $null
-            $targetGroupId = $null
-            $odataType = if ($assignment.target) { $assignment.target.'@odata.type' } else { $null }
-
-            if ($odataType -eq '#microsoft.graph.groupAssignmentTarget') {
-                $targetGroupId = $assignment.target.groupId
-                if ($AssignmentGroupIds.Count -gt 0) {
-                    if ($AssignmentGroupIds -contains $targetGroupId) { $reason = 'Direct Assignment' }
-                }
-                else {
-                    $reason = 'Group Assignment'
-                }
-            }
-            elseif ($odataType -eq '#microsoft.graph.exclusionGroupAssignmentTarget') {
-                $targetGroupId = $assignment.target.groupId
-                if ($AssignmentGroupIds.Count -gt 0) {
-                    if ($AssignmentGroupIds -contains $targetGroupId) { $reason = 'Direct Exclusion' }
-                }
-                else {
-                    $reason = 'Group Exclusion'
-                }
-            }
-            elseif ($AssignmentGroupIds.Count -eq 0) {
-                $reason = switch ($odataType) {
-                    '#microsoft.graph.allLicensedUsersAssignmentTarget' { 'All Users' }
-                    '#microsoft.graph.allDevicesAssignmentTarget' { 'All Devices' }
-                    default { $null }
-                }
-            }
-
-            if ($reason) {
-                $filterId = $null
-                $filterType = $null
-                if ($assignment.target) {
-                    $rawFilterId = $assignment.target.deviceAndAppManagementAssignmentFilterId
-                    $rawFilterType = $assignment.target.deviceAndAppManagementAssignmentFilterType
-                    if ($rawFilterType -and $rawFilterType -ne 'none' -and $rawFilterId -and $rawFilterId -ne '00000000-0000-0000-0000-000000000000') {
-                        $filterId = $rawFilterId
-                        $filterType = $rawFilterType
-                    }
-                }
-
-                $normalized.Add([PSCustomObject]@{
-                        Reason     = $reason
-                        GroupId    = $targetGroupId
-                        FilterId   = $filterId
-                        FilterType = $filterType
-                    })
-            }
+            $item = ConvertTo-IACNormalizedAssignment -Assignment $assignment -GroupIds $AssignmentGroupIds
+            if ($item) { $normalized.Add($item) }
         }
         return , $normalized
     }
@@ -137,11 +87,25 @@ function Invoke-IntuneCategoryScan {
 
     function Invoke-ProcessEntityCallback {
         param($Category, $Entity, $Assignments, $RawAssignments)
+        $entityRecords = [System.Collections.Generic.List[object]]::new()
+        if ($BuildRecords) {
+            if ($Assignments.Count -eq 0) {
+                $noneAssignment = Get-IACNoAssignmentPlaceholder
+                $entityRecords.Add((ConvertTo-IACAssignmentRecord -Category $Category -Entity $Entity -Assignment $noneAssignment))
+            }
+            else {
+                foreach ($assignment in $Assignments) {
+                    $entityRecords.Add((ConvertTo-IACAssignmentRecord -Category $Category -Entity $Entity -Assignment $assignment))
+                }
+            }
+            foreach ($record in $entityRecords) { $records.Add($record) }
+        }
         $context = [PSCustomObject]@{
             Category       = $Category
             Entity         = $Entity
             Assignments    = $Assignments
             RawAssignments = $RawAssignments
+            Records        = $entityRecords
             Buckets        = $buckets
         }
         & $ProcessEntity $context
@@ -160,7 +124,7 @@ function Invoke-IntuneCategoryScan {
         try {
             switch ($category.Kind) {
                 'Entity' {
-                    $entities = Get-CachedEntitySet -EntityType $category.EntityType
+                    $entities = Get-CachedEntitySet -EntityType $category.EntityType -Quiet:$category.OptionalFeature
                     if ($category.EntityFilter) {
                         $entities = @($entities | Where-Object $category.EntityFilter)
                     }
@@ -241,6 +205,11 @@ function Invoke-IntuneCategoryScan {
         catch {
             if ($category.OptionalFeature) {
                 # Optional features (e.g. Windows 365) fail quietly when the tenant is not licensed
+                $skippedCategories.Add([PSCustomObject]@{
+                        CategoryId  = $category.Id
+                        DisplayName = $category.DisplayName
+                        Message     = $_.Exception.Message
+                    })
                 Write-Verbose "Skipping optional category '$($category.DisplayName)': $($_.Exception.Message)"
                 continue
             }
@@ -258,7 +227,9 @@ function Invoke-IntuneCategoryScan {
 
     return [PSCustomObject]@{
         Buckets       = $buckets
+        Records       = $records
         Errors        = $scanErrors
+        Skipped       = $skippedCategories
         CategoryCount = $totalCategories
     }
 }

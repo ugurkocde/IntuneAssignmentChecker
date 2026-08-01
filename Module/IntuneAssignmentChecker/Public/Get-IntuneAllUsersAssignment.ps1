@@ -1,5 +1,6 @@
 function Get-IntuneAllUsersAssignment {
     [CmdletBinding()]
+    [OutputType('IntuneAssignmentChecker.AssignmentRecord')]
     param (
         [Parameter()]
         [switch]$ExportToCSV,
@@ -8,7 +9,10 @@ function Get-IntuneAllUsersAssignment {
         [string]$ExportPath,
 
         [Parameter()]
-        [string]$ScopeTagFilter
+        [string]$ScopeTagFilter,
+
+        [Parameter()]
+        [switch]$PassThru
     )
 
     Write-Host "Fetching all 'All Users' assignments..." -ForegroundColor Green
@@ -76,7 +80,7 @@ function Get-IntuneAllUsersAssignment {
         }
     }
 
-    $scanResult = Invoke-IntuneCategoryScan -Categories $categories -ProcessEntity $processEntity -ShowProgress
+    $scanResult = Invoke-IntuneCategoryScan -Categories $categories -ProcessEntity $processEntity -ShowProgress -BuildRecords:$PassThru
     $allUsersAssignments = $scanResult.Buckets
 
     # Apply scope tag filter if specified
@@ -176,6 +180,20 @@ function Get-IntuneAllUsersAssignment {
         "Enrollment Status Page Profile Name: $profileName, Profile ID: $($policyProfile.id)"
     }
 
+    foreach ($updateSpec in @(
+            @{ Bucket = 'WindowsFeatureUpdates'; Header = 'Windows Feature Update Profiles'; Label = 'Feature Update Profile' }
+            @{ Bucket = 'WindowsQualityUpdates'; Header = 'Windows Quality Update Profiles'; Label = 'Quality Update Profile' }
+            @{ Bucket = 'WindowsDriverUpdates'; Header = 'Windows Driver Update Profiles'; Label = 'Driver Update Profile' }
+            @{ Bucket = 'WindowsQualityUpdatePolicies'; Header = 'Windows Quality Update Policies'; Label = 'Quality Update Policy' }
+        )) {
+        $label = $updateSpec.Label
+        Show-AllUsersSection -Header $updateSpec.Header -EmptyLabel $updateSpec.Header -Items $allUsersAssignments[$updateSpec.Bucket] -Line {
+            param($item)
+            $name = if ($item.displayName) { $item.displayName } else { $item.name }
+            "$label Name: $name, ID: $($item.id)"
+        }
+    }
+
     # Add to export data. The legacy CSV row order follows the display order above,
     # where the app buckets came after the script categories, so export in that order
     # rather than fetch order.
@@ -183,11 +201,16 @@ function Get-IntuneAllUsersAssignment {
         'DeviceConfigurations', 'ImportedAdministrativeTemplates', 'SettingsCatalog', 'CompliancePolicies', 'AppProtectionPolicies',
         'AppConfigurationPolicies', 'PlatformScripts', 'HealthScripts', 'Applications',
         'ESAntivirus', 'ESDiskEncryption', 'ESFirewall', 'ESEndpointDetection', 'ESAttackSurface',
-        'ESAccountProtection', 'DeploymentProfiles', 'ESPProfiles'
+        'ESAccountProtection', 'DeploymentProfiles', 'ESPProfiles', 'WindowsFeatureUpdates', 'WindowsQualityUpdates',
+        'WindowsDriverUpdates', 'WindowsQualityUpdatePolicies'
     )
     $exportCategories = foreach ($id in $exportOrderIds) { $categories | Where-Object { $_.Id -eq $id } }
     Add-CategoryExportData -ExportData $exportData -Categories $exportCategories -Buckets $allUsersAssignments -AssignmentReason "All Users"
 
     # Export results if requested
-    Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneAllUsersAssignments.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath -ExportToCSV:$ExportToCSV -ParameterMode:$parameterMode
+    Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneAllUsersAssignments.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath -ExportToCSV:$ExportToCSV -ParameterMode:($parameterMode -or $PassThru)
+    if ($PassThru) {
+        Select-IACAssignmentRecord -Records $scanResult.Records -Buckets $allUsersAssignments `
+            -TargetTypes @('AllUsers') -SubjectType 'Tenant' -SubjectName 'All Users' -Source 'Get-IntuneAllUsersAssignment'
+    }
 }

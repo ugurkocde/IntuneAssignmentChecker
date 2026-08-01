@@ -1,5 +1,6 @@
 function Get-IntuneGroupAssignment {
     [CmdletBinding()]
+    [OutputType('IntuneAssignmentChecker.AssignmentRecord')]
     param(
         [Parameter(Mandatory = $false)]
         [string]$GroupNames,
@@ -14,7 +15,10 @@ function Get-IntuneGroupAssignment {
         [string]$ExportPath,
 
         [Parameter(Mandatory = $false)]
-        [string]$ScopeTagFilter
+        [string]$ScopeTagFilter,
+
+        [Parameter(Mandatory = $false)]
+        [switch]$PassThru
     )
 
     Write-Host "Group selection chosen" -ForegroundColor Green
@@ -37,6 +41,7 @@ function Get-IntuneGroupAssignment {
 
     $groupInputs = $groupInput -split ',' | ForEach-Object { $_.Trim() }
     $exportData = [System.Collections.ArrayList]::new()
+    $passThruRecords = [System.Collections.Generic.List[object]]::new()
 
     # Determine if nested group checking should be enabled
     $checkNestedGroups = $false
@@ -77,8 +82,8 @@ function Get-IntuneGroupAssignment {
             # Try to find group by display name (single quotes escaped for the OData filter)
             $escapedGroupName = $groupInput -replace "'", "''"
             $groupSelect = 'id,displayName,groupTypes,mailEnabled,securityEnabled,mail'
-            $groupUri = "$script:GraphEndpoint/v1.0/groups?`$filter=displayName eq '$escapedGroupName'&`$select=$groupSelect"
-            $groupResponse = Invoke-MgGraphRequest -Uri $groupUri -Method Get
+            $groupUri = "$script:GraphEndpoint/beta/groups?`$filter=displayName eq '$escapedGroupName'&`$select=$groupSelect"
+            $groupResponse = Invoke-IACGraphRequest -Uri $groupUri -Method Get
 
             if ($groupResponse.value.Count -eq 0) {
                 Write-Host "No group found with name: $groupInput" -ForegroundColor Red
@@ -193,7 +198,7 @@ function Get-IntuneGroupAssignment {
             }
         }
 
-        $scanResult = Invoke-IntuneCategoryScan -Categories $categories -ProcessEntity $processEntity -AssignmentGroupIds $allGroupIds -ShowProgress -EntityCache $entityCache
+        $scanResult = Invoke-IntuneCategoryScan -Categories $categories -ProcessEntity $processEntity -AssignmentGroupIds $allGroupIds -ShowProgress -EntityCache $entityCache -BuildRecords:$PassThru
         $relevantPolicies = $scanResult.Buckets
 
         # Apply scope tag filter if specified
@@ -201,6 +206,13 @@ function Get-IntuneGroupAssignment {
             foreach ($key in @($relevantPolicies.Keys)) {
                 $relevantPolicies[$key] = @(Filter-ByScopeTag -Items $relevantPolicies[$key] -FilterTag $ScopeTagFilter -ScopeTagLookup $script:ScopeTagLookup)
             }
+        }
+
+        if ($PassThru) {
+            $selectedRecords = @(Select-IACAssignmentRecord -Records $scanResult.Records -Buckets $relevantPolicies `
+                    -TargetTypes @('Group') -GroupIds $allGroupIds `
+                    -SubjectType 'Group' -SubjectId $groupId -SubjectName $groupName -Source 'Get-IntuneGroupAssignment')
+            foreach ($record in $selectedRecords) { $passThruRecords.Add($record) }
         }
 
         # Display sections in the legacy order with the legacy per-category name resolution.
@@ -232,6 +244,10 @@ function Get-IntuneGroupAssignment {
             @{ Title = 'Endpoint Security - EDR Profiles'; Bucket = 'EndpointDetectionProfiles' }
             @{ Title = 'Endpoint Security - ASR Profiles'; Bucket = 'AttackSurfaceProfiles' }
             @{ Title = 'Endpoint Security - Account Protection Profiles'; Bucket = 'AccountProtectionProfiles' }
+            @{ Title = 'Windows Feature Update Profiles'; Bucket = 'WindowsFeatureUpdates'; GetName = $displayNameFirst }
+            @{ Title = 'Windows Quality Update Profiles'; Bucket = 'WindowsQualityUpdates'; GetName = $displayNameFirst }
+            @{ Title = 'Windows Driver Update Profiles'; Bucket = 'WindowsDriverUpdates'; GetName = $displayNameFirst }
+            @{ Title = 'Windows Quality Update Policies'; Bucket = 'WindowsQualityUpdatePolicies'; GetName = $displayNameFirst }
         )
         foreach ($section in $displaySections) {
             $sectionParams = @{
@@ -266,7 +282,8 @@ function Get-IntuneGroupAssignment {
             @{ Ids = @('AppProtectionPolicies'); Reason = { param($item) $item.AssignmentSummary } }
             @{ Ids = @('AppConfigurationPolicies', 'PlatformScripts', 'HealthScripts', 'DeploymentProfiles', 'ESPProfiles',
                     'CloudPCProvisioningPolicies', 'CloudPCUserSettings', 'ESAntivirus', 'ESDiskEncryption', 'ESFirewall',
-                    'ESEndpointDetection', 'ESAttackSurface', 'ESAccountProtection', 'Applications'); Reason = $reasonProperty }
+                    'ESEndpointDetection', 'ESAttackSurface', 'ESAccountProtection', 'WindowsFeatureUpdates', 'WindowsQualityUpdates',
+                    'WindowsDriverUpdates', 'WindowsQualityUpdatePolicies', 'Applications'); Reason = $reasonProperty }
         )
         foreach ($batch in $exportBatches) {
             $batchCategories = foreach ($id in $batch.Ids) { $categories | Where-Object { $_.Id -eq $id } }
@@ -275,5 +292,6 @@ function Get-IntuneGroupAssignment {
     }
 
     # Export results if requested
-    Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneGroupAssignments.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath -ExportToCSV:$ExportToCSV -ParameterMode:$parameterMode
+    Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneGroupAssignments.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath -ExportToCSV:$ExportToCSV -ParameterMode:($parameterMode -or $PassThru)
+    if ($PassThru) { $passThruRecords }
 }

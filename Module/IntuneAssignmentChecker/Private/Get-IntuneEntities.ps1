@@ -11,7 +11,12 @@ function Get-IntuneEntities {
         [string]$Select = "",
 
         [Parameter(Mandatory = $false)]
-        [string]$Expand = ""
+        [string]$Expand = "",
+
+        # Optional beta workloads are not available in every tenant. Callers can
+        # suppress the expected warning without changing the empty-result contract.
+        [Parameter(Mandatory = $false)]
+        [switch]$Quiet
     )
 
     # Handle special cases for app management and specific deviceManagement endpoints
@@ -31,31 +36,23 @@ function Get-IntuneEntities {
 
     $entities = [System.Collections.ArrayList]::new() # Initialize as ArrayList
 
-    do {
-        try {
-            $response = Invoke-MgGraphRequest -Uri $currentUri -Method Get -ErrorAction Stop
-            if ($null -ne $response -and $null -ne $response.value) {
-                if ($response.value -is [array]) {
-                    $entities.AddRange($response.value)
-                }
-                else {
-                    $entities.Add($response.value)
-                }
-            }
-            $currentUri = $response.'@odata.nextLink'
+    try {
+        $pagedEntities = @((Invoke-IACGraphRequest -Uri $currentUri -Method Get -ErrorAction Stop).value)
+        if ($pagedEntities.Count -gt 0) { $entities.AddRange([object[]]$pagedEntities) }
+    }
+    catch {
+        $errorMessage = $_.Exception.Message
+        $statusCode = if ($_.Exception.Data.Contains('StatusCode')) { $_.Exception.Data['StatusCode'] } else { $null }
+        if ($statusCode -eq 403 -or $errorMessage -match "403|Forbidden|Authorization_RequestDenied") {
+            Write-Warning "Permission denied (403) for '$EntityType'. Ensure admin consent has been granted for the required Graph API permissions. Run 'Connect-MgGraph -Scopes ...' with the necessary scopes or grant admin consent in Azure AD."
         }
-        catch {
-            $errorMessage = $_.Exception.Message
-            $statusCode = $_.Exception.Response.StatusCode.value__
-            if ($statusCode -eq 403 -or $errorMessage -match "403|Forbidden|Authorization_RequestDenied") {
-                Write-Warning "Permission denied (403) for '$EntityType'. Ensure admin consent has been granted for the required Graph API permissions. Run 'Connect-MgGraph -Scopes ...' with the necessary scopes or grant admin consent in Azure AD."
-            }
-            else {
-                Write-Warning "Error fetching entities for $EntityType from $currentUri : $errorMessage"
-            }
-            $currentUri = $null # Stop pagination on error
+        elseif ($Quiet) {
+            Write-Verbose "Skipping unavailable entity set '$EntityType': $errorMessage"
         }
-    } while ($currentUri)
+        else {
+            Write-Warning "Error fetching entities for ${EntityType}: $errorMessage"
+        }
+    }
 
     return $entities
 }

@@ -21,15 +21,10 @@ function Update-IntuneSettingDefinition {
     $allDefinitions = [System.Collections.ArrayList]::new()
     $uri = "$($script:GraphEndpoint)/beta/deviceManagement/configurationSettings?`$select=id,displayName,description,keywords,baseUri,offsetUri,categoryId"
 
-    $page = 0
-    do {
-        $page++
-        Write-Host "`rFetching page $page..." -NoNewline
-        try {
-            $response = Invoke-MgGraphRequest -Uri $uri -Method Get
-            if ($response.value) {
-                foreach ($def in $response.value) {
-                    $null = $allDefinitions.Add([PSCustomObject]@{
+    Write-Host "`rFetching paged definitions..." -NoNewline
+    try {
+        foreach ($def in @((Invoke-IACGraphRequest -Uri $uri -Method Get).value)) {
+            $null = $allDefinitions.Add([PSCustomObject]@{
                         id          = $def.id
                         displayName = $def.displayName
                         description = $def.description
@@ -37,15 +32,12 @@ function Update-IntuneSettingDefinition {
                         baseUri     = $def.baseUri
                         offsetUri   = $def.offsetUri
                     })
-                }
-            }
-            $uri = $response.'@odata.nextLink'
         }
-        catch {
-            Write-Host "`nError fetching definitions: $($_.Exception.Message)" -ForegroundColor Red
-            return
-        }
-    } while (![string]::IsNullOrEmpty($uri))
+    }
+    catch {
+        Write-Host "`nError fetching definitions: $($_.Exception.Message)" -ForegroundColor Red
+        return
+    }
 
     Write-Host "`rFetched $($allDefinitions.Count) setting definitions." -ForegroundColor Green
 

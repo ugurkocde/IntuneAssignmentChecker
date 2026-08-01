@@ -16,6 +16,11 @@ BeforeAll {
     . (Join-Path $modulePrivate 'Get-AppProtectionAssignmentUri.ps1')
     . (Join-Path $modulePrivate 'Test-ImportedAdministrativeTemplate.ps1')
     . (Join-Path $modulePrivate 'Get-IntuneCategoryDefinition.ps1')
+    . (Join-Path $modulePrivate 'New-IACAssignmentRecord.ps1')
+    . (Join-Path $modulePrivate 'ConvertTo-IACAssignmentRecord.ps1')
+    . (Join-Path $modulePrivate 'ConvertTo-IACNormalizedAssignment.ps1')
+    . (Join-Path $modulePrivate 'Get-IACNoAssignmentPlaceholder.ps1')
+    . (Join-Path $modulePrivate 'Select-IACAssignmentRecord.ps1')
     . (Join-Path $modulePrivate 'Invoke-IntuneCategoryScan.ps1')
     . (Join-Path $modulePrivate 'Add-ExportData.ps1')
     . (Join-Path $modulePrivate 'Add-CategoryExportData.ps1')
@@ -27,7 +32,7 @@ BeforeAll {
 
     # Stub collaborators so Pester can mock them per test
     function Get-IntuneEntities {
-        param([string]$EntityType, [string]$Filter, [string]$Select, [string]$Expand)
+        param([string]$EntityType, [string]$Filter, [string]$Select, [string]$Expand, [switch]$Quiet)
         @()
     }
     function Get-IntuneAssignments {
@@ -37,7 +42,7 @@ BeforeAll {
     function Add-IntentTemplateFamilyInfo {
         param($IntentPolicies)
     }
-    function Invoke-MgGraphRequest {
+    function Invoke-IACGraphRequest {
         param($Uri, $Method)
         @{ value = @() }
     }
@@ -78,7 +83,7 @@ Describe 'Get-IntuneDeviceAssignment' {
         }
         Mock Get-GroupMemberships { @([PSCustomObject]@{ id = $script:memberGroupId; displayName = 'Group One' }) }
         Mock Export-ResultsIfRequested { $script:capturedExport = @($ExportData) }
-        Mock Invoke-MgGraphRequest { @{ value = @() } }
+        Mock Invoke-IACGraphRequest { @{ value = @() } }
     }
 
     It 'exports the Device row first' {
@@ -100,7 +105,9 @@ Describe 'Get-IntuneDeviceAssignment' {
             'Required Apps', 'Available Apps', 'Uninstall Apps',
             'Endpoint Security - Antivirus Profiles', 'Endpoint Security - Disk Encryption Profiles',
             'Endpoint Security - Firewall Profiles', 'Endpoint Security - EDR Profiles',
-            'Endpoint Security - ASR Profiles', 'Endpoint Security - Account Protection Profiles')
+            'Endpoint Security - ASR Profiles', 'Endpoint Security - Account Protection Profiles',
+            'Windows Feature Update Profiles', 'Windows Quality Update Profiles',
+            'Windows Driver Update Profiles', 'Windows Quality Update Policies')
         $script:consoleLines | Should -Contain 'No Device Configurations found for this device.'
     }
 
@@ -165,7 +172,7 @@ Describe 'Get-IntuneDeviceAssignment' {
 
     Context 'applications' {
         BeforeEach {
-            Mock Invoke-MgGraphRequest {
+            Mock Invoke-IACGraphRequest {
                 if ($Uri -like '*mobileApps?*isAssigned*') {
                     return @{ value = @(
                             @{ id = 'app-f14'; displayName = 'F14 App'; isFeatured = $false; isBuiltIn = $false; '@odata.type' = '#microsoft.graph.win32LobApp' }
@@ -216,7 +223,7 @@ Describe 'Get-IntuneDeviceAssignment' {
         It 'never fetches assignments for apps of another platform' {
             Get-IntuneDeviceAssignment -DeviceNames 'PC-1'
 
-            Should -Invoke Invoke-MgGraphRequest -Times 0 -ParameterFilter { $Uri -like "*mobileApps('app-ios')*" }
+            Should -Invoke Invoke-IACGraphRequest -Times 0 -ParameterFilter { $Uri -like "*mobileApps('app-ios')*" }
             @($script:capturedExport | Where-Object { $_.Item -like '*app-ios*' }).Count | Should -Be 0
         }
     }
@@ -232,7 +239,7 @@ Describe 'Get-IntuneDeviceAssignment' {
             }
             @()
         }
-        Mock Invoke-MgGraphRequest {
+        Mock Invoke-IACGraphRequest {
             if ($Uri -like "*windowsManagedAppProtections('mam-member')/assignments*") {
                 return @{ value = @(
                         @{ target = @{ '@odata.type' = '#microsoft.graph.allLicensedUsersAssignmentTarget' } }
@@ -253,7 +260,7 @@ Describe 'Get-IntuneDeviceAssignment' {
         $rows[0].Item | Should -BeExactly 'Member MAM (ID: mam-member)'
         $rows[0].AssignmentReason | Should -BeExactly 'Group Assignment - Group One'
         # Platform-incompatible policies never trigger an assignment fetch
-        Should -Invoke Invoke-MgGraphRequest -Times 0 -ParameterFilter { $Uri -like '*androidManagedAppProtections*' }
+        Should -Invoke Invoke-IACGraphRequest -Times 0 -ParameterFilter { $Uri -like '*androidManagedAppProtections*' }
     }
 
     It 'surfaces Endpoint Security policies from both configurationPolicies and intents' {
@@ -272,7 +279,7 @@ Describe 'Get-IntuneDeviceAssignment' {
             if ($EntityId -eq 'av-1') { return @([PSCustomObject]@{ Reason = 'Group Assignment'; GroupId = $script:memberGroupId; FilterId = $null; FilterType = $null }) }
             @()
         }
-        Mock Invoke-MgGraphRequest {
+        Mock Invoke-IACGraphRequest {
             if ($Uri -like '*intents/av-int-1/assignments*') {
                 return @{ value = @(@{ target = @{ '@odata.type' = '#microsoft.graph.allDevicesAssignmentTarget' } }) }
             }
@@ -322,7 +329,7 @@ Describe 'Get-IntuneDeviceAssignment' {
 
             Should -Invoke Get-IntuneEntities -Exactly -Times 1 -ParameterFilter { $EntityType -eq 'configurationPolicies' }
             Should -Invoke Get-IntuneEntities -Exactly -Times 1 -ParameterFilter { $EntityType -eq 'deviceManagement/intents' }
-            Should -Invoke Invoke-MgGraphRequest -Exactly -Times 1 -ParameterFilter { $Uri -like '*mobileApps?*isAssigned*' }
+            Should -Invoke Invoke-IACGraphRequest -Exactly -Times 1 -ParameterFilter { $Uri -like '*mobileApps?*isAssigned*' }
         }
     }
 
@@ -337,7 +344,7 @@ Describe 'Get-IntuneDeviceAssignment' {
             }
         }
         Mock Get-IntuneAssignments { @([PSCustomObject]@{ Reason = 'All Devices'; GroupId = $null; FilterId = $null; FilterType = $null }) }
-        Mock Invoke-MgGraphRequest {
+        Mock Invoke-IACGraphRequest {
             if ($Uri -like '*mobileApps?*isAssigned*') {
                 return @{ value = @(@{ id = 'app-1'; displayName = 'App'; isFeatured = $false; isBuiltIn = $false; '@odata.type' = '#microsoft.graph.win32LobApp' }) }
             }

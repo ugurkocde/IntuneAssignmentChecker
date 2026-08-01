@@ -7,6 +7,11 @@ BeforeAll {
     . (Join-Path $modulePrivate 'Get-AppProtectionAssignmentUri.ps1')
     . (Join-Path $modulePrivate 'Test-ImportedAdministrativeTemplate.ps1')
     . (Join-Path $modulePrivate 'Get-IntuneCategoryDefinition.ps1')
+    . (Join-Path $modulePrivate 'Get-PolicyPlatform.ps1')
+    . (Join-Path $modulePrivate 'New-IACAssignmentRecord.ps1')
+    . (Join-Path $modulePrivate 'ConvertTo-IACAssignmentRecord.ps1')
+    . (Join-Path $modulePrivate 'ConvertTo-IACNormalizedAssignment.ps1')
+    . (Join-Path $modulePrivate 'Get-IACNoAssignmentPlaceholder.ps1')
     . (Join-Path $modulePrivate 'Invoke-IntuneCategoryScan.ps1')
     . (Join-Path $modulePrivate 'Get-ScopeTagNames.ps1')
     . (Join-Path $modulePrivate 'Add-ExportData.ps1')
@@ -16,7 +21,7 @@ BeforeAll {
 
     # Stub collaborators so Pester can mock them per test
     function Get-IntuneEntities {
-        param([string]$EntityType, [string]$Filter, [string]$Select, [string]$Expand)
+        param([string]$EntityType, [string]$Filter, [string]$Select, [string]$Expand, [switch]$Quiet)
         @()
     }
     function Get-IntuneAssignments {
@@ -26,7 +31,7 @@ BeforeAll {
     function Add-IntentTemplateFamilyInfo {
         param($IntentPolicies)
     }
-    function Invoke-MgGraphRequest {
+    function Invoke-IACGraphRequest {
         param($Uri, $Method)
         @{ value = @() }
     }
@@ -100,7 +105,7 @@ Describe 'Invoke-IntuneCategoryScan' {
         Mock Get-IntuneEntities { @() }
         Mock Get-IntuneAssignments { @() }
         Mock Add-IntentTemplateFamilyInfo {}
-        Mock Invoke-MgGraphRequest { @{ value = @() } }
+        Mock Invoke-IACGraphRequest { @{ value = @() } }
     }
 
     Context 'entity caching' {
@@ -154,7 +159,7 @@ Describe 'Invoke-IntuneCategoryScan' {
                     default { return @() }
                 }
             }
-            Mock Invoke-MgGraphRequest {
+            Mock Invoke-IACGraphRequest {
                 @{ value = @(@{ target = @{ '@odata.type' = '#microsoft.graph.allDevicesAssignmentTarget' } }) }
             }
 
@@ -169,7 +174,7 @@ Describe 'Invoke-IntuneCategoryScan' {
             $script:intentContexts[0].Entity.id | Should -Be 'intent-macos-fv'
             $script:intentContexts[0].Assignments[0].Reason | Should -BeExactly 'All Devices'
             @($script:intentContexts[0].RawAssignments).Count | Should -Be 1
-            Should -Invoke Invoke-MgGraphRequest -Exactly 1 -ParameterFilter { $Uri -like '*deviceManagement/intents/intent-macos-fv/assignments*' }
+            Should -Invoke Invoke-IACGraphRequest -Exactly 1 -ParameterFilter { $Uri -like '*deviceManagement/intents/intent-macos-fv/assignments*' }
         }
     }
 
@@ -194,11 +199,12 @@ Describe 'Invoke-IntuneCategoryScan' {
             $script:processedIds | Should -Be @('comp-1')
             $result.Errors.Count | Should -Be 1
             $result.Errors[0].CategoryId | Should -Be 'DeviceConfigurations'
+            $result.Errors[0].DisplayName | Should -BeExactly 'Device Configurations'
             $result.Errors[0].Message | Should -Match 'boom'
             Should -Invoke Write-Error -Exactly 1
         }
 
-        It 'skips OptionalFeature category failures quietly without an error record' {
+        It 'reports OptionalFeature category failures as skipped without an error record' {
             Mock Get-IntuneEntities {
                 if ($EntityType -eq 'virtualEndpoint/provisioningPolicies') { throw 'not licensed' }
                 return @([PSCustomObject]@{ id = 'comp-1'; displayName = 'Compliance 1' })
@@ -217,6 +223,9 @@ Describe 'Invoke-IntuneCategoryScan' {
 
             $script:processedIds | Should -Be @('comp-1')
             $result.Errors.Count | Should -Be 0
+            $result.Skipped.Count | Should -Be 1
+            $result.Skipped[0].CategoryId | Should -BeExactly 'CloudPCProvisioningPolicies'
+            $result.Skipped[0].Message | Should -Match 'not licensed'
             Should -Invoke Write-Error -Exactly 0
         }
     }
@@ -287,7 +296,7 @@ Describe 'Invoke-IntuneCategoryScan' {
 
     Context 'mobile apps' {
         It 'keeps every assigned app regardless of featured metadata and passes RawAssignments to the callback' {
-            Mock Invoke-MgGraphRequest {
+            Mock Invoke-IACGraphRequest {
                 if ($Uri.Contains('mobileApps?$filter=isAssigned')) {
                     return @{ value = @(
                             @{ id = 'app-1'; displayName = 'Real App'; isFeatured = $false; isBuiltIn = $false }
@@ -330,7 +339,7 @@ Describe 'Invoke-IntuneCategoryScan' {
                 }
                 return @()
             }
-            Mock Invoke-MgGraphRequest {
+            Mock Invoke-IACGraphRequest {
                 @{ value = @(
                         @{ target = @{ '@odata.type' = '#microsoft.graph.groupAssignmentTarget'; groupId = 'grp-1' } }
                         @{ target = @{ '@odata.type' = '#microsoft.graph.exclusionGroupAssignmentTarget'; groupId = 'grp-other' } }
@@ -515,6 +524,10 @@ Describe 'Add-CategoryExportData' {
             'Enrollment Status Page'
             'Windows 365 Cloud PC Provisioning Policy'
             'Windows 365 Cloud PC User Setting'
+            'Windows Feature Update Profile'
+            'Windows Quality Update Profile'
+            'Windows Driver Update Profile'
+            'Windows Quality Update Policy'
             'Endpoint Security - Antivirus'
             'Endpoint Security - Disk Encryption'
             'Endpoint Security - Firewall'
@@ -538,44 +551,68 @@ Describe 'Add-CategoryExportData' {
 }
 
 Describe 'Get-IntuneCategoryDefinition' {
-    It 'returns 17 fetchable categories plus Autopilot/ESP bucket placeholders for UserContext' {
+    It 'returns 21 fetchable categories plus Autopilot/ESP bucket placeholders for UserContext' {
         $categories = Get-IntuneCategoryDefinition -Audience UserContext
-        @($categories | Where-Object { -not $_.BucketOnly }).Count | Should -Be 17
+        @($categories | Where-Object { -not $_.BucketOnly }).Count | Should -Be 21
         @($categories | Where-Object { $_.BucketOnly }).Id | Should -Be @('DeploymentProfiles', 'ESPProfiles')
     }
 
-    It 'returns 17 fetchable categories plus Autopilot/ESP bucket placeholders for DeviceContext' {
+    It 'returns 21 fetchable categories plus Autopilot/ESP bucket placeholders for DeviceContext' {
         $categories = Get-IntuneCategoryDefinition -Audience DeviceContext
-        @($categories | Where-Object { -not $_.BucketOnly }).Count | Should -Be 17
+        @($categories | Where-Object { -not $_.BucketOnly }).Count | Should -Be 21
         @($categories | Where-Object { $_.BucketOnly }).Id | Should -Be @('DeploymentProfiles', 'ESPProfiles')
     }
 
-    It 'returns 19 categories including Imported Administrative Templates, Autopilot and ESP for GroupContext' {
+    It 'returns 23 categories including Windows Update, Imported Administrative Templates, Autopilot and ESP for GroupContext' {
         $categories = Get-IntuneCategoryDefinition -Audience GroupContext
-        @($categories).Count | Should -Be 19
+        @($categories).Count | Should -Be 23
         @($categories | Where-Object { $_.BucketOnly }).Count | Should -Be 0
         $categories.Id | Should -Contain 'DeploymentProfiles'
         $categories.Id | Should -Contain 'ESPProfiles'
     }
 
-    It 'returns 18 categories without Applications for AllPolicies' {
+    It 'returns 22 categories without Applications for AllPolicies' {
         $categories = Get-IntuneCategoryDefinition -Audience AllPolicies
-        @($categories).Count | Should -Be 18
+        @($categories).Count | Should -Be 22
         $categories.Id | Should -Not -Contain 'Applications'
     }
 
-    It 'returns 19 categories with a shared SearchResults bucket for Search' {
+    It 'returns 23 categories with a shared SearchResults bucket for Search' {
         $categories = Get-IntuneCategoryDefinition -Audience Search
-        @($categories).Count | Should -Be 19
+        @($categories).Count | Should -Be 23
         foreach ($category in $categories) {
             $category.BucketKeys | Should -Be @('SearchResults')
         }
     }
 
-    It 'returns 14 categories for Compare' {
+    It 'returns 18 categories for Compare' {
         $categories = Get-IntuneCategoryDefinition -Audience Compare
-        @($categories).Count | Should -Be 14
+        @($categories).Count | Should -Be 18
         $categories.Id | Should -Contain 'ShellScripts'
+    }
+
+    It 'returns a complete 23-category inventory for Effective targeting' {
+        $categories = Get-IntuneCategoryDefinition -Audience Effective
+        @($categories).Count | Should -Be 23
+        @($categories | Where-Object { $_.BucketOnly }).Count | Should -Be 0
+        ($categories | Where-Object Id -eq SettingsCatalog).EntityFilter | Should -Not -BeNullOrEmpty
+    }
+
+    It 'registers every Windows Update workload as an optional shared entity category' {
+        $expected = [ordered]@{
+            WindowsFeatureUpdates = 'windowsFeatureUpdateProfiles'
+            WindowsQualityUpdates = 'windowsQualityUpdateProfiles'
+            WindowsDriverUpdates = 'windowsDriverUpdateProfiles'
+            WindowsQualityUpdatePolicies = 'windowsQualityUpdatePolicies'
+        }
+        foreach ($audience in @('UserContext', 'DeviceContext', 'GroupContext', 'AllPolicies', 'Search', 'Compare', 'Effective')) {
+            $categories = Get-IntuneCategoryDefinition -Audience $audience
+            foreach ($id in $expected.Keys) {
+                $category = $categories | Where-Object Id -eq $id
+                $category.EntityType | Should -BeExactly $expected[$id]
+                $category.OptionalFeature | Should -BeTrue
+            }
+        }
     }
 
     It 'includes custom and mixed imported templates but excludes built-in-only configurations' {
