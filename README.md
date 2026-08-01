@@ -79,6 +79,7 @@ IntuneAssignmentChecker
 - 🔍 Check assignments for users, groups, and devices
 - 📱 View all 'All User' and 'All Device' assignments
 - 🎯 See Intune assignment filters (name and Include/Exclude type) inline on every assignment, in the console, CSV exports, and HTML reports
+- 🛡️ Safely test managed-device assignment-filter rules locally with `Test-IntuneAssignmentFilter` and tri-state `Match`, `NotMatch`, or `Unknown` results; tenant rule text is never executed
 - 🔐 Support for certificate-based and client secret authentication
 - 🔄 Version check on connect with an update notice when a newer PSGallery release is available
 - 📊 Detailed reporting of Configuration Profiles, Compliance Policies, and Applications
@@ -388,6 +389,12 @@ Search-IntuneSetting -SearchTerm "BitLocker"
 # Return automation-friendly objects while retaining the normal console experience
 $records = Get-IntuneAllPolicies -PassThru
 $records | Where-Object AssignmentMode -eq 'Exclude'
+
+# Safely evaluate a cached tenant assignment filter for an Intune managed device
+Test-IntuneAssignmentFilter -DeviceName 'Laptop123' -FilterId '<filter-id>' -FilterMode Include
+
+# Or evaluate an ad hoc managed-device rule without executing it as PowerShell
+Test-IntuneAssignmentFilter -DeviceName 'Laptop123' -Rule '(device.deviceOwnership -eq "Corporate")'
 ```
 
 `Get-IntuneUserAssignment`, `Get-IntuneGroupAssignment`,
@@ -426,6 +433,14 @@ exported as empty fields, while the absence of an assignment filter is represent
 consistently as `None`. Values beginning with spreadsheet formula prefixes are
 escaped with a leading apostrophe. Use `-NoCSVReport` for HTML-only output.
 
+`Test-IntuneAssignmentFilter` reads the managed device from the Microsoft Graph
+beta `managedDevices` endpoint and returns an
+`IntuneAssignmentChecker.AssignmentFilterEvaluation` object. `Result` and
+`RuleResult` are always `Match`, `NotMatch`, or `Unknown`; incomplete device data,
+unsupported properties or operators, managed-app rules, filter/device platform
+mismatches, ambiguous devices, and malformed input remain `Unknown` rather than
+being guessed.
+
 Available cmdlets:
 
 | Cmdlet                             | Description                                                           |
@@ -444,6 +459,7 @@ Available cmdlets:
 | `Compare-IntuneGroupAssignment`    | Compare assignments between two or more groups                        |
 | `Test-IntuneGroupMembership`       | Simulate adding a user and/or device to a group and show resulting policies |
 | `Test-IntuneGroupRemoval`          | Simulate removing a user and/or device from a group and show lost policies |
+| `Test-IntuneAssignmentFilter`      | Safely evaluate a managed-device assignment filter with tri-state output  |
 | `Search-IntunePolicy`              | Reverse lookup: find all assignment targets for a policy name         |
 | `Search-IntuneSetting`             | Search configured settings across all policies                        |
 | `Update-IntuneSettingDefinition`   | Refresh the local Settings Catalog definition cache                   |

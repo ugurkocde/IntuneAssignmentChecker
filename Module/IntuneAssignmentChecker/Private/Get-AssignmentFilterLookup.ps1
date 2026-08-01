@@ -3,11 +3,14 @@ function Get-AssignmentFilterLookup {
     param()
     $lookup = @{}
     try {
-        $uri = "$script:GraphEndpoint/beta/deviceManagement/assignmentFilters?`$select=id,displayName,platform"
+        $uri = "$script:GraphEndpoint/beta/deviceManagement/assignmentFilters?`$select=id,displayName,platform,rule,assignmentFilterManagementType"
         foreach ($filter in @((Invoke-IACGraphRequest -Uri $uri -Method Get).value)) {
             $lookup["$($filter.id)"] = [PSCustomObject]@{
-                Name     = $filter.displayName
-                Platform = $filter.platform
+                Id                             = $filter.id
+                Name                           = $filter.displayName
+                Platform                       = $filter.platform
+                Rule                           = $filter.rule
+                AssignmentFilterManagementType = $filter.assignmentFilterManagementType
             }
         }
     }
