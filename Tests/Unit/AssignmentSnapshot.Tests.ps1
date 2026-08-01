@@ -75,6 +75,21 @@ Describe 'Export-IntuneAssignmentSnapshot' {
         @($loaded.Records[0].ScopeTags).Count | Should -Be 0
     }
 
+    It 'reads the installed version without validating external module dependencies' {
+        Mock Get-Module { $null }
+        Mock Import-PowerShellDataFile { @{ ModuleVersion = '9.8.7' } } -ParameterFilter {
+            $LiteralPath -like '*IntuneAssignmentChecker.psd1'
+        }
+        Mock Test-ModuleManifest { throw 'Required module is unavailable' }
+
+        Get-IACInstalledModuleVersion | Should -BeExactly '9.8.7'
+
+        Should -Invoke Import-PowerShellDataFile -Exactly 1 -ParameterFilter {
+            $LiteralPath -like '*IntuneAssignmentChecker.psd1'
+        }
+        Should -Invoke Test-ModuleManifest -Exactly 0
+    }
+
     It 'writes byte-identical JSON for the same records and capture metadata regardless of input order' {
         $firstPath = Join-Path $TestDrive 'first.json'
         $secondPath = Join-Path $TestDrive 'second.json'
@@ -481,8 +496,8 @@ Describe 'Compare-IntuneAssignmentSnapshot' {
 
 Describe 'Assignment snapshot public surface' {
     It 'exports both snapshot commands from the module manifest' {
-        $manifest = Test-ModuleManifest (Join-Path $moduleRoot 'IntuneAssignmentChecker.psd1')
-        $manifest.ExportedFunctions.Keys | Should -Contain Export-IntuneAssignmentSnapshot
-        $manifest.ExportedFunctions.Keys | Should -Contain Compare-IntuneAssignmentSnapshot
+        $manifestData = Import-PowerShellDataFile -LiteralPath (Join-Path $moduleRoot 'IntuneAssignmentChecker.psd1')
+        $manifestData.FunctionsToExport | Should -Contain Export-IntuneAssignmentSnapshot
+        $manifestData.FunctionsToExport | Should -Contain Compare-IntuneAssignmentSnapshot
     }
 }

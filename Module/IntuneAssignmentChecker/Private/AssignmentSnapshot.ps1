@@ -204,7 +204,11 @@ function Get-IACInstalledModuleVersion {
     if ($loadedModule -and $loadedModule.Version) { return $loadedModule.Version.ToString() }
 
     $manifestPath = Join-Path (Split-Path -Parent $PSScriptRoot) 'IntuneAssignmentChecker.psd1'
-    return (Test-ModuleManifest -Path $manifestPath -ErrorAction Stop).Version.ToString()
+    $manifestData = Import-PowerShellDataFile -LiteralPath $manifestPath -ErrorAction Stop
+    if ([string]::IsNullOrWhiteSpace("$($manifestData.ModuleVersion)")) {
+        throw "Module manifest '$manifestPath' does not declare ModuleVersion."
+    }
+    return "$($manifestData.ModuleVersion)"
 }
 
 function New-IACAssignmentSnapshot {
