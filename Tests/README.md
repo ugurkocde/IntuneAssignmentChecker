@@ -1,11 +1,11 @@
 # IntuneAssignmentChecker Tests
 
-Two layers, matched to actual risk.
+Three layers, matched to actual risk.
 
-## Layer 1: Unit tests (`Tests/Unit/`)
+## Layer 1: Unit and contract tests (`Tests/Unit/`)
 
 Pure-logic Pester tests for the private helpers. No Graph calls, no auth, no
-network. Runs in well under a second.
+network. The full suite normally completes in under a minute.
 
 **What it covers:**
 - `Format-AssignmentFilter` - filter string formatting across include/exclude/none/unknown
@@ -21,6 +21,9 @@ network. Runs in well under a second.
   and README use the least-privilege `GroupMember.Read.All` application role
 - Group membership Graph helpers - verifies the transitive group membership
   endpoint and pagination behavior
+- Graph transport fixtures - verify beta paging plus structured 400, 403, 429,
+  and 5xx handling, retry limits, throttling delays, and output contracts
+  using `Tests/Fixtures/GraphTransport.json`
 
 **Why these tests matter:** most regressions in this codebase are string-format
 changes that slip past static analysis. Unit tests at this layer catch them.
@@ -38,7 +41,24 @@ Runs automatically on push and PR to `main` when any file under `Module/` or
 `Tests/` changes. Matrix is Ubuntu / Windows / macOS, all on PowerShell 7.
 See `.github/workflows/pester.yml`.
 
-## Layer 2: Smoke test (`Tests/Smoke/Run-Smoke.ps1`)
+## Layer 2: Release package tests (`Tests/Release/`)
+
+The release suite validates the module manifest, version and release notes,
+declared package files, the one-to-one mapping between `Public/*.ps1` and
+`FunctionsToExport`, and the commands/alias exposed by an actual package-path
+import. CI runs this as a separate Ubuntu gate after installing the declared
+Microsoft Graph dependency. The PowerShell Gallery workflow repeats unit,
+package, and PSScriptAnalyzer gates before publishing, and release tags must
+match `ModuleVersion` exactly.
+
+### Run locally
+
+```powershell
+Install-Module Microsoft.Graph.Authentication -Scope CurrentUser
+Invoke-Pester ./Tests/Release
+```
+
+## Layer 3: Smoke test (`Tests/Smoke/Run-Smoke.ps1`)
 
 Read-only live Graph calls against a real tenant. Run manually by the
 maintainer before tagging a release. Catches broken Graph URLs, missing

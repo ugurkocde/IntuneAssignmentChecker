@@ -15,10 +15,14 @@ on:
       - '.github/workflows/pester.yml'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   test:
     name: Pester on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -26,7 +30,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install Pester 5
         shell: pwsh
@@ -49,16 +53,54 @@ jobs:
           $config.TestResult.OutputFormat = 'NUnitXml'
           $config.TestResult.OutputPath = './Tests/TestResults.xml'
           $result = Invoke-Pester -Configuration $config
-          if ($result.FailedCount -gt 0) {
-              Write-Error "Pester: $($result.FailedCount) test(s) failed."
-              exit 1
+          if ($result.Result -ne 'Passed' -or $result.FailedCount -gt 0 -or $result.TotalCount -eq 0) {
+              throw "Pester failed: Result=$($result.Result), Failed=$($result.FailedCount), Total=$($result.TotalCount)."
           }
           Write-Host "Pester: $($result.PassedCount) test(s) passed."
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: pester-results-${{ matrix.os }}
           path: Tests/TestResults.xml
+          if-no-files-found: warn
+
+  validate-package:
+    name: Validate module package
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install validation dependencies
+        shell: pwsh
+        run: |
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-Module Pester -MinimumVersion 5.0.0 -Scope CurrentUser -Force -SkipPublisherCheck
+          Install-Module Microsoft.Graph.Authentication -Scope CurrentUser -Force
+
+      - name: Validate manifest, package, and exports
+        shell: pwsh
+        run: |
+          $config = New-PesterConfiguration
+          $config.Run.Path = './Tests/Release'
+          $config.Run.PassThru = $true
+          $config.Output.Verbosity = 'Detailed'
+          $config.TestResult.Enabled = $true
+          $config.TestResult.OutputFormat = 'NUnitXml'
+          $config.TestResult.OutputPath = './Tests/PackageTestResults.xml'
+          $result = Invoke-Pester -Configuration $config
+          if ($result.Result -ne 'Passed' -or $result.FailedCount -gt 0 -or $result.TotalCount -eq 0) {
+              throw "Package validation failed: Result=$($result.Result), Failed=$($result.FailedCount), Total=$($result.TotalCount)."
+          }
+
+      - name: Upload package validation results
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: package-validation-results
+          path: Tests/PackageTestResults.xml
           if-no-files-found: warn

@@ -3,6 +3,8 @@
 
 BeforeAll {
     $moduleRoot = Join-Path $PSScriptRoot '../../Module/IntuneAssignmentChecker'
+    $transportFixture = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../Fixtures/GraphTransport.json') `
+        -Raw | ConvertFrom-Json -Depth 20
 
     function Invoke-MgGraphRequest {
         param([string]$Uri, [string]$Method, [object]$Body, [string]$ErrorAction)
@@ -14,6 +16,45 @@ BeforeAll {
 
     . (Join-Path $moduleRoot 'Private/Invoke-IACGraphRequest.ps1')
     . (Join-Path $moduleRoot 'Private/Get-IntuneEntities.ps1')
+
+    function New-GraphFixtureErrorRecord {
+        param(
+            [Parameter(Mandatory)]
+            [object]$Fixture,
+
+            [Parameter(Mandatory)]
+            [string]$Uri
+        )
+
+        $exception = [System.Net.Http.HttpRequestException]::new("$($Fixture.message)")
+        $exception | Add-Member -NotePropertyName StatusCode `
+            -NotePropertyValue ([System.Net.HttpStatusCode][int]$Fixture.statusCode) -Force
+        if ($null -ne $Fixture.retryAfter) {
+            $exception | Add-Member -NotePropertyName Response -NotePropertyValue ([PSCustomObject]@{
+                    Headers = [PSCustomObject]@{ 'Retry-After' = "$($Fixture.retryAfter)" }
+                })
+        }
+        $record = [System.Management.Automation.ErrorRecord]::new(
+            $exception,
+            'FixtureGraphFailure',
+            [System.Management.Automation.ErrorCategory]::InvalidOperation,
+            $Uri
+        )
+        $payload = [ordered]@{
+            error = [ordered]@{
+                code = $Fixture.code
+                message = $Fixture.message
+                innerError = [ordered]@{
+                    'request-id' = $Fixture.requestId
+                    'client-request-id' = $Fixture.clientRequestId
+                }
+            }
+        }
+        $record.ErrorDetails = [System.Management.Automation.ErrorDetails]::new(
+            (ConvertTo-Json -InputObject $payload -Depth 10 -Compress)
+        )
+        return $record
+    }
 }
 
 Describe 'Get-IntuneEntities optional workload diagnostics' {
@@ -78,20 +119,17 @@ Describe 'Invoke-IACGraphRequest' {
     }
 
     It 'follows beta nextLink pages when AllPages is requested' {
+        $firstPage = $transportFixture.pages.first
+        $secondPage = $transportFixture.pages.second
         Mock Invoke-MgGraphRequest {
-            if ($Uri -like '*skiptoken=next') {
-                return @{ value = @([PSCustomObject]@{ id = 'two' }) }
-            }
-            return @{
-                value = @([PSCustomObject]@{ id = 'one' })
-                '@odata.nextLink' = 'https://graph.test/beta/groups?$skiptoken=next'
-            }
+            if ($Uri -like '*skiptoken=fixture-page-2') { return $secondPage }
+            return $firstPage
         }
 
         $result = Invoke-IACGraphRequest -Uri '/groups' -AllPages
 
         $result -is [array] | Should -BeTrue
-        $result.id | Should -Be @('one', 'two')
+        $result.id | Should -Be @('group-1', 'group-2')
         Should -Invoke Invoke-MgGraphRequest -Exactly 2
     }
 
@@ -116,9 +154,12 @@ Describe 'Invoke-IACGraphRequest' {
     }
 
     It 'retries transient responses and succeeds' {
+        $throttled = $transportFixture.errors.throttled
         Mock Invoke-MgGraphRequest {
             $script:requestCount++
-            if ($script:requestCount -lt 3) { throw 'HTTP 429 Too Many Requests' }
+            if ($script:requestCount -lt 3) {
+                throw (New-GraphFixtureErrorRecord -Fixture $throttled -Uri $Uri)
+            }
             @{ value = @([PSCustomObject]@{ id = 'ok' }) }
         }
 
@@ -127,6 +168,25 @@ Describe 'Invoke-IACGraphRequest' {
         $result.value[0].id | Should -BeExactly 'ok'
         Should -Invoke Invoke-MgGraphRequest -Exactly 3
         Should -Invoke Start-Sleep -Exactly 2
+    }
+
+    It 'does not retry a fixture-backed HTTP 400 and preserves its output error contract' {
+        $badRequest = $transportFixture.errors.badRequest
+        Mock Invoke-MgGraphRequest {
+            throw (New-GraphFixtureErrorRecord -Fixture $badRequest -Uri $Uri)
+        }
+
+        $caught = $null
+        try { Invoke-IACGraphRequest -Uri '/groups' -MaxRetryCount 3 }
+        catch { $caught = $_ }
+
+        $caught.FullyQualifiedErrorId | Should -Match '^IntuneAssignmentChecker.GraphRequestFailed'
+        $caught.Exception.Data['StatusCode'] | Should -Be 400
+        $caught.Exception.Data['GraphErrorCode'] | Should -BeExactly BadRequest
+        $caught.Exception.Data['RequestId'] | Should -BeExactly request-400
+        $caught.Exception.Data['RequestUri'] | Should -BeExactly 'https://graph.test/beta/groups'
+        Should -Invoke Invoke-MgGraphRequest -Exactly 1
+        Should -Invoke Start-Sleep -Exactly 0
     }
 
     It 'retries typed connection failures without guessing status codes from unrelated numbers' {
@@ -153,11 +213,10 @@ Describe 'Invoke-IACGraphRequest' {
 
     It 'does not retry a status-bearing HttpRequestException for a permanent 4xx' {
         Mock Invoke-MgGraphRequest {
-            throw [System.Net.Http.HttpRequestException]::new(
-                'Response status code does not indicate success: 403 (Forbidden).',
-                $null,
-                [System.Net.HttpStatusCode]::Forbidden
-            )
+            $exception = [System.Net.Http.HttpRequestException]::new('Forbidden without a status code in the message.')
+            $exception | Add-Member -NotePropertyName StatusCode `
+                -NotePropertyValue ([System.Net.HttpStatusCode]::Forbidden) -Force
+            throw $exception
         }
 
         { Invoke-IACGraphRequest -Uri '/groups' -MaxRetryCount 3 } | Should -Throw
@@ -167,10 +226,18 @@ Describe 'Invoke-IACGraphRequest' {
     }
 
     It 'throws after the configured transient retry count is exhausted' {
-        Mock Invoke-MgGraphRequest { throw 'HTTP 503 Service Unavailable' }
+        $serviceUnavailable = $transportFixture.errors.serviceUnavailable
+        Mock Invoke-MgGraphRequest {
+            throw (New-GraphFixtureErrorRecord -Fixture $serviceUnavailable -Uri $Uri)
+        }
 
-        { Invoke-IACGraphRequest -Uri '/groups' -MaxRetryCount 2 } | Should -Throw
+        $caught = $null
+        try { Invoke-IACGraphRequest -Uri '/groups' -MaxRetryCount 2 }
+        catch { $caught = $_ }
 
+        $caught.Exception.Data['StatusCode'] | Should -Be 503
+        $caught.Exception.Data['GraphErrorCode'] | Should -BeExactly ServiceUnavailable
+        $caught.Exception.Data['ClientRequestId'] | Should -BeExactly client-503
         Should -Invoke Invoke-MgGraphRequest -Exactly 3
         Should -Invoke Start-Sleep -Exactly 2
     }
@@ -209,15 +276,9 @@ Describe 'Invoke-IACGraphRequest' {
     }
 
     It 'preserves structured Graph error details in a terminating error' {
+        $forbidden = $transportFixture.errors.forbidden
         Mock Invoke-MgGraphRequest {
-            $record = [System.Management.Automation.ErrorRecord]::new(
-                [System.Exception]::new('HTTP 403 Forbidden'),
-                'GraphFailure',
-                [System.Management.Automation.ErrorCategory]::PermissionDenied,
-                $Uri
-            )
-            $record.ErrorDetails = [System.Management.Automation.ErrorDetails]::new('{"error":{"code":"Authorization_RequestDenied","message":"Denied","innerError":{"request-id":"request-1","client-request-id":"client-1"}}}')
-            throw $record
+            throw (New-GraphFixtureErrorRecord -Fixture $forbidden -Uri $Uri)
         }
 
         $caught = $null
@@ -227,8 +288,8 @@ Describe 'Invoke-IACGraphRequest' {
         $caught.FullyQualifiedErrorId | Should -Match '^IntuneAssignmentChecker.GraphRequestFailed'
         $caught.Exception.Data['StatusCode'] | Should -Be 403
         $caught.Exception.Data['GraphErrorCode'] | Should -BeExactly 'Authorization_RequestDenied'
-        $caught.Exception.Data['RequestId'] | Should -BeExactly 'request-1'
-        $caught.Exception.Data['ClientRequestId'] | Should -BeExactly 'client-1'
+        $caught.Exception.Data['RequestId'] | Should -BeExactly 'request-403'
+        $caught.Exception.Data['ClientRequestId'] | Should -BeExactly 'client-403'
     }
 
     It 'rejects absolute URLs outside the active cloud endpoint' {

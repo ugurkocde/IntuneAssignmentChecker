@@ -49,11 +49,13 @@
             IconUri      = ''
             ReleaseNotes = @'
 Version 4.4.0:
+- Centralize every Microsoft Graph call behind a beta-only transport with automatic paging, bounded retry/backoff, nextLink validation, and structured error metadata (issue #136).
 - Add schema-versioned IntuneAssignmentChecker.AssignmentRecord objects and non-interactive -PassThru output to the primary assignment and policy-search cmdlets (issue #137).
 - Cover Windows Feature Update, Quality Update, Driver Update, and Quality Update policy assignments across shared scans, searches, comparisons, exports, and reports (issue #138).
 - Add Test-IntuneAssignmentFilter for safe, local tri-state evaluation of documented managed-device filter rules without executing tenant-provided text (issue #139).
 - Add Get-IntuneEffectiveAssignment with user/device targeting precedence, filter evaluation, machine-readable reason chains, PassThru, and CSV output (issue #140).
 - Add deterministic, schema-versioned assignment snapshots and stable Added/Removed/Changed drift comparison (issue #141).
+- Turn analyzer, cross-platform Pester, module-package, export-contract, and pre-publish validation into release gates; update GitHub Actions to supported runtimes (issue #142).
 
 Version 4.3.2:
 - Recognize Microsoft 365 (Unified) groups as first-class Intune assignment targets and expose group type, membership mode, and mail address in group checks and exports (issue #128).

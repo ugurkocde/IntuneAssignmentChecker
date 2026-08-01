@@ -5,24 +5,85 @@ on:
     types: [published]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-powershell-module
+  cancel-in-progress: false
+
 jobs:
   test-and-publish:
+    name: Validate and publish
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Validate module loads
+      - name: Install validation dependencies
         shell: pwsh
         run: |
-          Import-Module ./Module/IntuneAssignmentChecker -Force -ErrorAction Stop
-          $commands = Get-Command -Module IntuneAssignmentChecker
-          Write-Host "Module loaded successfully with $($commands.Count) exported commands"
-          $commands | Sort-Object Name | ForEach-Object { Write-Host "  - $($_.Name)" }
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-Module Pester -MinimumVersion 5.0.0 -Scope CurrentUser -Force -SkipPublisherCheck
+          Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
+          Install-Module Microsoft.Graph.Authentication -Scope CurrentUser -Force
+
+      - name: Validate publish tag
+        shell: pwsh
+        env:
+          PUBLISH_TAG: ${{ github.event.release.tag_name || github.ref_name }}
+          PUBLISH_REF_TYPE: ${{ github.ref_type }}
+        run: |
+          if ('${{ github.event_name }}' -eq 'workflow_dispatch' -and $env:PUBLISH_REF_TYPE -cne 'tag') {
+              throw 'Manual publishing must be dispatched from a version tag.'
+          }
+          $manifest = Import-PowerShellDataFile ./Module/IntuneAssignmentChecker/IntuneAssignmentChecker.psd1
+          $tagVersion = $env:PUBLISH_TAG -replace '^v', ''
+          if ($tagVersion -cne "$($manifest.ModuleVersion)") {
+              throw "Publish tag '$($env:PUBLISH_TAG)' does not match module version '$($manifest.ModuleVersion)'."
+          }
+
+      - name: Run PSScriptAnalyzer release gate
+        shell: pwsh
+        run: |
+          $files = @(
+              Get-ChildItem ./Module/IntuneAssignmentChecker -Recurse -File -Include *.ps1, *.psm1
+              Get-ChildItem ./Tests -Recurse -File -Include *.ps1
+              Get-Item ./Register-IntuneAssignmentCheckerApp.ps1
+          ) | Sort-Object FullName
+          $results = @(
+              foreach ($file in $files) {
+                  Invoke-ScriptAnalyzer -Path $file.FullName `
+                      -Settings ./.PSScriptAnalyzerSettings.psd1 -ErrorAction Stop
+              }
+          )
+          $results | Format-Table Severity, RuleName, ScriptName, Line, Message -Wrap
+          $errors = @($results | Where-Object { $_.Severity -in @('Error', 'ParseError') })
+          if ($errors.Count -gt 0) {
+              throw "PSScriptAnalyzer found $($errors.Count) error(s)."
+          }
+
+      - name: Run unit and package tests
+        shell: pwsh
+        run: |
+          $config = New-PesterConfiguration
+          $config.Run.Path = @('./Tests/Unit', './Tests/Release')
+          $config.Run.PassThru = $true
+          $config.Output.Verbosity = 'Detailed'
+          $result = Invoke-Pester -Configuration $config
+          if ($result.Result -ne 'Passed' -or $result.FailedCount -gt 0 -or $result.TotalCount -eq 0) {
+              throw "Release validation failed: Result=$($result.Result), Failed=$($result.FailedCount), Total=$($result.TotalCount)."
+          }
 
       - name: Publish to PowerShell Gallery
         shell: pwsh
         env:
           PS_GALLERY_API_KEY: ${{ secrets.NUGET_KEY }}
         run: |
-          Publish-Module -Path ./Module/IntuneAssignmentChecker -Repository PSGallery -NuGetApiKey $env:PS_GALLERY_API_KEY
+          if ([string]::IsNullOrWhiteSpace($env:PS_GALLERY_API_KEY)) {
+              throw 'The NUGET_KEY repository secret is required to publish the module.'
+          }
+          Publish-Module -Path ./Module/IntuneAssignmentChecker -Repository PSGallery `
+              -NuGetApiKey $env:PS_GALLERY_API_KEY -ErrorAction Stop
