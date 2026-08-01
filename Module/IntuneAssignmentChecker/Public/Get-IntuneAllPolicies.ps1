@@ -1,5 +1,6 @@
 function Get-IntuneAllPolicies {
     [CmdletBinding()]
+    [OutputType('IntuneAssignmentChecker.AssignmentRecord')]
     param (
         [Parameter()]
         [switch]$ExportToCSV,
@@ -8,7 +9,10 @@ function Get-IntuneAllPolicies {
         [string]$ExportPath,
 
         [Parameter()]
-        [string]$ScopeTagFilter
+        [string]$ScopeTagFilter,
+
+        [Parameter()]
+        [switch]$PassThru
     )
 
     Write-Host "Fetching all policies and their assignments..." -ForegroundColor Green
@@ -107,7 +111,7 @@ function Get-IntuneAllPolicies {
         $ctx.Buckets[$bucketKey].Add($entity)
     }
 
-    $scanResult = Invoke-IntuneCategoryScan -Categories $categories -ProcessEntity $processEntity -ShowProgress
+    $scanResult = Invoke-IntuneCategoryScan -Categories $categories -ProcessEntity $processEntity -ShowProgress -BuildRecords:$PassThru
     $allPolicies = $scanResult.Buckets
 
     # Apply scope tag filter if specified
@@ -141,5 +145,8 @@ function Get-IntuneAllPolicies {
     Add-CategoryExportData -ExportData $exportData -Categories $categories -Buckets $allPolicies -AssignmentReason { param($item) $item.AssignmentSummary }
 
     # Export results if requested
-    Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneAllPolicies.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath -ExportToCSV:$ExportToCSV -ParameterMode:$parameterMode
+    Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneAllPolicies.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath -ExportToCSV:$ExportToCSV -ParameterMode:($parameterMode -or $PassThru)
+    if ($PassThru) {
+        Select-IACAssignmentRecord -Records $scanResult.Records -Buckets $allPolicies -SubjectType 'Tenant' -SubjectName 'All Policies' -Source 'Get-IntuneAllPolicies'
+    }
 }

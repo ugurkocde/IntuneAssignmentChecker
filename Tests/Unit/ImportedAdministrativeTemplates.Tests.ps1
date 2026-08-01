@@ -4,6 +4,7 @@
 BeforeAll {
     $moduleRoot = Join-Path $PSScriptRoot '../../Module/IntuneAssignmentChecker'
     $modulePrivate = Join-Path $moduleRoot 'Private'
+    . (Join-Path $modulePrivate 'ConvertTo-IACNormalizedAssignment.ps1')
     . (Join-Path $modulePrivate 'Get-IntuneAssignments.ps1')
     . (Join-Path $modulePrivate 'Test-ImportedAdministrativeTemplate.ps1')
 

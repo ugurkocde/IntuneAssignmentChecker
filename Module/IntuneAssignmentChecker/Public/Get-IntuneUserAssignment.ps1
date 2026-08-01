@@ -1,5 +1,6 @@
 function Get-IntuneUserAssignment {
     [CmdletBinding()]
+    [OutputType('IntuneAssignmentChecker.AssignmentRecord')]
     param(
         [Parameter(Mandatory = $false)]
         [string]$UserPrincipalNames,
@@ -11,7 +12,10 @@ function Get-IntuneUserAssignment {
         [string]$ExportPath,
 
         [Parameter(Mandatory = $false)]
-        [string]$ScopeTagFilter
+        [string]$ScopeTagFilter,
+
+        [Parameter(Mandatory = $false)]
+        [switch]$PassThru
     )
 
     Write-Host "User selection chosen" -ForegroundColor Green
@@ -54,6 +58,7 @@ function Get-IntuneUserAssignment {
     }
 
     $exportData = [System.Collections.ArrayList]::new()
+    $passThruRecords = [System.Collections.Generic.List[object]]::new()
 
     # Renders one legacy three-column section (name/ID/assignment). The Device
     # Configurations and App Protection sections keep their bespoke extra column below.
@@ -240,7 +245,7 @@ function Get-IntuneUserAssignment {
         $memberGroupIds = @($groupMemberships.id)
         $appProgress = @{ Current = 0; Total = $null; FilteredTotal = $null }
 
-        $scanResult = Invoke-IntuneCategoryScan -Categories $categories -ProcessEntity $processEntity -ShowProgress -EntityCache $entityCache
+        $scanResult = Invoke-IntuneCategoryScan -Categories $categories -ProcessEntity $processEntity -ShowProgress -EntityCache $entityCache -BuildRecords:$PassThru
         $relevantPolicies = $scanResult.Buckets
 
         # Apply scope tag filter if specified
@@ -248,6 +253,13 @@ function Get-IntuneUserAssignment {
             foreach ($key in @($relevantPolicies.Keys)) {
                 $relevantPolicies[$key] = @(Filter-ByScopeTag -Items $relevantPolicies[$key] -FilterTag $ScopeTagFilter -ScopeTagLookup $script:ScopeTagLookup)
             }
+        }
+
+        if ($PassThru) {
+            $selectedRecords = @(Select-IACAssignmentRecord -Records $scanResult.Records -Buckets $relevantPolicies `
+                    -TargetTypes @('AllUsers', 'Group') -GroupIds $memberGroupIds `
+                    -SubjectType 'User' -SubjectId $userInfo.Id -SubjectName $upn -Source 'Get-IntuneUserAssignment')
+            foreach ($record in $selectedRecords) { $passThruRecords.Add($record) }
         }
 
         # Display results
@@ -378,5 +390,6 @@ function Get-IntuneUserAssignment {
     }
 
     # Export results if requested
-    Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneUserAssignments.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath -ExportToCSV:$ExportToCSV -ParameterMode:$parameterMode
+    Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneUserAssignments.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath -ExportToCSV:$ExportToCSV -ParameterMode:($parameterMode -or $PassThru)
+    if ($PassThru) { $passThruRecords }
 }

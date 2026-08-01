@@ -1,5 +1,6 @@
 function Get-IntuneAllDevicesAssignment {
     [CmdletBinding()]
+    [OutputType('IntuneAssignmentChecker.AssignmentRecord')]
     param (
         [Parameter()]
         [switch]$ExportToCSV,
@@ -8,7 +9,10 @@ function Get-IntuneAllDevicesAssignment {
         [string]$ExportPath,
 
         [Parameter()]
-        [string]$ScopeTagFilter
+        [string]$ScopeTagFilter,
+
+        [Parameter()]
+        [switch]$PassThru
     )
 
     Write-Host "Fetching all 'All Devices' assignments..." -ForegroundColor Green
@@ -87,7 +91,7 @@ function Get-IntuneAllDevicesAssignment {
         }
     }
 
-    $scanResult = Invoke-IntuneCategoryScan -Categories $scanCategories -ProcessEntity $processEntity -ShowProgress
+    $scanResult = Invoke-IntuneCategoryScan -Categories $scanCategories -ProcessEntity $processEntity -ShowProgress -BuildRecords:$PassThru
     $allDevicesAssignments = $scanResult.Buckets
 
     # Apply scope tag filter if specified
@@ -155,5 +159,9 @@ function Get-IntuneAllDevicesAssignment {
     Add-CategoryExportData -ExportData $exportData -Categories $exportCategories -Buckets $allDevicesAssignments -AssignmentReason "All Devices"
 
     # Export results if requested
-    Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneAllDevicesAssignments.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath -ExportToCSV:$ExportToCSV -ParameterMode:$parameterMode
+    Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneAllDevicesAssignments.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath -ExportToCSV:$ExportToCSV -ParameterMode:($parameterMode -or $PassThru)
+    if ($PassThru) {
+        Select-IACAssignmentRecord -Records $scanResult.Records -Buckets $allDevicesAssignments `
+            -TargetTypes @('AllDevices') -SubjectType 'Tenant' -SubjectName 'All Devices' -Source 'Get-IntuneAllDevicesAssignment'
+    }
 }

@@ -1,5 +1,6 @@
 function Get-IntuneGroupAssignment {
     [CmdletBinding()]
+    [OutputType('IntuneAssignmentChecker.AssignmentRecord')]
     param(
         [Parameter(Mandatory = $false)]
         [string]$GroupNames,
@@ -14,7 +15,10 @@ function Get-IntuneGroupAssignment {
         [string]$ExportPath,
 
         [Parameter(Mandatory = $false)]
-        [string]$ScopeTagFilter
+        [string]$ScopeTagFilter,
+
+        [Parameter(Mandatory = $false)]
+        [switch]$PassThru
     )
 
     Write-Host "Group selection chosen" -ForegroundColor Green
@@ -37,6 +41,7 @@ function Get-IntuneGroupAssignment {
 
     $groupInputs = $groupInput -split ',' | ForEach-Object { $_.Trim() }
     $exportData = [System.Collections.ArrayList]::new()
+    $passThruRecords = [System.Collections.Generic.List[object]]::new()
 
     # Determine if nested group checking should be enabled
     $checkNestedGroups = $false
@@ -193,7 +198,7 @@ function Get-IntuneGroupAssignment {
             }
         }
 
-        $scanResult = Invoke-IntuneCategoryScan -Categories $categories -ProcessEntity $processEntity -AssignmentGroupIds $allGroupIds -ShowProgress -EntityCache $entityCache
+        $scanResult = Invoke-IntuneCategoryScan -Categories $categories -ProcessEntity $processEntity -AssignmentGroupIds $allGroupIds -ShowProgress -EntityCache $entityCache -BuildRecords:$PassThru
         $relevantPolicies = $scanResult.Buckets
 
         # Apply scope tag filter if specified
@@ -201,6 +206,13 @@ function Get-IntuneGroupAssignment {
             foreach ($key in @($relevantPolicies.Keys)) {
                 $relevantPolicies[$key] = @(Filter-ByScopeTag -Items $relevantPolicies[$key] -FilterTag $ScopeTagFilter -ScopeTagLookup $script:ScopeTagLookup)
             }
+        }
+
+        if ($PassThru) {
+            $selectedRecords = @(Select-IACAssignmentRecord -Records $scanResult.Records -Buckets $relevantPolicies `
+                    -TargetTypes @('Group') -GroupIds $allGroupIds `
+                    -SubjectType 'Group' -SubjectId $groupId -SubjectName $groupName -Source 'Get-IntuneGroupAssignment')
+            foreach ($record in $selectedRecords) { $passThruRecords.Add($record) }
         }
 
         # Display sections in the legacy order with the legacy per-category name resolution.
@@ -275,5 +287,6 @@ function Get-IntuneGroupAssignment {
     }
 
     # Export results if requested
-    Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneGroupAssignments.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath -ExportToCSV:$ExportToCSV -ParameterMode:$parameterMode
+    Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneGroupAssignments.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath -ExportToCSV:$ExportToCSV -ParameterMode:($parameterMode -or $PassThru)
+    if ($PassThru) { $passThruRecords }
 }

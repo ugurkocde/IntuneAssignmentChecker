@@ -1,5 +1,6 @@
 function Get-IntuneUnassignedPolicy {
     [CmdletBinding()]
+    [OutputType('IntuneAssignmentChecker.AssignmentRecord')]
     param (
         [Parameter()]
         [switch]$ExportToCSV,
@@ -8,7 +9,10 @@ function Get-IntuneUnassignedPolicy {
         [string]$ExportPath,
 
         [Parameter()]
-        [string]$ScopeTagFilter
+        [string]$ScopeTagFilter,
+
+        [Parameter()]
+        [switch]$PassThru
     )
 
     Write-Host "Fetching policies without assignments..." -ForegroundColor Green
@@ -24,6 +28,12 @@ function Get-IntuneUnassignedPolicy {
         AppConfigurationPolicies = @()
         PlatformScripts          = @()
         HealthScripts            = @()
+        AntivirusProfiles        = @()
+        DiskEncryptionProfiles   = @()
+        FirewallProfiles         = @()
+        EndpointDetectionProfiles = @()
+        AttackSurfaceProfiles    = @()
+        AccountProtectionProfiles = @()
         Apps                     = @()
     }
 
@@ -459,5 +469,37 @@ function Get-IntuneUnassignedPolicy {
     }
 
     # Export results if requested
-    Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneUnassignedPolicies.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath -ExportToCSV:$ExportToCSV -ParameterMode:$parameterMode
+    Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneUnassignedPolicies.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath -ExportToCSV:$ExportToCSV -ParameterMode:($parameterMode -or $PassThru)
+    if ($PassThru) {
+        $categoryMap = [ordered]@{
+            DeviceConfigs = @('DeviceConfigurations', 'Device Configuration')
+            ImportedAdministrativeTemplates = @('ImportedAdministrativeTemplates', 'Imported Administrative Template')
+            SettingsCatalog = @('SettingsCatalog', 'Settings Catalog Policy')
+            CompliancePolicies = @('CompliancePolicies', 'Compliance Policy')
+            AppProtectionPolicies = @('AppProtectionPolicies', 'App Protection Policy')
+            AppConfigurationPolicies = @('AppConfigurationPolicies', 'App Configuration Policy')
+            PlatformScripts = @('PlatformScripts', 'Platform Scripts')
+            HealthScripts = @('HealthScripts', 'Proactive Remediation Scripts')
+            AntivirusProfiles = @('ESAntivirus', 'Endpoint Security - Antivirus')
+            DiskEncryptionProfiles = @('ESDiskEncryption', 'Endpoint Security - Disk Encryption')
+            FirewallProfiles = @('ESFirewall', 'Endpoint Security - Firewall')
+            EndpointDetectionProfiles = @('ESEndpointDetection', 'Endpoint Security - EDR')
+            AttackSurfaceProfiles = @('ESAttackSurface', 'Endpoint Security - ASR')
+            AccountProtectionProfiles = @('ESAccountProtection', 'Endpoint Security - Account Protection')
+            Apps = @('Applications', 'Application')
+        }
+        foreach ($bucketName in $categoryMap.Keys) {
+            foreach ($entity in @($unassignedPolicies[$bucketName])) {
+                $scopeTagIds = @($entity.roleScopeTagIds | ForEach-Object { "$_" })
+                $scopeTags = if ($scopeTagIds.Count -eq 0) { @('Default') }
+                    elseif ($script:ScopeTagLookup) { @((Get-ScopeTagNames -ScopeTagIds $scopeTagIds -ScopeTagLookup $script:ScopeTagLookup) -split ', ') }
+                    else { @($scopeTagIds | ForEach-Object { "Tag:$_" }) }
+                $policyName = if ($entity.displayName) { $entity.displayName } elseif ($entity.name) { $entity.name } else { 'Unnamed Policy' }
+                New-IACAssignmentRecord -CategoryId $categoryMap[$bucketName][0] -Category $categoryMap[$bucketName][1] `
+                    -PolicyId "$($entity.id)" -PolicyName $policyName -Platform (Get-PolicyPlatform -Policy $entity) `
+                    -ScopeTagIds $scopeTagIds -ScopeTags $scopeTags -AssignmentMode None -TargetType None `
+                    -SubjectType Tenant -SubjectName Unassigned -AssignmentReason 'No Assignment' -Source 'Get-IntuneUnassignedPolicy'
+            }
+        }
+    }
 }

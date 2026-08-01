@@ -1,6 +1,6 @@
 @{
     RootModule        = 'IntuneAssignmentChecker.psm1'
-    ModuleVersion     = '4.3.2'
+    ModuleVersion     = '4.4.0'
     GUID              = 'c6e25ec6-5787-45ef-95af-8abeb8a17daf'
     Author            = 'Ugur Koc'
     CompanyName       = 'Community'
@@ -32,6 +32,7 @@
     CmdletsToExport   = @()
     VariablesToExport  = @()
     AliasesToExport    = @('IntuneAssignmentChecker')
+    FormatsToProcess   = @('IntuneAssignmentChecker.Format.ps1xml')
     FileList           = @(
         'Data/SettingDefinitions.json'
         'html-export.ps1'
@@ -43,6 +44,9 @@
             ProjectUri   = 'https://github.com/ugurkocde/IntuneAssignmentChecker'
             IconUri      = ''
             ReleaseNotes = @'
+Version 4.4.0:
+- Add schema-versioned IntuneAssignmentChecker.AssignmentRecord objects and non-interactive -PassThru output to the primary assignment and policy-search cmdlets (issue #137).
+
 Version 4.3.2:
 - Recognize Microsoft 365 (Unified) groups as first-class Intune assignment targets and expose group type, membership mode, and mail address in group checks and exports (issue #128).
 - Restore Imported Administrative Template support across assignment views, simulations, search, CSV exports, and HTML reports; imported and mixed group policy configurations are included while built-in-only configurations remain excluded (issue #129).

@@ -16,6 +16,10 @@ BeforeAll {
     . (Join-Path $modulePrivate 'Get-AppProtectionAssignmentUri.ps1')
     . (Join-Path $modulePrivate 'Test-ImportedAdministrativeTemplate.ps1')
     . (Join-Path $modulePrivate 'Get-IntuneCategoryDefinition.ps1')
+    . (Join-Path $modulePrivate 'New-IACAssignmentRecord.ps1')
+    . (Join-Path $modulePrivate 'ConvertTo-IACAssignmentRecord.ps1')
+    . (Join-Path $modulePrivate 'ConvertTo-IACNormalizedAssignment.ps1')
+    . (Join-Path $modulePrivate 'Select-IACAssignmentRecord.ps1')
     . (Join-Path $modulePrivate 'Invoke-IntuneCategoryScan.ps1')
     . (Join-Path $moduleRoot 'Public/Get-IntuneUserAssignment.ps1')
 
@@ -183,6 +187,23 @@ Describe 'Get-IntuneUserAssignment' {
                 }
             }
             return @{ value = @() }
+        }
+    }
+
+    It 'streams only canonical records from PassThru with structured Graph metadata' {
+        $records = @(Get-IntuneUserAssignment -UserPrincipalNames 'user1@contoso.com' -PassThru)
+
+        $records.Count | Should -BeGreaterThan 0
+        @($records | Where-Object { $_.PSObject.TypeNames[0] -ne 'IntuneAssignmentChecker.AssignmentRecord' }) | Should -BeNullOrEmpty
+        $groupRecord = $records | Where-Object PolicyId -eq 'dc-mine' | Select-Object -First 1
+        $groupRecord.CategoryId | Should -BeExactly DeviceConfigurations
+        $groupRecord.TargetType | Should -BeExactly Group
+        $groupRecord.TargetId | Should -BeExactly g-a
+        $groupRecord.FilterId | Should -BeExactly f1
+        $appRecord = $records | Where-Object PolicyId -eq 'app-avail-inc' | Select-Object -First 1
+        $appRecord.Intent | Should -BeExactly available
+        foreach ($record in $records) {
+            @($script:capturedExport | Where-Object { $_.Item -match "\(ID: $([regex]::Escape($record.PolicyId))\)$" }).Count | Should -BeGreaterThan 0
         }
     }
 

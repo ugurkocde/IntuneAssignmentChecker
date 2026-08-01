@@ -383,7 +383,32 @@ Search-IntunePolicy -PolicySearchTerm "BitLocker"
 
 # Search configured settings across policies (Settings Catalog + Endpoint Security)
 Search-IntuneSetting -SearchTerm "BitLocker"
+
+# Return automation-friendly objects while retaining the normal console experience
+$records = Get-IntuneAllPolicies -PassThru
+$records | Where-Object AssignmentMode -eq 'Exclude'
 ```
+
+`Get-IntuneUserAssignment`, `Get-IntuneGroupAssignment`,
+`Get-IntuneDeviceAssignment`, `Get-IntuneAllPolicies`,
+`Get-IntuneAllUsersAssignment`, `Get-IntuneAllDevicesAssignment`,
+`Get-IntuneUnassignedPolicy`, and `Search-IntunePolicy` support `-PassThru`.
+Using it also suppresses the interactive CSV-export prompt. Each object has the type name
+`IntuneAssignmentChecker.AssignmentRecord` and schema version `1`. The stable
+contract includes tenant and subject metadata, policy/category/platform, scope
+tags, assignment target and include/exclude mode, application intent, assignment
+filter metadata, the display reason, and source command. Console messages remain
+on the information stream, so they do not contaminate pipeline object output.
+Additive fields may be introduced without changing `SchemaVersion`; removing or
+renaming a field, changing its meaning, or changing an enum value requires a schema
+version increment. The existing CSV and HTML schemas remain backward-compatible;
+shared-scan cmdlets create canonical records from the same structured Graph data
+used for their console and CSV views, while the HTML report keeps its purpose-built
+flat reporting schema. Treat `CategoryId` as the stable machine key; `Category` is
+a presentation label and can vary where a cmdlet distinguishes app intents or uses
+search-specific wording. `Get-IntuneUserDeviceAssignment` intentionally keeps its
+legacy output in this release slice; the v4.4 effective-targeting cmdlet introduced
+in issue #140 provides canonical user/device results.
 
 `Get-IntuneGroupAssignment` CSV/Excel exports include `GroupId`, `GroupName`,
 `GroupType`, `MembershipType`, and `GroupMail` on every group and policy/app
@@ -430,6 +455,7 @@ Common parameters on assignment cmdlets:
 | `-ExportToCSV`           | Export results to CSV                                      |
 | `-ExportPath`            | Path to export the CSV file                                |
 | `-ScopeTagFilter`        | Filter results by scope tag name                           |
+| `-PassThru`              | Return `IntuneAssignmentChecker.AssignmentRecord` objects  |
 
 Common parameters on `Connect-IntuneAssignmentChecker`:
 

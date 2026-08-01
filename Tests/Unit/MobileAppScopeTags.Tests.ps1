@@ -6,6 +6,8 @@ BeforeAll {
     $modulePrivate = Join-Path $moduleRoot 'Private'
 
     . (Join-Path $modulePrivate 'Get-ScopeTagNames.ps1')
+    . (Join-Path $modulePrivate 'Get-PolicyPlatform.ps1')
+    . (Join-Path $modulePrivate 'New-IACAssignmentRecord.ps1')
     . (Join-Path $modulePrivate 'Add-ExportData.ps1')
     . (Join-Path $modulePrivate 'Test-ImportedAdministrativeTemplate.ps1')
     . (Join-Path $moduleRoot 'Public/Get-IntuneUnassignedPolicy.ps1')
@@ -83,6 +85,16 @@ Describe 'Mobile application scope tags' {
             $Uri -like '*deviceAppManagement/mobileApps?*' -and
             $Uri -match '\$select=[^&]*roleScopeTagIds'
         }
+    }
+
+    It 'returns canonical unassigned records without errors when Endpoint Security buckets are empty' {
+        $records = @(Get-IntuneUnassignedPolicy -PassThru -ErrorAction Stop)
+
+        $records.Count | Should -Be 1
+        $records[0].PSObject.TypeNames[0] | Should -BeExactly 'IntuneAssignmentChecker.AssignmentRecord'
+        $records[0].CategoryId | Should -BeExactly Applications
+        $records[0].AssignmentMode | Should -BeExactly None
+        $records[0].ScopeTagIds | Should -Be @('0', 'tag-finance')
     }
 
     It 'exports unassigned custom and mixed imported templates but never queries built-in-only assignments' {

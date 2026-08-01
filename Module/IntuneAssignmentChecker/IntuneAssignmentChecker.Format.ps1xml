@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Configuration>
+  <ViewDefinitions>
+    <View>
+      <Name>IntuneAssignmentChecker.AssignmentRecord</Name>
+      <ViewSelectedBy>
+        <TypeName>IntuneAssignmentChecker.AssignmentRecord</TypeName>
+      </ViewSelectedBy>
+      <TableControl>
+        <TableHeaders>
+          <TableColumnHeader><Label>Category</Label><Width>28</Width></TableColumnHeader>
+          <TableColumnHeader><Label>Policy</Label><Width>34</Width></TableColumnHeader>
+          <TableColumnHeader><Label>Mode</Label><Width>9</Width></TableColumnHeader>
+          <TableColumnHeader><Label>Target</Label><Width>24</Width></TableColumnHeader>
+          <TableColumnHeader><Label>Intent</Label><Width>12</Width></TableColumnHeader>
+        </TableHeaders>
+        <TableRowEntries>
+          <TableRowEntry>
+            <TableColumnItems>
+              <TableColumnItem><PropertyName>Category</PropertyName></TableColumnItem>
+              <TableColumnItem><PropertyName>PolicyName</PropertyName></TableColumnItem>
+              <TableColumnItem><PropertyName>AssignmentMode</PropertyName></TableColumnItem>
+              <TableColumnItem><ScriptBlock>if ($_.TargetName) { $_.TargetName } elseif ($_.TargetId) { $_.TargetId } else { $_.TargetType }</ScriptBlock></TableColumnItem>
+              <TableColumnItem><PropertyName>Intent</PropertyName></TableColumnItem>
+            </TableColumnItems>
+          </TableRowEntry>
+        </TableRowEntries>
+      </TableControl>
+    </View>
+  </ViewDefinitions>
+</Configuration>

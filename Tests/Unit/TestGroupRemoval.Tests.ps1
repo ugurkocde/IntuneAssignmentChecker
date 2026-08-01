@@ -15,6 +15,10 @@ BeforeAll {
     . (Join-Path $modulePrivate 'Get-AppProtectionAssignmentUri.ps1')
     . (Join-Path $modulePrivate 'Test-ImportedAdministrativeTemplate.ps1')
     . (Join-Path $modulePrivate 'Get-IntuneCategoryDefinition.ps1')
+    . (Join-Path $modulePrivate 'Get-PolicyPlatform.ps1')
+    . (Join-Path $modulePrivate 'New-IACAssignmentRecord.ps1')
+    . (Join-Path $modulePrivate 'ConvertTo-IACAssignmentRecord.ps1')
+    . (Join-Path $modulePrivate 'ConvertTo-IACNormalizedAssignment.ps1')
     . (Join-Path $modulePrivate 'Invoke-IntuneCategoryScan.ps1')
     . (Join-Path $moduleRoot 'Public/Test-IntuneGroupRemoval.ps1')
 
