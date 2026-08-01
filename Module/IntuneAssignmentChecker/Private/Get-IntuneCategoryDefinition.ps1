@@ -2,7 +2,7 @@ function Get-IntuneCategoryDefinition {
     [CmdletBinding()]
     param (
         [Parameter(Mandatory = $true)]
-        [ValidateSet('UserContext', 'DeviceContext', 'GroupContext', 'AllPolicies', 'Search', 'Compare')]
+        [ValidateSet('UserContext', 'DeviceContext', 'GroupContext', 'AllPolicies', 'Search', 'Compare', 'Effective')]
         [string]$Audience
     )
 
@@ -270,6 +270,32 @@ function Get-IntuneCategoryDefinition {
                 & $use 'WindowsQualityUpdatePolicies' @{ ExportCategory = 'Windows Quality Update Policies' }
             )
             $categories += @(& $newEsCategories { param($family) $family.Export })
+            return $categories
+        }
+        'Effective' {
+            # Full, deduplicated inventory for user/device targeting analysis.
+            # Endpoint Security policies are handled by their family categories,
+            # so the generic Settings Catalog category excludes those policies.
+            $categories = @(
+                & $use 'DeviceConfigurations'
+                & $use 'ImportedAdministrativeTemplates'
+                & $use 'SettingsCatalog' @{ EntityFilter = $searchSettingsCatalogFilter }
+                & $use 'CompliancePolicies'
+                & $use 'AppProtectionPolicies'
+                & $use 'AppConfigurationPolicies'
+                & $use 'Applications'
+                & $use 'PlatformScripts'
+                & $use 'HealthScripts'
+                & $use 'DeploymentProfiles'
+                & $use 'ESPProfiles'
+                & $use 'CloudPCProvisioningPolicies'
+                & $use 'CloudPCUserSettings'
+                & $use 'WindowsFeatureUpdates'
+                & $use 'WindowsQualityUpdates'
+                & $use 'WindowsDriverUpdates'
+                & $use 'WindowsQualityUpdatePolicies'
+            )
+            $categories += @(& $newEsCategories { param($family) "$($family.ShortName) Policies" })
             return $categories
         }
     }

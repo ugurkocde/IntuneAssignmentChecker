@@ -10,7 +10,7 @@ function Get-GroupMemberships {
     )
 
     $memberships = [System.Collections.ArrayList]::new()
-    $uri = "$script:GraphEndpoint/beta/$($ObjectType.ToLower())s/$ObjectId/transitiveMemberOf?`$select=id,displayName"
+    $uri = "$script:GraphEndpoint/beta/$($ObjectType.ToLower())s/$ObjectId/transitiveMemberOf/microsoft.graph.group?`$select=id,displayName"
 
     try {
         $pagedMemberships = @((Invoke-IACGraphRequest -Uri $uri -Method Get).value)

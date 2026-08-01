@@ -15,6 +15,7 @@
         'Get-IntuneGroupAssignment'
         'Get-IntuneDeviceAssignment'
         'Get-IntuneUserDeviceAssignment'
+        'Get-IntuneEffectiveAssignment'
         'Get-IntuneAllPolicies'
         'Get-IntuneAllUsersAssignment'
         'Get-IntuneAllDevicesAssignment'
@@ -49,6 +50,7 @@ Version 4.4.0:
 - Add schema-versioned IntuneAssignmentChecker.AssignmentRecord objects and non-interactive -PassThru output to the primary assignment and policy-search cmdlets (issue #137).
 - Cover Windows Feature Update, Quality Update, Driver Update, and Quality Update policy assignments across shared scans, searches, comparisons, exports, and reports (issue #138).
 - Add Test-IntuneAssignmentFilter for safe, local tri-state evaluation of documented managed-device filter rules without executing tenant-provided text (issue #139).
+- Add Get-IntuneEffectiveAssignment with user/device targeting precedence, filter evaluation, machine-readable reason chains, PassThru, and CSV output (issue #140).
 
 Version 4.3.2:
 - Recognize Microsoft 365 (Unified) groups as first-class Intune assignment targets and expose group type, membership mode, and mail address in group checks and exports (issue #128).

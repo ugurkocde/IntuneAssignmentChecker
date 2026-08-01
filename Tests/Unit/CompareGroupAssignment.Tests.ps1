@@ -13,6 +13,7 @@ BeforeAll {
     . (Join-Path $modulePrivate 'New-IACAssignmentRecord.ps1')
     . (Join-Path $modulePrivate 'ConvertTo-IACAssignmentRecord.ps1')
     . (Join-Path $modulePrivate 'ConvertTo-IACNormalizedAssignment.ps1')
+    . (Join-Path $modulePrivate 'Get-IACNoAssignmentPlaceholder.ps1')
     . (Join-Path $modulePrivate 'Invoke-IntuneCategoryScan.ps1')
     . (Join-Path $modulePrivate 'Format-AssignmentFilter.ps1')
     . (Join-Path $moduleRoot 'Public/Compare-IntuneGroupAssignment.ps1')

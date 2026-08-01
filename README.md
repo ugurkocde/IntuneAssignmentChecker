@@ -80,6 +80,7 @@ IntuneAssignmentChecker
 - 📱 View all 'All User' and 'All Device' assignments
 - 🎯 See Intune assignment filters (name and Include/Exclude type) inline on every assignment, in the console, CSV exports, and HTML reports
 - 🛡️ Safely test managed-device assignment-filter rules locally with `Test-IntuneAssignmentFilter` and tri-state `Match`, `NotMatch`, or `Unknown` results; tenant rule text is never executed
+- 🧭 Explain effective targeting for a user, managed device, or both with exclusion precedence, transitive group membership, assignment filters, and machine-readable reason chains
 - 🔐 Support for certificate-based and client secret authentication
 - 🔄 Version check on connect with an update notice when a newer PSGallery release is available
 - 📊 Detailed reporting of Configuration Profiles, Compliance Policies, and Applications
@@ -395,12 +396,21 @@ Test-IntuneAssignmentFilter -DeviceName 'Laptop123' -FilterId '<filter-id>' -Fil
 
 # Or evaluate an ad hoc managed-device rule without executing it as PowerShell
 Test-IntuneAssignmentFilter -DeviceName 'Laptop123' -Rule '(device.deviceOwnership -eq "Corporate")'
+
+# Explain whether every discovered policy and assigned app targets a user on a managed device
+Get-IntuneEffectiveAssignment -UserPrincipalName 'user@contoso.com' -DeviceName 'Laptop123'
+
+# Export the explanation and retain typed records for automation
+$effective = Get-IntuneEffectiveAssignment -UserPrincipalName 'user@contoso.com' `
+    -DeviceName 'Laptop123' -PassThru -ExportPath 'C:\Temp\EffectiveAssignments.csv'
+$effective | Where-Object EffectiveState -in 'Excluded', 'Unknown'
 ```
 
 `Get-IntuneUserAssignment`, `Get-IntuneGroupAssignment`,
 `Get-IntuneDeviceAssignment`, `Get-IntuneAllPolicies`,
 `Get-IntuneAllUsersAssignment`, `Get-IntuneAllDevicesAssignment`,
-`Get-IntuneUnassignedPolicy`, and `Search-IntunePolicy` support `-PassThru`.
+`Get-IntuneUnassignedPolicy`, `Get-IntuneEffectiveAssignment`, and
+`Search-IntunePolicy` support `-PassThru`.
 Using it also suppresses the interactive CSV-export prompt. Each object has the type name
 `IntuneAssignmentChecker.AssignmentRecord` and schema version `1`. The stable
 contract includes tenant and subject metadata, policy/category/platform, scope
@@ -415,8 +425,29 @@ used for their console and CSV views, while the HTML report keeps its purpose-bu
 flat reporting schema. Treat `CategoryId` as the stable machine key; `Category` is
 a presentation label and can vary where a cmdlet distinguishes app intents or uses
 search-specific wording. `Get-IntuneUserDeviceAssignment` keeps its established
-combined user/device presentation; the v4.4 effective-targeting cmdlet introduced
-in issue #140 adds a canonical explanation model for those results.
+combined user/device presentation. `Get-IntuneEffectiveAssignment` adds a
+canonical explanation model whose `EffectiveState` is `Included`, `Excluded`,
+`NotTargeted`, or `Unknown` and whose `ReasonChain` records every evaluated
+assignment and the final precedence decision. It unions user and device transitive
+group memberships, evaluates All Users and All Devices, gives active or unresolved
+exclusions precedence, and applies locally evaluated device assignment filters.
+When an inclusion and exclusion match different user/device targeting dimensions,
+the result is conservatively `Unknown` because that mixed targeting design cannot
+be inferred safely. An exclusion without any matching or unresolved inclusion is
+`NotTargeted`, not `Excluded`. For combined checks, `SubjectType` is `UserDevice`
+and `SubjectId` is the user object ID and managed-device ID joined with `|`; use
+`ReasonChain[*].MembershipSources` to distinguish user-side and device-side group
+matches. Application analysis covers apps that have at least one tenant assignment;
+unassigned apps remain available through `Get-IntuneUnassignedPolicy`.
+This is targeting analysis: it does not prove delivery, platform applicability,
+installation, execution, compliance, or device check-in.
+
+If a non-optional workload cannot be scanned, `-PassThru` and CSV output include
+one typed `Unknown` record with an empty `PolicyId`, `PolicyName` set to
+`[Category scan failed]`, and reason code `Scan.CategoryFailed`. This prevents
+automation from mistaking an unreadable category for a category with no matching
+assignments. CSV rows also expose the final `DecisionCode`; inspect the full JSON
+`ReasonChain` for every target, filter, and precedence decision.
 
 `Get-IntuneGroupAssignment` CSV/Excel exports include `GroupId`, `GroupName`,
 `GroupType`, `MembershipType`, and `GroupMail` on every group and policy/app
@@ -449,6 +480,7 @@ Available cmdlets:
 | `Get-IntuneUserAssignment`         | Check assignments for specific users                                  |
 | `Get-IntuneGroupAssignment`        | Check assignments for specific groups                                 |
 | `Get-IntuneDeviceAssignment`       | Check assignments for specific devices                                |
+| `Get-IntuneEffectiveAssignment`    | Explain effective targeting for a user, managed device, or both       |
 | `Get-IntuneAllPolicies`            | Show all policies and their assignments                               |
 | `Get-IntuneAllUsersAssignment`     | Show all 'All Users' assignments                                      |
 | `Get-IntuneAllDevicesAssignment`   | Show all 'All Devices' assignments                                    |

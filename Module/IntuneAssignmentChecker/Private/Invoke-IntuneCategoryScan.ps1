@@ -89,11 +89,7 @@ function Invoke-IntuneCategoryScan {
         $entityRecords = [System.Collections.Generic.List[object]]::new()
         if ($BuildRecords) {
             if ($Assignments.Count -eq 0) {
-                $noneAssignment = [PSCustomObject]@{
-                    AssignmentId = $null; Reason = 'No Assignment'; AssignmentMode = 'None'
-                    TargetType = 'None'; TargetId = $null; GroupId = $null; Intent = $null
-                    FilterId = $null; FilterType = $null
-                }
+                $noneAssignment = Get-IACNoAssignmentPlaceholder
                 $entityRecords.Add((ConvertTo-IACAssignmentRecord -Category $Category -Entity $Entity -Assignment $noneAssignment))
             }
             else {

@@ -29,6 +29,10 @@ function New-IACAssignmentRecord {
         [string]$FilterMode,
         [string]$FilterRule,
         [string]$FilterPlatform,
+        [ValidateSet('Included', 'Excluded', 'NotTargeted', 'Unknown')]
+        [AllowNull()]
+        [string]$EffectiveState,
+        [object[]]$ReasonChain = @(),
         [string]$SubjectType,
         [string]$SubjectId,
         [string]$SubjectName,
@@ -61,6 +65,8 @@ function New-IACAssignmentRecord {
         FilterMode       = $FilterMode
         FilterRule       = $FilterRule
         FilterPlatform   = $FilterPlatform
+        EffectiveState   = $EffectiveState
+        ReasonChain      = @($ReasonChain)
         AssignmentReason = $AssignmentReason
         Source           = $Source
     }

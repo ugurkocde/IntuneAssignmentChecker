@@ -6,7 +6,7 @@ BeforeAll {
     $private = Join-Path $moduleRoot Private
     foreach ($name in @(
             'Get-PolicyPlatform.ps1', 'Get-ScopeTagNames.ps1', 'New-IACAssignmentRecord.ps1',
-            'ConvertTo-IACAssignmentRecord.ps1', 'ConvertTo-IACNormalizedAssignment.ps1',
+            'ConvertTo-IACAssignmentRecord.ps1', 'ConvertTo-IACNormalizedAssignment.ps1', 'Get-IACNoAssignmentPlaceholder.ps1',
             'Select-IACAssignmentRecord.ps1', 'Format-AssignmentFilter.ps1', 'Get-Separator.ps1',
             'Get-AppProtectionAssignmentUri.ps1', 'Test-ImportedAdministrativeTemplate.ps1',
             'Get-IntuneCategoryDefinition.ps1', 'Invoke-IntuneCategoryScan.ps1')) {

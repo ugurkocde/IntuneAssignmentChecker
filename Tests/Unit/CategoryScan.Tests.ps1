@@ -11,6 +11,7 @@ BeforeAll {
     . (Join-Path $modulePrivate 'New-IACAssignmentRecord.ps1')
     . (Join-Path $modulePrivate 'ConvertTo-IACAssignmentRecord.ps1')
     . (Join-Path $modulePrivate 'ConvertTo-IACNormalizedAssignment.ps1')
+    . (Join-Path $modulePrivate 'Get-IACNoAssignmentPlaceholder.ps1')
     . (Join-Path $modulePrivate 'Invoke-IntuneCategoryScan.ps1')
     . (Join-Path $modulePrivate 'Get-ScopeTagNames.ps1')
     . (Join-Path $modulePrivate 'Add-ExportData.ps1')
@@ -198,6 +199,7 @@ Describe 'Invoke-IntuneCategoryScan' {
             $script:processedIds | Should -Be @('comp-1')
             $result.Errors.Count | Should -Be 1
             $result.Errors[0].CategoryId | Should -Be 'DeviceConfigurations'
+            $result.Errors[0].DisplayName | Should -BeExactly 'Device Configurations'
             $result.Errors[0].Message | Should -Match 'boom'
             Should -Invoke Write-Error -Exactly 1
         }
@@ -586,6 +588,13 @@ Describe 'Get-IntuneCategoryDefinition' {
         $categories.Id | Should -Contain 'ShellScripts'
     }
 
+    It 'returns a complete 23-category inventory for Effective targeting' {
+        $categories = Get-IntuneCategoryDefinition -Audience Effective
+        @($categories).Count | Should -Be 23
+        @($categories | Where-Object { $_.BucketOnly }).Count | Should -Be 0
+        ($categories | Where-Object Id -eq SettingsCatalog).EntityFilter | Should -Not -BeNullOrEmpty
+    }
+
     It 'registers every Windows Update workload as an optional shared entity category' {
         $expected = [ordered]@{
             WindowsFeatureUpdates = 'windowsFeatureUpdateProfiles'
@@ -593,7 +602,7 @@ Describe 'Get-IntuneCategoryDefinition' {
             WindowsDriverUpdates = 'windowsDriverUpdateProfiles'
             WindowsQualityUpdatePolicies = 'windowsQualityUpdatePolicies'
         }
-        foreach ($audience in @('UserContext', 'DeviceContext', 'GroupContext', 'AllPolicies', 'Search', 'Compare')) {
+        foreach ($audience in @('UserContext', 'DeviceContext', 'GroupContext', 'AllPolicies', 'Search', 'Compare', 'Effective')) {
             $categories = Get-IntuneCategoryDefinition -Audience $audience
             foreach ($id in $expected.Keys) {
                 $category = $categories | Where-Object Id -eq $id

@@ -38,8 +38,11 @@ Describe 'IntuneAssignmentChecker.AssignmentRecord' {
             'CategoryId', 'Category', 'PolicyId', 'PolicyName', 'Platform', 'ScopeTagIds', 'ScopeTags',
             'AssignmentId', 'AssignmentMode', 'TargetType', 'TargetId', 'TargetName', 'Intent',
             'FilterId', 'FilterName', 'FilterMode', 'FilterRule', 'FilterPlatform',
+            'EffectiveState', 'ReasonChain',
             'AssignmentReason', 'Source'
         )
+        $record.EffectiveState | Should -BeNullOrEmpty
+        $record.ReasonChain | Should -BeNullOrEmpty
     }
 
     It 'allows unnamed or partial Graph entities without aborting the pipeline' {
