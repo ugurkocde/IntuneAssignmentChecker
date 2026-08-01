@@ -204,7 +204,7 @@ Describe 'Invoke-IntuneCategoryScan' {
             Should -Invoke Write-Error -Exactly 1
         }
 
-        It 'skips OptionalFeature category failures quietly without an error record' {
+        It 'reports OptionalFeature category failures as skipped without an error record' {
             Mock Get-IntuneEntities {
                 if ($EntityType -eq 'virtualEndpoint/provisioningPolicies') { throw 'not licensed' }
                 return @([PSCustomObject]@{ id = 'comp-1'; displayName = 'Compliance 1' })
@@ -223,6 +223,9 @@ Describe 'Invoke-IntuneCategoryScan' {
 
             $script:processedIds | Should -Be @('comp-1')
             $result.Errors.Count | Should -Be 0
+            $result.Skipped.Count | Should -Be 1
+            $result.Skipped[0].CategoryId | Should -BeExactly 'CloudPCProvisioningPolicies'
+            $result.Skipped[0].Message | Should -Match 'not licensed'
             Should -Invoke Write-Error -Exactly 0
         }
     }

@@ -49,6 +49,7 @@ function Invoke-IntuneCategoryScan {
     }
 
     $scanErrors = [System.Collections.Generic.List[object]]::new()
+    $skippedCategories = [System.Collections.Generic.List[object]]::new()
     $records = [System.Collections.Generic.List[object]]::new()
 
     function Get-CachedEntitySet {
@@ -204,6 +205,11 @@ function Invoke-IntuneCategoryScan {
         catch {
             if ($category.OptionalFeature) {
                 # Optional features (e.g. Windows 365) fail quietly when the tenant is not licensed
+                $skippedCategories.Add([PSCustomObject]@{
+                        CategoryId  = $category.Id
+                        DisplayName = $category.DisplayName
+                        Message     = $_.Exception.Message
+                    })
                 Write-Verbose "Skipping optional category '$($category.DisplayName)': $($_.Exception.Message)"
                 continue
             }
@@ -223,6 +229,7 @@ function Invoke-IntuneCategoryScan {
         Buckets       = $buckets
         Records       = $records
         Errors        = $scanErrors
+        Skipped       = $skippedCategories
         CategoryCount = $totalCategories
     }
 }

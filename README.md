@@ -81,6 +81,7 @@ IntuneAssignmentChecker
 - 🎯 See Intune assignment filters (name and Include/Exclude type) inline on every assignment, in the console, CSV exports, and HTML reports
 - 🛡️ Safely test managed-device assignment-filter rules locally with `Test-IntuneAssignmentFilter` and tri-state `Match`, `NotMatch`, or `Unknown` results; tenant rule text is never executed
 - 🧭 Explain effective targeting for a user, managed device, or both with exclusion precedence, transitive group membership, assignment filters, and machine-readable reason chains
+- 📸 Capture deterministic assignment snapshots and compare Added, Removed, and Changed records between runs
 - 🔐 Support for certificate-based and client secret authentication
 - 🔄 Version check on connect with an update notice when a newer PSGallery release is available
 - 📊 Detailed reporting of Configuration Profiles, Compliance Policies, and Applications
@@ -404,6 +405,14 @@ Get-IntuneEffectiveAssignment -UserPrincipalName 'user@contoso.com' -DeviceName 
 $effective = Get-IntuneEffectiveAssignment -UserPrincipalName 'user@contoso.com' `
     -DeviceName 'Laptop123' -PassThru -ExportPath 'C:\Temp\EffectiveAssignments.csv'
 $effective | Where-Object EffectiveState -in 'Excluded', 'Unknown'
+
+# Capture the tenant assignment baseline as deterministic, schema-versioned JSON
+Export-IntuneAssignmentSnapshot -Path 'C:\IntuneSnapshots\assignments.json' -Force
+
+# Compare a checked-in baseline with a newer scheduled capture
+Compare-IntuneAssignmentSnapshot `
+    -ReferencePath 'C:\IntuneSnapshots\baseline.json' `
+    -DifferencePath 'C:\IntuneSnapshots\latest.json'
 ```
 
 `Get-IntuneUserAssignment`, `Get-IntuneGroupAssignment`,
@@ -449,6 +458,36 @@ automation from mistaking an unreadable category for a category with no matching
 assignments. CSV rows also expose the final `DecisionCode`; inspect the full JSON
 `ReasonChain` for every target, filter, and precedence decision.
 
+Assignment snapshots use the `IntuneAssignmentChecker.AssignmentSnapshot` schema
+version `1`. They contain the UTC capture time, module version, tenant identity,
+per-category coverage and errors, and canonical assignment records sorted by a
+stable identity key. Only the documented canonical fields are serialized; arbitrary
+properties such as access tokens or client secrets are discarded. Apps are covered
+when they have at least one tenant assignment, matching the shared assignment scan.
+With a fixed `-CapturedAtUtc`, equivalent inputs produce byte-identical UTF-8 JSON
+on every platform. The normal current-time value intentionally changes per capture.
+Difference rows expose an opaque, versioned `IdentityKey`; compare it as a whole but
+do not parse it. When Graph omits an assignment ID, the fallback identity includes
+the assignment intent, so an intent change appears as an Added/Removed pair rather
+than one Changed row.
+
+For scheduled auditing, export to a dated file, compare it with the last accepted
+baseline, and archive or commit the JSON to source control. `Compare-IntuneAssignmentSnapshot`
+rejects malformed schemas, different tenants, failed or unknown scans, and mismatched
+category coverage by default, so a permission or service failure cannot masquerade
+as assignment removal. Optional workloads that cannot be fetched are marked
+`Skipped`; comparison warns and excludes those categories from both snapshots, so
+an unavailable optional workload produces neither false removals nor false additions.
+Failed and unknown categories remain blocked. The explicit `-AllowIncompleteCoverage` and
+`-AllowCoverageMismatch` switches are intended for investigated exceptions, not
+routine automation. Snapshot files contain tenant configuration and names, so use
+the same repository access controls as other Intune configuration exports.
+Snapshots built from `-InputObject` default to incomplete because the exporter
+cannot see an upstream command's error stream. Supply the full `-CoverageCategory`
+set and `-CoverageComplete` only when the producer is known to have completed;
+otherwise pass structured `-CoverageError` entries and keep the snapshot blocked
+from routine comparison.
+
 `Get-IntuneGroupAssignment` CSV/Excel exports include `GroupId`, `GroupName`,
 `GroupType`, `MembershipType`, and `GroupMail` on every group and policy/app
 row. This keeps multi-group exports attributable and lets workbooks distinguish
@@ -481,6 +520,8 @@ Available cmdlets:
 | `Get-IntuneGroupAssignment`        | Check assignments for specific groups                                 |
 | `Get-IntuneDeviceAssignment`       | Check assignments for specific devices                                |
 | `Get-IntuneEffectiveAssignment`    | Explain effective targeting for a user, managed device, or both       |
+| `Export-IntuneAssignmentSnapshot`  | Capture deterministic, schema-versioned assignment JSON              |
+| `Compare-IntuneAssignmentSnapshot` | Report Added, Removed, and Changed records between snapshots          |
 | `Get-IntuneAllPolicies`            | Show all policies and their assignments                               |
 | `Get-IntuneAllUsersAssignment`     | Show all 'All Users' assignments                                      |
 | `Get-IntuneAllDevicesAssignment`   | Show all 'All Devices' assignments                                    |
