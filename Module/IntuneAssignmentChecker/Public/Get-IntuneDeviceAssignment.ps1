@@ -44,7 +44,8 @@ function Get-IntuneDeviceAssignment {
 
     $categories = Get-IntuneCategoryDefinition -Audience 'DeviceContext'
     # Categories the legacy code fetched only for Windows (or unknown-OS) devices
-    $windowsOnlyCategoryIds = @('ImportedAdministrativeTemplates', 'DeploymentProfiles', 'ESPProfiles', 'CloudPCProvisioningPolicies', 'CloudPCUserSettings')
+    $windowsOnlyCategoryIds = @('ImportedAdministrativeTemplates', 'DeploymentProfiles', 'ESPProfiles', 'CloudPCProvisioningPolicies', 'CloudPCUserSettings',
+        'WindowsFeatureUpdates', 'WindowsQualityUpdates', 'WindowsDriverUpdates', 'WindowsQualityUpdatePolicies')
     # These legacy categories retain their historical first-match assignment walk.
     # Imported templates use standard exclusion precedence instead.
     $firstMatchCategoryIds = @('DeploymentProfiles', 'ESPProfiles', 'CloudPCProvisioningPolicies', 'CloudPCUserSettings')
@@ -378,6 +379,10 @@ function Get-IntuneDeviceAssignment {
             @{ Title = 'Endpoint Security - EDR Profiles'; Bucket = 'EndpointDetectionProfiles'; GetName = $esProfileName }
             @{ Title = 'Endpoint Security - ASR Profiles'; Bucket = 'AttackSurfaceProfiles'; GetName = $esProfileName }
             @{ Title = 'Endpoint Security - Account Protection Profiles'; Bucket = 'AccountProtectionProfiles'; GetName = $esProfileName }
+            @{ Title = 'Windows Feature Update Profiles'; Bucket = 'WindowsFeatureUpdates'; GetName = $displayNameFirst }
+            @{ Title = 'Windows Quality Update Profiles'; Bucket = 'WindowsQualityUpdates'; GetName = $displayNameFirst }
+            @{ Title = 'Windows Driver Update Profiles'; Bucket = 'WindowsDriverUpdates'; GetName = $displayNameFirst }
+            @{ Title = 'Windows Quality Update Policies'; Bucket = 'WindowsQualityUpdatePolicies'; GetName = $displayNameFirst }
         )
         foreach ($section in $displaySections) {
             Format-PolicyTable -Title $section.Title -Policies @($relevantPolicies[$section.Bucket]) -GetName $section.GetName
@@ -398,7 +403,8 @@ function Get-IntuneDeviceAssignment {
             @{ Ids = @('AppProtectionPolicies'); Reason = { param($item) $item.AssignmentSummary } }
             @{ Ids = @('AppConfigurationPolicies', 'PlatformScripts', 'HealthScripts', 'DeploymentProfiles', 'ESPProfiles',
                     'ESAntivirus', 'ESDiskEncryption', 'ESFirewall', 'ESEndpointDetection', 'ESAttackSurface', 'ESAccountProtection',
-                    'CloudPCProvisioningPolicies', 'CloudPCUserSettings', 'Applications'); Reason = $reasonProperty }
+                    'CloudPCProvisioningPolicies', 'CloudPCUserSettings', 'WindowsFeatureUpdates', 'WindowsQualityUpdates',
+                    'WindowsDriverUpdates', 'WindowsQualityUpdatePolicies', 'Applications'); Reason = $reasonProperty }
         )
         foreach ($batch in $exportBatches) {
             $batchCategories = foreach ($id in $batch.Ids) { $categories | Where-Object { $_.Id -eq $id } }

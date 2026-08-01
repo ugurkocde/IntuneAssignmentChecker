@@ -180,6 +180,20 @@ function Get-IntuneAllUsersAssignment {
         "Enrollment Status Page Profile Name: $profileName, Profile ID: $($policyProfile.id)"
     }
 
+    foreach ($updateSpec in @(
+            @{ Bucket = 'WindowsFeatureUpdates'; Header = 'Windows Feature Update Profiles'; Label = 'Feature Update Profile' }
+            @{ Bucket = 'WindowsQualityUpdates'; Header = 'Windows Quality Update Profiles'; Label = 'Quality Update Profile' }
+            @{ Bucket = 'WindowsDriverUpdates'; Header = 'Windows Driver Update Profiles'; Label = 'Driver Update Profile' }
+            @{ Bucket = 'WindowsQualityUpdatePolicies'; Header = 'Windows Quality Update Policies'; Label = 'Quality Update Policy' }
+        )) {
+        $label = $updateSpec.Label
+        Show-AllUsersSection -Header $updateSpec.Header -EmptyLabel $updateSpec.Header -Items $allUsersAssignments[$updateSpec.Bucket] -Line {
+            param($item)
+            $name = if ($item.displayName) { $item.displayName } else { $item.name }
+            "$label Name: $name, ID: $($item.id)"
+        }
+    }
+
     # Add to export data. The legacy CSV row order follows the display order above,
     # where the app buckets came after the script categories, so export in that order
     # rather than fetch order.
@@ -187,7 +201,8 @@ function Get-IntuneAllUsersAssignment {
         'DeviceConfigurations', 'ImportedAdministrativeTemplates', 'SettingsCatalog', 'CompliancePolicies', 'AppProtectionPolicies',
         'AppConfigurationPolicies', 'PlatformScripts', 'HealthScripts', 'Applications',
         'ESAntivirus', 'ESDiskEncryption', 'ESFirewall', 'ESEndpointDetection', 'ESAttackSurface',
-        'ESAccountProtection', 'DeploymentProfiles', 'ESPProfiles'
+        'ESAccountProtection', 'DeploymentProfiles', 'ESPProfiles', 'WindowsFeatureUpdates', 'WindowsQualityUpdates',
+        'WindowsDriverUpdates', 'WindowsQualityUpdatePolicies'
     )
     $exportCategories = foreach ($id in $exportOrderIds) { $categories | Where-Object { $_.Id -eq $id } }
     Add-CategoryExportData -ExportData $exportData -Categories $exportCategories -Buckets $allUsersAssignments -AssignmentReason "All Users"

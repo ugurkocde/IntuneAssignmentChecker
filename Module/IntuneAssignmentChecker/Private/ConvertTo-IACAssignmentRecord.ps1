@@ -55,7 +55,7 @@ function ConvertTo-IACAssignmentRecord {
     New-IACAssignmentRecord `
         -CategoryId "$($Category.Id)" -Category "$categoryName" `
         -PolicyId "$($Entity.id)" -PolicyName $policyName `
-        -Platform (Get-PolicyPlatform -Policy $Entity) `
+        -Platform $(if ($Category.Platform) { $Category.Platform } else { Get-PolicyPlatform -Policy $Entity }) `
         -ScopeTagIds $scopeTagIds -ScopeTags $scopeTagNames `
         -AssignmentId $Assignment.AssignmentId `
         -AssignmentMode $assignmentMode `

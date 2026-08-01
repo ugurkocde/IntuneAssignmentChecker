@@ -37,7 +37,7 @@ BeforeAll {
         @()
     }
     function Get-IntuneEntities {
-        param([string]$EntityType, [string]$Filter, [string]$Select, [string]$Expand)
+        param([string]$EntityType, [string]$Filter, [string]$Select, [string]$Expand, [switch]$Quiet)
         @()
     }
     function Get-IntuneAssignments {
@@ -116,6 +116,9 @@ Describe 'Get-IntuneUserAssignment' {
                 'deviceManagement/intents' {
                     @([PSCustomObject]@{ id = 'av-intent'; displayName = 'AV Intent Legacy' })
                 }
+                'windowsFeatureUpdateProfiles' {
+                    @([PSCustomObject]@{ id = 'feature-excl'; displayName = 'Feature Update Excluded'; roleScopeTagIds = @('0') })
+                }
                 default { @() }
             }
         }
@@ -131,6 +134,12 @@ Describe 'Get-IntuneUserAssignment' {
                     )
                 }
                 'av-cfg' { @([PSCustomObject]@{ Reason = 'All Users'; GroupId = $null; FilterId = $null; FilterType = $null }) }
+                'feature-excl' {
+                    @(
+                        [PSCustomObject]@{ Reason = 'All Users'; GroupId = $null; FilterId = $null; FilterType = $null }
+                        [PSCustomObject]@{ Reason = 'Group Exclusion'; GroupId = 'g-a'; FilterId = $null; FilterType = $null }
+                    )
+                }
                 default { @() }
             }
         }
@@ -226,6 +235,14 @@ Describe 'Get-IntuneUserAssignment' {
         @($configRows | Where-Object { $_.Item -like '*dc-other*' }).Count | Should -Be 0
     }
 
+    It 'honors exclusion precedence for Windows Update policies' {
+        Get-IntuneUserAssignment -UserPrincipalNames 'user1@contoso.com'
+
+        $row = $script:capturedExport | Where-Object { $_.Item -eq 'Feature Update Excluded (ID: feature-excl)' }
+        $row.Category | Should -BeExactly 'Windows Feature Update Profile'
+        $row.AssignmentReason | Should -BeExactly Excluded
+    }
+
     It 'keeps excluded apps visible in the excluding assignment intent bucket with filter suffix' {
         Get-IntuneUserAssignment -UserPrincipalNames 'user1@contoso.com'
 
@@ -296,6 +313,8 @@ Describe 'Get-IntuneUserAssignment' {
             'Windows 365 Cloud PC Provisioning Policy', 'Windows 365 Cloud PC User Setting',
             'Endpoint Security - Antivirus', 'Endpoint Security - Disk Encryption', 'Endpoint Security - Firewall',
             'Endpoint Security - EDR', 'Endpoint Security - ASR', 'Endpoint Security - Account Protection',
+            'Windows Feature Update Profile', 'Windows Quality Update Profile', 'Windows Driver Update Profile',
+            'Windows Quality Update Policy',
             'Required Apps', 'Available Apps', 'Uninstall Apps'
         )
         $actualOrder = @($script:capturedExport.Category | Select-Object -Unique)

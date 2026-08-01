@@ -56,6 +56,10 @@ function Get-IntuneAssignments {
         # Imported Administrative Templates use the documented resource-path form.
         $actualAssignmentsUri = "$script:GraphEndpoint/beta/deviceManagement/groupPolicyConfigurations/$EntityId/assignments"
     }
+    elseif ($EntityType -in @('windowsFeatureUpdateProfiles', 'windowsQualityUpdateProfiles', 'windowsDriverUpdateProfiles', 'windowsQualityUpdatePolicies')) {
+        # Windows Update workloads expose assignments on the documented resource path.
+        $actualAssignmentsUri = "$script:GraphEndpoint/beta/deviceManagement/$EntityType/$EntityId/assignments"
+    }
     else {
         # General device management entities
         $actualAssignmentsUri = "$script:GraphEndpoint/beta/deviceManagement/$EntityType('$EntityId')/assignments"

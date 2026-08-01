@@ -215,6 +215,7 @@ function Test-IntuneGroupRemoval {
             'AppConfigurationPolicies', 'Applications', 'PlatformScripts', 'HealthScripts',
             'ESAntivirus', 'ESDiskEncryption', 'ESFirewall', 'ESEndpointDetection',
             'ESAttackSurface', 'ESAccountProtection', 'DeploymentProfiles', 'ESPProfiles',
+            'WindowsFeatureUpdates', 'WindowsQualityUpdates', 'WindowsDriverUpdates', 'WindowsQualityUpdatePolicies',
             'CloudPCProvisioningPolicies', 'CloudPCUserSettings')) {
         $categoryIndex[$id].BucketOnly = $false
         $categoryIndex[$id]

@@ -83,6 +83,7 @@ IntuneAssignmentChecker
 - 🔄 Version check on connect with an update notice when a newer PSGallery release is available
 - 📊 Detailed reporting of Configuration Profiles, Compliance Policies, and Applications
 - 🧩 Imported Administrative Template coverage across assignment checks, search, CSV exports, and HTML reports
+- 🔄 Windows Update for Business coverage for Feature Update, Quality Update, and Driver Update profiles plus Quality Update policies
 - 👥 First-class Microsoft 365 group recognition with group type, membership mode, and mail address in group assignment checks and exports
 - 📈 Interactive HTML reports with charts and filterable tables
 
@@ -406,9 +407,9 @@ shared-scan cmdlets create canonical records from the same structured Graph data
 used for their console and CSV views, while the HTML report keeps its purpose-built
 flat reporting schema. Treat `CategoryId` as the stable machine key; `Category` is
 a presentation label and can vary where a cmdlet distinguishes app intents or uses
-search-specific wording. `Get-IntuneUserDeviceAssignment` intentionally keeps its
-legacy output in this release slice; the v4.4 effective-targeting cmdlet introduced
-in issue #140 provides canonical user/device results.
+search-specific wording. `Get-IntuneUserDeviceAssignment` keeps its established
+combined user/device presentation; the v4.4 effective-targeting cmdlet introduced
+in issue #140 adds a canonical explanation model for those results.
 
 `Get-IntuneGroupAssignment` CSV/Excel exports include `GroupId`, `GroupName`,
 `GroupType`, `MembershipType`, and `GroupMail` on every group and policy/app

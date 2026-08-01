@@ -244,6 +244,10 @@ function Get-IntuneGroupAssignment {
             @{ Title = 'Endpoint Security - EDR Profiles'; Bucket = 'EndpointDetectionProfiles' }
             @{ Title = 'Endpoint Security - ASR Profiles'; Bucket = 'AttackSurfaceProfiles' }
             @{ Title = 'Endpoint Security - Account Protection Profiles'; Bucket = 'AccountProtectionProfiles' }
+            @{ Title = 'Windows Feature Update Profiles'; Bucket = 'WindowsFeatureUpdates'; GetName = $displayNameFirst }
+            @{ Title = 'Windows Quality Update Profiles'; Bucket = 'WindowsQualityUpdates'; GetName = $displayNameFirst }
+            @{ Title = 'Windows Driver Update Profiles'; Bucket = 'WindowsDriverUpdates'; GetName = $displayNameFirst }
+            @{ Title = 'Windows Quality Update Policies'; Bucket = 'WindowsQualityUpdatePolicies'; GetName = $displayNameFirst }
         )
         foreach ($section in $displaySections) {
             $sectionParams = @{
@@ -278,7 +282,8 @@ function Get-IntuneGroupAssignment {
             @{ Ids = @('AppProtectionPolicies'); Reason = { param($item) $item.AssignmentSummary } }
             @{ Ids = @('AppConfigurationPolicies', 'PlatformScripts', 'HealthScripts', 'DeploymentProfiles', 'ESPProfiles',
                     'CloudPCProvisioningPolicies', 'CloudPCUserSettings', 'ESAntivirus', 'ESDiskEncryption', 'ESFirewall',
-                    'ESEndpointDetection', 'ESAttackSurface', 'ESAccountProtection', 'Applications'); Reason = $reasonProperty }
+                    'ESEndpointDetection', 'ESAttackSurface', 'ESAccountProtection', 'WindowsFeatureUpdates', 'WindowsQualityUpdates',
+                    'WindowsDriverUpdates', 'WindowsQualityUpdatePolicies', 'Applications'); Reason = $reasonProperty }
         )
         foreach ($batch in $exportBatches) {
             $batchCategories = foreach ($id in $batch.Ids) { $categories | Where-Object { $_.Id -eq $id } }

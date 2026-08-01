@@ -22,7 +22,7 @@ BeforeAll {
 
     # Stub collaborators so Pester can mock them per test
     function Get-IntuneEntities {
-        param([string]$EntityType, [string]$Filter, [string]$Select, [string]$Expand)
+        param([string]$EntityType, [string]$Filter, [string]$Select, [string]$Expand, [switch]$Quiet)
         @()
     }
     function Get-IntuneAssignments {
@@ -92,6 +92,9 @@ Describe 'Compare-IntuneGroupAssignment' {
                         [PSCustomObject]@{ id = 'intent-av'; displayName = 'AV Intent Policy'; templateId = 'tmpl-av'; templateReference = [PSCustomObject]@{ templateFamily = 'endpointSecurityAntivirus' } }
                     )
                 }
+                'windowsFeatureUpdateProfiles' {
+                    @([PSCustomObject]@{ id = 'feature-1'; displayName = 'Windows 11 24H2'; roleScopeTagIds = @('0') })
+                }
                 default { @() }
             }
         }
@@ -113,6 +116,7 @@ Describe 'Compare-IntuneGroupAssignment' {
                 'ps-2' { @([PSCustomObject]@{ Reason = 'Direct Exclusion'; GroupId = $script:groupA; FilterId = $null; FilterType = $null }) }
                 'hs-1' { @([PSCustomObject]@{ Reason = 'Direct Assignment'; GroupId = $script:groupA; FilterId = $null; FilterType = $null }) }
                 'hs-2' { @([PSCustomObject]@{ Reason = 'Direct Exclusion'; GroupId = $script:groupA; FilterId = $null; FilterType = $null }) }
+                'feature-1' { @([PSCustomObject]@{ Reason = 'Direct Assignment'; GroupId = $script:groupA; FilterId = $null; FilterType = $null }) }
                 default { @() }
             }
             # Mirror the real helper: only assignments targeting the requested group ids
@@ -286,6 +290,13 @@ Describe 'Compare-IntuneGroupAssignment' {
             $cpRows.Count | Should -Be 1
             $cpRows[0].Category | Should -BeExactly 'Settings Catalog'
             $cpRows[0].'Group A' | Should -BeExactly 'Included'
+        }
+
+        It 'includes Windows Update policies in the comparison matrix' {
+            $row = $script:rows | Where-Object { $_.PolicyName -eq 'Windows 11 24H2' }
+            $row.Category | Should -BeExactly 'Windows Feature Update Profiles'
+            $row.'Group A' | Should -BeExactly 'Included'
+            $row.'Group B' | Should -BeExactly ''
         }
 
         It 'never fetches assignments for ES configurationPolicies policies (prefilter)' {

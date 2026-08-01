@@ -179,6 +179,7 @@ function Test-IntuneGroupMembership {
         @('DeviceConfigurations', 'ImportedAdministrativeTemplates', 'SettingsCatalog', 'CompliancePolicies', 'AppProtectionPolicies', 'AppConfigurationPolicies',
             'Applications', 'PlatformScripts', 'HealthScripts', 'ESAntivirus', 'ESDiskEncryption', 'ESFirewall',
             'ESEndpointDetection', 'ESAttackSurface', 'ESAccountProtection', 'DeploymentProfiles', 'ESPProfiles',
+            'WindowsFeatureUpdates', 'WindowsQualityUpdates', 'WindowsDriverUpdates', 'WindowsQualityUpdatePolicies',
             'CloudPCProvisioningPolicies', 'CloudPCUserSettings') | ForEach-Object { $categoriesById[$_] })
 
     # Legacy conflict-row category labels: registry export labels except these five

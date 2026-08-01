@@ -19,6 +19,7 @@ function Get-IntuneCategoryDefinition {
             BucketKeys             = @()
             DisplayName            = $null
             ExportCategory         = $null
+            Platform               = $null
             OptionalFeature        = $false
             # BucketOnly categories register their BucketKeys for export parity but are never fetched.
             BucketOnly             = $false
@@ -71,6 +72,10 @@ function Get-IntuneCategoryDefinition {
         ESPProfiles                 = @{ Id = 'ESPProfiles'; EntityType = 'deviceEnrollmentConfigurations'; EntityFilter = $espEntityFilter; BucketKeys = @('ESPProfiles'); DisplayName = 'Enrollment Status Page Profiles'; ExportCategory = 'Enrollment Status Page' }
         CloudPCProvisioningPolicies = @{ Id = 'CloudPCProvisioningPolicies'; EntityType = 'virtualEndpoint/provisioningPolicies'; BucketKeys = @('CloudPCProvisioningPolicies'); DisplayName = 'Windows 365 Cloud PC Provisioning Policies'; ExportCategory = 'Windows 365 Cloud PC Provisioning Policy'; OptionalFeature = $true }
         CloudPCUserSettings         = @{ Id = 'CloudPCUserSettings'; EntityType = 'virtualEndpoint/userSettings'; BucketKeys = @('CloudPCUserSettings'); DisplayName = 'Windows 365 Cloud PC User Settings'; ExportCategory = 'Windows 365 Cloud PC User Setting'; OptionalFeature = $true }
+        WindowsFeatureUpdates       = @{ Id = 'WindowsFeatureUpdates'; EntityType = 'windowsFeatureUpdateProfiles'; BucketKeys = @('WindowsFeatureUpdates'); DisplayName = 'Windows Feature Update Profiles'; ExportCategory = 'Windows Feature Update Profile'; Platform = 'Windows'; OptionalFeature = $true }
+        WindowsQualityUpdates       = @{ Id = 'WindowsQualityUpdates'; EntityType = 'windowsQualityUpdateProfiles'; BucketKeys = @('WindowsQualityUpdates'); DisplayName = 'Windows Quality Update Profiles'; ExportCategory = 'Windows Quality Update Profile'; Platform = 'Windows'; OptionalFeature = $true }
+        WindowsDriverUpdates        = @{ Id = 'WindowsDriverUpdates'; EntityType = 'windowsDriverUpdateProfiles'; BucketKeys = @('WindowsDriverUpdates'); DisplayName = 'Windows Driver Update Profiles'; ExportCategory = 'Windows Driver Update Profile'; Platform = 'Windows'; OptionalFeature = $true }
+        WindowsQualityUpdatePolicies = @{ Id = 'WindowsQualityUpdatePolicies'; EntityType = 'windowsQualityUpdatePolicies'; BucketKeys = @('WindowsQualityUpdatePolicies'); DisplayName = 'Windows Quality Update Policies'; ExportCategory = 'Windows Quality Update Policy'; Platform = 'Windows'; OptionalFeature = $true }
     }
 
     $use = {
@@ -123,6 +128,10 @@ function Get-IntuneCategoryDefinition {
             )
             $categories += @(& $newEsCategories { param($family) "$($family.Name) Policies" })
             $categories += @(
+                & $use 'WindowsFeatureUpdates'
+                & $use 'WindowsQualityUpdates'
+                & $use 'WindowsDriverUpdates'
+                & $use 'WindowsQualityUpdatePolicies'
                 & $use 'CloudPCProvisioningPolicies'
                 & $use 'CloudPCUserSettings'
                 # Autopilot/ESP buckets exist for export parity but are not fetched for a user
@@ -148,6 +157,10 @@ function Get-IntuneCategoryDefinition {
                 & $use 'HealthScripts'
                 & $use 'CloudPCProvisioningPolicies'
                 & $use 'CloudPCUserSettings'
+                & $use 'WindowsFeatureUpdates'
+                & $use 'WindowsQualityUpdates'
+                & $use 'WindowsDriverUpdates'
+                & $use 'WindowsQualityUpdatePolicies'
             )
             $categories += @(& $newEsCategories { param($family) "$($family.ShortName) Policies" })
             $categories += @(
@@ -176,6 +189,10 @@ function Get-IntuneCategoryDefinition {
                 & $use 'ESPProfiles'
                 & $use 'CloudPCProvisioningPolicies'
                 & $use 'CloudPCUserSettings'
+                & $use 'WindowsFeatureUpdates'
+                & $use 'WindowsQualityUpdates'
+                & $use 'WindowsDriverUpdates'
+                & $use 'WindowsQualityUpdatePolicies'
             )
             return $categories
         }
@@ -195,6 +212,10 @@ function Get-IntuneCategoryDefinition {
                 & $use 'ESPProfiles'
                 & $use 'CloudPCProvisioningPolicies'
                 & $use 'CloudPCUserSettings'
+                & $use 'WindowsFeatureUpdates'
+                & $use 'WindowsQualityUpdates'
+                & $use 'WindowsDriverUpdates'
+                & $use 'WindowsQualityUpdatePolicies'
             )
             $categories += @(& $newEsCategories { param($family) "$($family.ShortName) Policies" })
             return $categories
@@ -220,6 +241,10 @@ function Get-IntuneCategoryDefinition {
                 & $use 'ESPProfiles' $searchBucket
                 & $use 'CloudPCProvisioningPolicies' ($searchBucket + @{ DisplayName = 'Cloud PC Provisioning Policies'; ExportCategory = 'Cloud PC Provisioning Policy' })
                 & $use 'CloudPCUserSettings' ($searchBucket + @{ DisplayName = 'Cloud PC User Settings'; ExportCategory = 'Cloud PC User Setting' })
+                & $use 'WindowsFeatureUpdates' $searchBucket
+                & $use 'WindowsQualityUpdates' $searchBucket
+                & $use 'WindowsDriverUpdates' $searchBucket
+                & $use 'WindowsQualityUpdatePolicies' $searchBucket
             )
             return $categories
         }
@@ -239,6 +264,10 @@ function Get-IntuneCategoryDefinition {
                 # (Compare-IntuneGroupAssignment.ps1:348-363); the migration must account for that shape.
                 & $newCategory @{ Id = 'ShellScripts'; EntityType = 'deviceShellScripts'; BucketKeys = @('PlatformScripts'); DisplayName = 'Shell Scripts'; ExportCategory = 'Platform Scripts' }
                 & $use 'HealthScripts'
+                & $use 'WindowsFeatureUpdates' @{ ExportCategory = 'Windows Feature Update Profiles' }
+                & $use 'WindowsQualityUpdates' @{ ExportCategory = 'Windows Quality Update Profiles' }
+                & $use 'WindowsDriverUpdates' @{ ExportCategory = 'Windows Driver Update Profiles' }
+                & $use 'WindowsQualityUpdatePolicies' @{ ExportCategory = 'Windows Quality Update Policies' }
             )
             $categories += @(& $newEsCategories { param($family) $family.Export })
             return $categories

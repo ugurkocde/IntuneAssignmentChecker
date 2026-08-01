@@ -12,7 +12,7 @@ BeforeAll {
     . (Join-Path $modulePrivate 'Test-ImportedAdministrativeTemplate.ps1')
     . (Join-Path $moduleRoot 'Public/Get-IntuneUnassignedPolicy.ps1')
 
-    function Get-IntuneEntities { param([string]$EntityType) @() }
+    function Get-IntuneEntities { param([string]$EntityType, [switch]$Quiet) @() }
     function Get-IntuneAssignments { param([string]$EntityType, [string]$EntityId) @() }
     function Get-AppProtectionAssignmentUri { param($Policy) $null }
     function Add-IntentTemplateFamilyInfo { param($IntentPolicies) }
@@ -95,6 +95,27 @@ Describe 'Mobile application scope tags' {
         $records[0].CategoryId | Should -BeExactly Applications
         $records[0].AssignmentMode | Should -BeExactly None
         $records[0].ScopeTagIds | Should -Be @('0', 'tag-finance')
+    }
+
+    It 'returns Windows platform metadata for unassigned Windows Update records' {
+        Mock Get-IntuneEntities {
+            if ($EntityType -eq 'windowsFeatureUpdateProfiles') {
+                return @([PSCustomObject]@{
+                        id = 'feature-unassigned'
+                        displayName = 'Windows 11 24H2'
+                        roleScopeTagIds = @('0')
+                    })
+            }
+            @()
+        }
+
+        $records = @(Get-IntuneUnassignedPolicy -PassThru -ErrorAction Stop)
+        $record = $records | Where-Object PolicyId -eq 'feature-unassigned'
+
+        $record.CategoryId | Should -BeExactly WindowsFeatureUpdates
+        $record.Category | Should -BeExactly 'Windows Feature Update Profile'
+        $record.Platform | Should -BeExactly Windows
+        $record.AssignmentMode | Should -BeExactly None
     }
 
     It 'exports unassigned custom and mixed imported templates but never queries built-in-only assignments' {

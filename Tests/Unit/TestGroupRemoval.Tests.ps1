@@ -62,7 +62,7 @@ BeforeAll {
         @()
     }
     function Get-IntuneEntities {
-        param([string]$EntityType, [string]$Filter, [string]$Select, [string]$Expand)
+        param([string]$EntityType, [string]$Filter, [string]$Select, [string]$Expand, [switch]$Quiet)
         @()
     }
     function Get-IntuneAssignments {
@@ -271,15 +271,17 @@ Describe 'Test-IntuneGroupRemoval' {
             $row.Item | Should -Be 'AP AllDev (ID: ap-alldev)'
         }
 
-        It 'walks the 19 categories including Imported Administrative Templates' {
-            $headers = @($script:hostLines | Where-Object { $_ -match '^\[\d+/19\] Fetching ' })
-            $headers | Should -HaveCount 19
-            $headers[0] | Should -Be '[1/19] Fetching Device Configurations...'
-            $headers[1] | Should -Be '[2/19] Fetching Imported Administrative Templates...'
-            $headers[6] | Should -Be '[7/19] Fetching Applications...'
-            $headers[9] | Should -Be '[10/19] Fetching Antivirus Policies...'
-            $headers[15] | Should -Be '[16/19] Fetching Autopilot Deployment Profiles...'
-            $headers[18] | Should -Be '[19/19] Fetching Windows 365 Cloud PC User Settings...'
+        It 'walks the 23 categories including Windows Update workloads' {
+            $headers = @($script:hostLines | Where-Object { $_ -match '^\[\d+/23\] Fetching ' })
+            $headers | Should -HaveCount 23
+            $headers[0] | Should -Be '[1/23] Fetching Device Configurations...'
+            $headers[1] | Should -Be '[2/23] Fetching Imported Administrative Templates...'
+            $headers[6] | Should -Be '[7/23] Fetching Applications...'
+            $headers[9] | Should -Be '[10/23] Fetching Antivirus Policies...'
+            $headers[15] | Should -Be '[16/23] Fetching Autopilot Deployment Profiles...'
+            $headers[17] | Should -Be '[18/23] Fetching Windows Feature Update Profiles...'
+            $headers[20] | Should -Be '[21/23] Fetching Windows Quality Update Policies...'
+            $headers[22] | Should -Be '[23/23] Fetching Windows 365 Cloud PC User Settings...'
         }
 
         It 'skips unlicensed Windows 365 categories without failing the run' {

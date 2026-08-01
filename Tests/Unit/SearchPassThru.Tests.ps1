@@ -17,7 +17,7 @@ BeforeAll {
     $script:GraphEndpoint = 'https://graph.test'
     $script:ScopeTagLookup = @{}
     $script:AssignmentFilterLookup = @{}
-    function Get-IntuneEntities { param([string]$EntityType) @() }
+    function Get-IntuneEntities { param([string]$EntityType, [switch]$Quiet) @() }
     function Get-IntuneAssignments { param([string]$EntityType, [string]$EntityId, [string[]]$GroupIds = @()) @() }
     function Add-IntentTemplateFamilyInfo { param($IntentPolicies) }
     function Invoke-IACGraphRequest { param($Uri, $Method) @{ value = @() } }

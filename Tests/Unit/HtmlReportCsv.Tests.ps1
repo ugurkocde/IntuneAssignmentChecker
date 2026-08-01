@@ -13,7 +13,7 @@ BeforeAll {
 
     $script:GraphEndpoint = 'https://graph.test'
 
-    function Get-IntuneEntities { param([string]$EntityType) @() }
+    function Get-IntuneEntities { param([string]$EntityType, [switch]$Quiet) @() }
     function Get-IntuneAssignments { param([string]$EntityType, [string]$EntityId) @() }
     function Get-AppProtectionAssignmentUri { param($Policy) $null }
     function Add-IntentTemplateFamilyInfo { param($IntentPolicies) }
@@ -78,6 +78,36 @@ Describe 'HTML report CSV companion' {
         $rows[0].AssignmentType | Should -BeExactly 'All Users'
         $rows[0].AssignedTo | Should -BeExactly 'All Users'
         $rows[0].Filter | Should -BeExactly 'None'
+    }
+
+    It 'includes Windows Update policies in the HTML companion CSV' {
+        Mock Get-IntuneEntities {
+            if ($EntityType -eq 'windowsFeatureUpdateProfiles') {
+                return @([PSCustomObject]@{
+                        id = 'feature-1'
+                        displayName = 'Windows 11 24H2'
+                        roleScopeTagIds = @('0')
+                    })
+            }
+            @()
+        }
+        Mock Get-IntuneAssignments {
+            if ($EntityId -eq 'feature-1') {
+                return @([PSCustomObject]@{ Reason = 'All Devices'; GroupId = $null; FilterId = $null; FilterType = $null })
+            }
+            @()
+        }
+        $htmlPath = Join-Path $TestDrive 'updates/report.html'
+        $csvPath = Join-Path $TestDrive 'updates/report.csv'
+        New-Item -ItemType Directory -Path (Split-Path $htmlPath -Parent) -Force | Out-Null
+
+        Export-HTMLReport -FilePath $htmlPath -CSVReportPath $csvPath
+
+        $row = Import-Csv -Path $csvPath | Where-Object ID -eq 'feature-1'
+        $row.Category | Should -BeExactly 'Windows Feature Update Profiles'
+        $row.Name | Should -BeExactly 'Windows 11 24H2'
+        $row.Platform | Should -BeExactly Windows
+        $row.AssignmentType | Should -BeExactly 'All Devices'
     }
 
     It 'uses the HTML base path for the CSV companion by default' {

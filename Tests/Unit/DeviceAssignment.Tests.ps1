@@ -31,7 +31,7 @@ BeforeAll {
 
     # Stub collaborators so Pester can mock them per test
     function Get-IntuneEntities {
-        param([string]$EntityType, [string]$Filter, [string]$Select, [string]$Expand)
+        param([string]$EntityType, [string]$Filter, [string]$Select, [string]$Expand, [switch]$Quiet)
         @()
     }
     function Get-IntuneAssignments {
@@ -104,7 +104,9 @@ Describe 'Get-IntuneDeviceAssignment' {
             'Required Apps', 'Available Apps', 'Uninstall Apps',
             'Endpoint Security - Antivirus Profiles', 'Endpoint Security - Disk Encryption Profiles',
             'Endpoint Security - Firewall Profiles', 'Endpoint Security - EDR Profiles',
-            'Endpoint Security - ASR Profiles', 'Endpoint Security - Account Protection Profiles')
+            'Endpoint Security - ASR Profiles', 'Endpoint Security - Account Protection Profiles',
+            'Windows Feature Update Profiles', 'Windows Quality Update Profiles',
+            'Windows Driver Update Profiles', 'Windows Quality Update Policies')
         $script:consoleLines | Should -Contain 'No Device Configurations found for this device.'
     }
 

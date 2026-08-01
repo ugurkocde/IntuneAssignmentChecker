@@ -52,9 +52,9 @@ function Invoke-IntuneCategoryScan {
     $records = [System.Collections.Generic.List[object]]::new()
 
     function Get-CachedEntitySet {
-        param([string]$EntityType)
+        param([string]$EntityType, [switch]$Quiet)
         if (-not $EntityCache.ContainsKey($EntityType)) {
-            $EntityCache[$EntityType] = @(Get-IntuneEntities -EntityType $EntityType)
+            $EntityCache[$EntityType] = @(Get-IntuneEntities -EntityType $EntityType -Quiet:$Quiet)
         }
         return , @($EntityCache[$EntityType])
     }
@@ -127,7 +127,7 @@ function Invoke-IntuneCategoryScan {
         try {
             switch ($category.Kind) {
                 'Entity' {
-                    $entities = Get-CachedEntitySet -EntityType $category.EntityType
+                    $entities = Get-CachedEntitySet -EntityType $category.EntityType -Quiet:$category.OptionalFeature
                     if ($category.EntityFilter) {
                         $entities = @($entities | Where-Object $category.EntityFilter)
                     }

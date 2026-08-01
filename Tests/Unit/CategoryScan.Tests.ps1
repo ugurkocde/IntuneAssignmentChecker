@@ -20,7 +20,7 @@ BeforeAll {
 
     # Stub collaborators so Pester can mock them per test
     function Get-IntuneEntities {
-        param([string]$EntityType, [string]$Filter, [string]$Select, [string]$Expand)
+        param([string]$EntityType, [string]$Filter, [string]$Select, [string]$Expand, [switch]$Quiet)
         @()
     }
     function Get-IntuneAssignments {
@@ -519,6 +519,10 @@ Describe 'Add-CategoryExportData' {
             'Enrollment Status Page'
             'Windows 365 Cloud PC Provisioning Policy'
             'Windows 365 Cloud PC User Setting'
+            'Windows Feature Update Profile'
+            'Windows Quality Update Profile'
+            'Windows Driver Update Profile'
+            'Windows Quality Update Policy'
             'Endpoint Security - Antivirus'
             'Endpoint Security - Disk Encryption'
             'Endpoint Security - Firewall'
@@ -542,44 +546,61 @@ Describe 'Add-CategoryExportData' {
 }
 
 Describe 'Get-IntuneCategoryDefinition' {
-    It 'returns 17 fetchable categories plus Autopilot/ESP bucket placeholders for UserContext' {
+    It 'returns 21 fetchable categories plus Autopilot/ESP bucket placeholders for UserContext' {
         $categories = Get-IntuneCategoryDefinition -Audience UserContext
-        @($categories | Where-Object { -not $_.BucketOnly }).Count | Should -Be 17
+        @($categories | Where-Object { -not $_.BucketOnly }).Count | Should -Be 21
         @($categories | Where-Object { $_.BucketOnly }).Id | Should -Be @('DeploymentProfiles', 'ESPProfiles')
     }
 
-    It 'returns 17 fetchable categories plus Autopilot/ESP bucket placeholders for DeviceContext' {
+    It 'returns 21 fetchable categories plus Autopilot/ESP bucket placeholders for DeviceContext' {
         $categories = Get-IntuneCategoryDefinition -Audience DeviceContext
-        @($categories | Where-Object { -not $_.BucketOnly }).Count | Should -Be 17
+        @($categories | Where-Object { -not $_.BucketOnly }).Count | Should -Be 21
         @($categories | Where-Object { $_.BucketOnly }).Id | Should -Be @('DeploymentProfiles', 'ESPProfiles')
     }
 
-    It 'returns 19 categories including Imported Administrative Templates, Autopilot and ESP for GroupContext' {
+    It 'returns 23 categories including Windows Update, Imported Administrative Templates, Autopilot and ESP for GroupContext' {
         $categories = Get-IntuneCategoryDefinition -Audience GroupContext
-        @($categories).Count | Should -Be 19
+        @($categories).Count | Should -Be 23
         @($categories | Where-Object { $_.BucketOnly }).Count | Should -Be 0
         $categories.Id | Should -Contain 'DeploymentProfiles'
         $categories.Id | Should -Contain 'ESPProfiles'
     }
 
-    It 'returns 18 categories without Applications for AllPolicies' {
+    It 'returns 22 categories without Applications for AllPolicies' {
         $categories = Get-IntuneCategoryDefinition -Audience AllPolicies
-        @($categories).Count | Should -Be 18
+        @($categories).Count | Should -Be 22
         $categories.Id | Should -Not -Contain 'Applications'
     }
 
-    It 'returns 19 categories with a shared SearchResults bucket for Search' {
+    It 'returns 23 categories with a shared SearchResults bucket for Search' {
         $categories = Get-IntuneCategoryDefinition -Audience Search
-        @($categories).Count | Should -Be 19
+        @($categories).Count | Should -Be 23
         foreach ($category in $categories) {
             $category.BucketKeys | Should -Be @('SearchResults')
         }
     }
 
-    It 'returns 14 categories for Compare' {
+    It 'returns 18 categories for Compare' {
         $categories = Get-IntuneCategoryDefinition -Audience Compare
-        @($categories).Count | Should -Be 14
+        @($categories).Count | Should -Be 18
         $categories.Id | Should -Contain 'ShellScripts'
+    }
+
+    It 'registers every Windows Update workload as an optional shared entity category' {
+        $expected = [ordered]@{
+            WindowsFeatureUpdates = 'windowsFeatureUpdateProfiles'
+            WindowsQualityUpdates = 'windowsQualityUpdateProfiles'
+            WindowsDriverUpdates = 'windowsDriverUpdateProfiles'
+            WindowsQualityUpdatePolicies = 'windowsQualityUpdatePolicies'
+        }
+        foreach ($audience in @('UserContext', 'DeviceContext', 'GroupContext', 'AllPolicies', 'Search', 'Compare')) {
+            $categories = Get-IntuneCategoryDefinition -Audience $audience
+            foreach ($id in $expected.Keys) {
+                $category = $categories | Where-Object Id -eq $id
+                $category.EntityType | Should -BeExactly $expected[$id]
+                $category.OptionalFeature | Should -BeTrue
+            }
+        }
     }
 
     It 'includes custom and mixed imported templates but excludes built-in-only configurations' {

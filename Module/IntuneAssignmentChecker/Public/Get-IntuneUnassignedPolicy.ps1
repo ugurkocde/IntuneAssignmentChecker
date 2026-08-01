@@ -34,6 +34,10 @@ function Get-IntuneUnassignedPolicy {
         EndpointDetectionProfiles = @()
         AttackSurfaceProfiles    = @()
         AccountProtectionProfiles = @()
+        WindowsFeatureUpdates     = @()
+        WindowsQualityUpdates     = @()
+        WindowsDriverUpdates      = @()
+        WindowsQualityUpdatePolicies = @()
         Apps                     = @()
     }
 
@@ -248,6 +252,21 @@ function Get-IntuneUnassignedPolicy {
         }
     }
 
+    # Get Windows Update policies. These optional beta workloads quietly return
+    # no entities when the tenant does not expose the corresponding feature.
+    foreach ($updateSpec in @(
+            @{ EntityType = 'windowsFeatureUpdateProfiles'; Bucket = 'WindowsFeatureUpdates'; Name = 'Windows Feature Update Profiles' }
+            @{ EntityType = 'windowsQualityUpdateProfiles'; Bucket = 'WindowsQualityUpdates'; Name = 'Windows Quality Update Profiles' }
+            @{ EntityType = 'windowsDriverUpdateProfiles'; Bucket = 'WindowsDriverUpdates'; Name = 'Windows Driver Update Profiles' }
+            @{ EntityType = 'windowsQualityUpdatePolicies'; Bucket = 'WindowsQualityUpdatePolicies'; Name = 'Windows Quality Update Policies' }
+        )) {
+        Write-Host "Fetching $($updateSpec.Name)..." -ForegroundColor Yellow
+        foreach ($policy in @(Get-IntuneEntities -EntityType $updateSpec.EntityType -Quiet)) {
+            $assignments = @(Get-IntuneAssignments -EntityType $updateSpec.EntityType -EntityId $policy.id)
+            if ($assignments.Count -eq 0) { $unassignedPolicies[$updateSpec.Bucket] += $policy }
+        }
+    }
+
     # Get Unassigned Apps
     Write-Host "Fetching Unassigned Apps..." -ForegroundColor Yellow
     $unassignedAppUri = "$script:GraphEndpoint/beta/deviceAppManagement/mobileApps?`$filter=isAssigned eq false&`$select=id,displayName,roleScopeTagIds"
@@ -383,6 +402,27 @@ function Get-IntuneUnassignedPolicy {
         }
     }
 
+    # Display Windows Update workloads
+    foreach ($updateSpec in @(
+            @{ Bucket = 'WindowsFeatureUpdates'; Header = 'Windows Feature Update Profiles'; Category = 'Windows Feature Update Profile' }
+            @{ Bucket = 'WindowsQualityUpdates'; Header = 'Windows Quality Update Profiles'; Category = 'Windows Quality Update Profile' }
+            @{ Bucket = 'WindowsDriverUpdates'; Header = 'Windows Driver Update Profiles'; Category = 'Windows Driver Update Profile' }
+            @{ Bucket = 'WindowsQualityUpdatePolicies'; Header = 'Windows Quality Update Policies'; Category = 'Windows Quality Update Policy' }
+        )) {
+        Write-Host "`n------- $($updateSpec.Header) -------" -ForegroundColor Cyan
+        $items = @($unassignedPolicies[$updateSpec.Bucket])
+        if ($items.Count -eq 0) {
+            Write-Host "No unassigned $($updateSpec.Header) found" -ForegroundColor Gray
+        }
+        else {
+            foreach ($item in $items) {
+                $name = if ($item.displayName) { $item.displayName } else { $item.name }
+                Write-Host "$($updateSpec.Category) Name: $name, ID: $($item.id)" -ForegroundColor White
+                Add-ExportData -ExportData $exportData -Category $updateSpec.Category -Items @($item) -AssignmentReason 'No Assignment'
+            }
+        }
+    }
+
     # Display Endpoint Security - Antivirus Profiles
     Write-Host "`n------- Endpoint Security - Antivirus Profiles -------" -ForegroundColor Cyan
     if ($unassignedPolicies.AntivirusProfiles.Count -eq 0) {
@@ -486,6 +526,10 @@ function Get-IntuneUnassignedPolicy {
             EndpointDetectionProfiles = @('ESEndpointDetection', 'Endpoint Security - EDR')
             AttackSurfaceProfiles = @('ESAttackSurface', 'Endpoint Security - ASR')
             AccountProtectionProfiles = @('ESAccountProtection', 'Endpoint Security - Account Protection')
+            WindowsFeatureUpdates = @('WindowsFeatureUpdates', 'Windows Feature Update Profile', 'Windows')
+            WindowsQualityUpdates = @('WindowsQualityUpdates', 'Windows Quality Update Profile', 'Windows')
+            WindowsDriverUpdates = @('WindowsDriverUpdates', 'Windows Driver Update Profile', 'Windows')
+            WindowsQualityUpdatePolicies = @('WindowsQualityUpdatePolicies', 'Windows Quality Update Policy', 'Windows')
             Apps = @('Applications', 'Application')
         }
         foreach ($bucketName in $categoryMap.Keys) {
@@ -495,8 +539,9 @@ function Get-IntuneUnassignedPolicy {
                     elseif ($script:ScopeTagLookup) { @((Get-ScopeTagNames -ScopeTagIds $scopeTagIds -ScopeTagLookup $script:ScopeTagLookup) -split ', ') }
                     else { @($scopeTagIds | ForEach-Object { "Tag:$_" }) }
                 $policyName = if ($entity.displayName) { $entity.displayName } elseif ($entity.name) { $entity.name } else { 'Unnamed Policy' }
+                $platform = if ($categoryMap[$bucketName].Count -gt 2) { $categoryMap[$bucketName][2] } else { Get-PolicyPlatform -Policy $entity }
                 New-IACAssignmentRecord -CategoryId $categoryMap[$bucketName][0] -Category $categoryMap[$bucketName][1] `
-                    -PolicyId "$($entity.id)" -PolicyName $policyName -Platform (Get-PolicyPlatform -Policy $entity) `
+                    -PolicyId "$($entity.id)" -PolicyName $policyName -Platform $platform `
                     -ScopeTagIds $scopeTagIds -ScopeTags $scopeTags -AssignmentMode None -TargetType None `
                     -SubjectType Tenant -SubjectName Unassigned -AssignmentReason 'No Assignment' -Source 'Get-IntuneUnassignedPolicy'
             }

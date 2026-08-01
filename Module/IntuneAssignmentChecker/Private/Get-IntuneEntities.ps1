@@ -11,7 +11,12 @@ function Get-IntuneEntities {
         [string]$Select = "",
 
         [Parameter(Mandatory = $false)]
-        [string]$Expand = ""
+        [string]$Expand = "",
+
+        # Optional beta workloads are not available in every tenant. Callers can
+        # suppress the expected warning without changing the empty-result contract.
+        [Parameter(Mandatory = $false)]
+        [switch]$Quiet
     )
 
     # Handle special cases for app management and specific deviceManagement endpoints
@@ -40,6 +45,9 @@ function Get-IntuneEntities {
         $statusCode = if ($_.Exception.Data.Contains('StatusCode')) { $_.Exception.Data['StatusCode'] } else { $null }
         if ($statusCode -eq 403 -or $errorMessage -match "403|Forbidden|Authorization_RequestDenied") {
             Write-Warning "Permission denied (403) for '$EntityType'. Ensure admin consent has been granted for the required Graph API permissions. Run 'Connect-MgGraph -Scopes ...' with the necessary scopes or grant admin consent in Azure AD."
+        }
+        elseif ($Quiet) {
+            Write-Verbose "Skipping unavailable entity set '$EntityType': $errorMessage"
         }
         else {
             Write-Warning "Error fetching entities for ${EntityType}: $errorMessage"

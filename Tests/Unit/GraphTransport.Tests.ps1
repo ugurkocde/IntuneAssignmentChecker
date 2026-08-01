@@ -13,6 +13,35 @@ BeforeAll {
     }
 
     . (Join-Path $moduleRoot 'Private/Invoke-IACGraphRequest.ps1')
+    . (Join-Path $moduleRoot 'Private/Get-IntuneEntities.ps1')
+}
+
+Describe 'Get-IntuneEntities optional workload diagnostics' {
+    BeforeEach {
+        $script:GraphEndpoint = 'https://graph.test'
+        Mock Write-Warning {}
+    }
+
+    It 'still warns for permission failures when Quiet is requested' {
+        Mock Invoke-IACGraphRequest {
+            $exception = [System.Exception]::new('HTTP 403 Forbidden')
+            $exception.Data['StatusCode'] = 403
+            $exception.Data['GraphErrorCode'] = 'Authorization_RequestDenied'
+            throw $exception
+        }
+
+        @(Get-IntuneEntities -EntityType 'windowsFeatureUpdateProfiles' -Quiet) | Should -BeNullOrEmpty
+
+        Should -Invoke Write-Warning -Exactly 1 -ParameterFilter { $Message -like "Permission denied (403)*" }
+    }
+
+    It 'quietly returns an empty result for an unavailable optional workload' {
+        Mock Invoke-IACGraphRequest { throw 'HTTP 400 Bad Request' }
+
+        @(Get-IntuneEntities -EntityType 'windowsFeatureUpdateProfiles' -Quiet) | Should -BeNullOrEmpty
+
+        Should -Invoke Write-Warning -Exactly 0
+    }
 }
 
 Describe 'Invoke-IACGraphRequest' {
