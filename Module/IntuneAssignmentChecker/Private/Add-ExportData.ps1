@@ -5,7 +5,9 @@ function Add-ExportData {
         [string]$Category,
         [object[]]$Items,
         [Parameter(Mandatory = $false)]
-        [object]$AssignmentReason = "N/A"
+        [object]$AssignmentReason = "N/A",
+        [Parameter(Mandatory = $false)]
+        [System.Collections.IDictionary]$AdditionalProperties
     )
 
     foreach ($item in $Items) {
@@ -32,13 +34,23 @@ function Add-ExportData {
             $filterType = $Matches['type']
         }
 
-        $null = $ExportData.Add([PSCustomObject]@{
-                Category         = $Category
-                Item             = "$itemName (ID: $($item.id))"
-                ScopeTags        = Get-ScopeTagNames -ScopeTagIds $item.roleScopeTagIds -ScopeTagLookup $script:ScopeTagLookup
-                AssignmentReason = $reason
-                FilterName       = $filterName
-                FilterType       = $filterType
-            })
+        $row = [ordered]@{
+            Category         = $Category
+            Item             = "$itemName (ID: $($item.id))"
+            ScopeTags        = Get-ScopeTagNames -ScopeTagIds $item.roleScopeTagIds -ScopeTagLookup $script:ScopeTagLookup
+            AssignmentReason = $reason
+            FilterName       = $filterName
+            FilterType       = $filterType
+        }
+        if ($AdditionalProperties) {
+            foreach ($propertyName in $AdditionalProperties.Keys) {
+                if ($row.Contains($propertyName)) {
+                    throw "Additional export property '$propertyName' conflicts with a reserved export column."
+                }
+                $row[$propertyName] = $AdditionalProperties[$propertyName]
+            }
+        }
+
+        $null = $ExportData.Add([PSCustomObject]$row)
     }
 }

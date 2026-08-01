@@ -218,7 +218,9 @@ function Invoke-IntuneCategoryScan {
                 }
                 'MobileApps' {
                     if (-not $EntityCache.ContainsKey($category.EntityType)) {
-                        $EntityCache[$category.EntityType] = Get-PagedGraphValue -Uri "$script:GraphEndpoint/beta/deviceAppManagement/mobileApps?`$filter=isAssigned eq true"
+                        # roleScopeTagIds is not reliably returned by the collection endpoint
+                        # unless it is requested explicitly.
+                        $EntityCache[$category.EntityType] = Get-PagedGraphValue -Uri "$script:GraphEndpoint/beta/deviceAppManagement/mobileApps?`$filter=isAssigned eq true&`$select=id,displayName,roleScopeTagIds"
                     }
                     $allApps = @($EntityCache[$category.EntityType])
                     if ($category.EntityFilter) {

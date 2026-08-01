@@ -74,6 +74,7 @@ function Connect-IntuneAssignmentChecker {
     $hasClientSecret   = -not [string]::IsNullOrWhiteSpace($ClientSecret)
     $hasClientSecretCredential = $null -ne $ClientSecretCredential
     $hasCertThumbprint = -not [string]::IsNullOrWhiteSpace($CertificateThumbprint)
+    $hasAppOnlyCredential = $hasClientSecret -or $hasClientSecretCredential -or $hasCertThumbprint
     $hasAccessToken    = $null -ne $AccessToken -and $AccessToken.Length -gt 0
     $parameterMode     = $hasAppId -or $hasTenantId -or $hasClientSecret -or $hasClientSecretCredential -or $hasCertThumbprint -or $hasAccessToken
 
@@ -141,7 +142,15 @@ function Connect-IntuneAssignmentChecker {
             }
             else {
                 # Interactive authentication fallback
-                Write-Host "App ID, Tenant ID, or authentication credential (Certificate/Client Secret) is missing or not set correctly." -ForegroundColor Red
+                if ($hasAppOnlyCredential) {
+                    Write-Host "An app-only credential was supplied, but its required authentication parameters are incomplete. Falling back to interactive authentication." -ForegroundColor Red
+                }
+                elseif ($hasAppId) {
+                    Write-Host "No app-only credential supplied. The specified App ID will be used for interactive delegated authentication." -ForegroundColor Yellow
+                }
+                else {
+                    Write-Host "App ID, Tenant ID, or authentication credential (Certificate/Client Secret) is missing or not set correctly." -ForegroundColor Red
+                }
                 $manualConnection = Read-Host "Would you like to attempt a manual interactive connection? (y/n)"
                 if ($manualConnection -match '^[Yy]') {
                     Write-Host "Attempting manual interactive connection (you need privileges to consent permissions)..." -ForegroundColor Yellow
@@ -156,7 +165,19 @@ function Connect-IntuneAssignmentChecker {
                         Write-Host "Connection cancelled by user." -ForegroundColor Red
                         return
                     }
-                    $null = Connect-MgGraph -Scopes $permissionsList -Environment $script:GraphEnvironment -NoWelcome -ErrorAction Stop
+                    $connectParams = @{
+                        Scopes      = $permissionsList
+                        Environment = $script:GraphEnvironment
+                        NoWelcome   = $true
+                        ErrorAction = 'Stop'
+                    }
+                    if ($hasAppId) {
+                        $connectParams['ClientId'] = $AppId
+                    }
+                    if ($hasTenantId) {
+                        $connectParams['TenantId'] = $TenantId
+                    }
+                    $null = Connect-MgGraph @connectParams
                 }
                 else {
                     Write-Host "Connection cancelled by user." -ForegroundColor Red

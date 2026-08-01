@@ -17,6 +17,7 @@ function Get-IntuneUnassignedPolicy {
     # Initialize collections for policies without assignments
     $unassignedPolicies = @{
         DeviceConfigs            = @()
+        ImportedAdministrativeTemplates = @()
         SettingsCatalog          = @()
         CompliancePolicies       = @()
         AppProtectionPolicies    = @()
@@ -33,6 +34,18 @@ function Get-IntuneUnassignedPolicy {
         $assignments = Get-IntuneAssignments -EntityType "deviceConfigurations" -EntityId $config.id
         if ($assignments.Count -eq 0) {
             $unassignedPolicies.DeviceConfigs += $config
+        }
+    }
+
+    # Get Imported Administrative Templates. Built-in-only group policy
+    # configurations are intentionally excluded from this imported category.
+    Write-Host "Fetching Imported Administrative Templates..." -ForegroundColor Yellow
+    $importedTemplates = Get-IntuneEntities -EntityType "groupPolicyConfigurations" |
+        Where-Object { Test-ImportedAdministrativeTemplate -Policy $_ }
+    foreach ($policy in $importedTemplates) {
+        $assignments = Get-IntuneAssignments -EntityType "groupPolicyConfigurations" -EntityId $policy.id
+        if ($assignments.Count -eq 0) {
+            $unassignedPolicies.ImportedAdministrativeTemplates += $policy
         }
     }
 
@@ -227,7 +240,7 @@ function Get-IntuneUnassignedPolicy {
 
     # Get Unassigned Apps
     Write-Host "Fetching Unassigned Apps..." -ForegroundColor Yellow
-    $unassignedAppUri = "$script:GraphEndpoint/beta/deviceAppManagement/mobileApps?`$filter=isAssigned eq false"
+    $unassignedAppUri = "$script:GraphEndpoint/beta/deviceAppManagement/mobileApps?`$filter=isAssigned eq false&`$select=id,displayName,roleScopeTagIds"
     $unassignedApps = [System.Collections.Generic.List[object]]::new()
     try {
         $unassignedAppResponse = Invoke-MgGraphRequest -Uri $unassignedAppUri -Method Get
@@ -241,7 +254,6 @@ function Get-IntuneUnassignedPolicy {
         Write-Host "Error fetching unassigned applications: $($_.Exception.Message)" -ForegroundColor Red
         Write-Error -Message "Unassigned applications fetch failed: $($_.Exception.Message)"
     }
-    $unassignedApps = $unassignedApps | Where-Object { -not $_.isFeatured -and -not $_.isBuiltIn }
     $unassignedPolicies.Apps = $unassignedApps
 
     # Apply scope tag filter if specified
@@ -265,6 +277,18 @@ function Get-IntuneUnassignedPolicy {
             $platform = Get-PolicyPlatform -Policy $config
             Write-Host "Device Configuration Name: $configName, Platform: $platform, Configuration ID: $($config.id)" -ForegroundColor White
             Add-ExportData -ExportData $exportData -Category "Device Configuration" -Items @($config) -AssignmentReason "No Assignment"
+        }
+    }
+
+    # Display Imported Administrative Templates
+    Write-Host "`n------- Imported Administrative Templates -------" -ForegroundColor Cyan
+    if ($unassignedPolicies.ImportedAdministrativeTemplates.Count -eq 0) {
+        Write-Host "No unassigned Imported Administrative Templates found" -ForegroundColor Gray
+    }
+    else {
+        foreach ($policy in $unassignedPolicies.ImportedAdministrativeTemplates) {
+            Write-Host "Imported Administrative Template Name: $($policy.displayName), Policy ID: $($policy.id)" -ForegroundColor White
+            Add-ExportData -ExportData $exportData -Category "Imported Administrative Template" -Items @($policy) -AssignmentReason "No Assignment"
         }
     }
 

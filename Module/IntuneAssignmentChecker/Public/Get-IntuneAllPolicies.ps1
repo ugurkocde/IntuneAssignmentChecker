@@ -119,6 +119,7 @@ function Get-IntuneAllPolicies {
 
     # Display all policies and their assignments
     Invoke-PolicyAssignments -Policies $allPolicies.DeviceConfigs -DisplayName "Device Configurations"
+    Invoke-PolicyAssignments -Policies $allPolicies.ImportedAdministrativeTemplates -DisplayName "Imported Administrative Templates"
     Invoke-PolicyAssignments -Policies $allPolicies.SettingsCatalog -DisplayName "Settings Catalog Policies"
     Invoke-PolicyAssignments -Policies $allPolicies.CompliancePolicies -DisplayName "Compliance Policies"
     Invoke-PolicyAssignments -Policies $allPolicies.AppProtectionPolicies -DisplayName "App Protection Policies"

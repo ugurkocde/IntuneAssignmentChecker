@@ -5,6 +5,7 @@ BeforeAll {
     $moduleRoot = Join-Path $PSScriptRoot '../../Module/IntuneAssignmentChecker'
     $modulePrivate = Join-Path $moduleRoot 'Private'
 
+    . (Join-Path $modulePrivate 'ConvertTo-IntuneGroupInfo.ps1')
     . (Join-Path $modulePrivate 'Get-Separator.ps1')
     . (Join-Path $modulePrivate 'Get-ScopeTagNames.ps1')
     . (Join-Path $modulePrivate 'Format-AssignmentFilter.ps1')
@@ -12,6 +13,7 @@ BeforeAll {
     . (Join-Path $modulePrivate 'Resolve-SimulatedAssignmentDelta.ps1')
     . (Join-Path $modulePrivate 'Add-ExportData.ps1')
     . (Join-Path $modulePrivate 'Get-AppProtectionAssignmentUri.ps1')
+    . (Join-Path $modulePrivate 'Test-ImportedAdministrativeTemplate.ps1')
     . (Join-Path $modulePrivate 'Get-IntuneCategoryDefinition.ps1')
     . (Join-Path $modulePrivate 'Invoke-IntuneCategoryScan.ps1')
     . (Join-Path $moduleRoot 'Public/Test-IntuneGroupMembership.ps1')
@@ -289,16 +291,17 @@ Describe 'Test-IntuneGroupMembership' {
         Should -Invoke Invoke-MgGraphRequest -Times 1 -Exactly -ParameterFilter { $Uri -like '*mobileApps?*isAssigned*' }
     }
 
-    It 'emits the legacy 18-step progress lines' {
+    It 'emits the 19-step progress lines including Imported Administrative Templates' {
         Test-IntuneGroupMembership -UserPrincipalNames 'user1@contoso.com' -SimulateTargetGroup 'Target Group'
 
-        $script:hostLines | Should -Contain '[1/18] Fetching Device Configurations...'
-        $script:hostLines | Should -Contain '[6/18] Fetching Applications...'
-        $script:hostLines | Should -Contain '[9/18] Fetching Antivirus Policies...'
-        $script:hostLines | Should -Contain '[12/18] Fetching Endpoint Detection and Response Policies...'
-        $script:hostLines | Should -Contain '[15/18] Fetching Autopilot Deployment Profiles...'
-        $script:hostLines | Should -Contain '[16/18] Fetching Enrollment Status Page Profiles...'
-        $script:hostLines | Should -Contain '[18/18] Fetching Windows 365 Cloud PC User Settings...'
+        $script:hostLines | Should -Contain '[1/19] Fetching Device Configurations...'
+        $script:hostLines | Should -Contain '[2/19] Fetching Imported Administrative Templates...'
+        $script:hostLines | Should -Contain '[7/19] Fetching Applications...'
+        $script:hostLines | Should -Contain '[10/19] Fetching Antivirus Policies...'
+        $script:hostLines | Should -Contain '[13/19] Fetching Endpoint Detection and Response Policies...'
+        $script:hostLines | Should -Contain '[16/19] Fetching Autopilot Deployment Profiles...'
+        $script:hostLines | Should -Contain '[17/19] Fetching Enrollment Status Page Profiles...'
+        $script:hostLines | Should -Contain '[19/19] Fetching Windows 365 Cloud PC User Settings...'
     }
 
     It 'escapes single quotes in the group name OData filter (F9)' {
@@ -312,7 +315,7 @@ Describe 'Test-IntuneGroupMembership' {
 
         $expectedOrder = @(
             'Simulation Info',
-            'NEW: Device Configuration', 'NEW: Settings Catalog Policy', 'NEW: Compliance Policy',
+            'NEW: Device Configuration', 'NEW: Imported Administrative Template', 'NEW: Settings Catalog Policy', 'NEW: Compliance Policy',
             'NEW: App Protection Policy', 'NEW: App Configuration Policy',
             'NEW: Required App', 'NEW: Available App', 'NEW: Uninstall App',
             'NEW: Platform Script', 'NEW: Proactive Remediation Script',

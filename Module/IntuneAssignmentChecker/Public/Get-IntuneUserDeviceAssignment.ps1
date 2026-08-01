@@ -146,6 +146,7 @@ function Get-IntuneUserDeviceAssignment {
 
     $relevantPolicies = @{
         DeviceConfigs               = [System.Collections.ArrayList]::new()
+        ImportedAdministrativeTemplates = [System.Collections.ArrayList]::new()
         SettingsCatalog             = [System.Collections.ArrayList]::new()
         CompliancePolicies          = [System.Collections.ArrayList]::new()
         AppProtectionPolicies       = [System.Collections.ArrayList]::new()
@@ -240,6 +241,21 @@ function Get-IntuneUserDeviceAssignment {
     # ── Generic categories ───────────────────────────────────────────────────
     Write-Host "  Device Configurations..." -ForegroundColor Yellow
     & $processGeneric "deviceConfigurations" "DeviceConfigs"
+
+    if (-not $deviceOS -or $deviceOS -eq 'Windows') {
+        Write-Host "  Imported Administrative Templates..." -ForegroundColor Yellow
+        $importedTemplates = Get-IntuneEntities -EntityType "groupPolicyConfigurations" |
+            Where-Object { Test-ImportedAdministrativeTemplate -Policy $_ }
+        foreach ($policy in $importedTemplates) {
+            $assignments = Get-IntuneAssignments -EntityType "groupPolicyConfigurations" -EntityId $policy.id
+            $reason = Resolve-AssignmentReason -Assignments $assignments -GroupMembershipIds $combinedGroupIds -IncludeReasons $includeReasons
+            if (-not $reason) { continue }
+            $info = & $classify $assignments $reason
+            $policy | Add-Member -NotePropertyName 'AssignmentReason' -NotePropertyValue $info.Reason -Force
+            $policy | Add-Member -NotePropertyName 'Source' -NotePropertyValue $info.Source -Force
+            [void]$relevantPolicies.ImportedAdministrativeTemplates.Add($policy)
+        }
+    }
 
     Write-Host "  Settings Catalog Policies..." -ForegroundColor Yellow
     $allConfigPolicies = Get-IntuneEntities -EntityType "configurationPolicies"
@@ -356,7 +372,7 @@ function Get-IntuneUserDeviceAssignment {
 
     # ── Applications ─────────────────────────────────────────────────────────
     Write-Host "  Applications..." -ForegroundColor Yellow
-    $appUri = "$script:GraphEndpoint/beta/deviceAppManagement/mobileApps?`$filter=isAssigned eq true"
+    $appUri = "$script:GraphEndpoint/beta/deviceAppManagement/mobileApps?`$filter=isAssigned eq true&`$select=id,displayName,roleScopeTagIds"
     $allApps = [System.Collections.Generic.List[object]]::new()
     try {
         $appResponse = Invoke-MgGraphRequest -Uri $appUri -Method Get
@@ -372,7 +388,6 @@ function Get-IntuneUserDeviceAssignment {
     }
 
     foreach ($app in $allApps) {
-        if ($app.isFeatured -or $app.isBuiltIn) { continue }
         if (-not (Test-AppPlatformCompatibility -DeviceOS $deviceOS -App $app)) { continue }
 
         try {
@@ -482,6 +497,7 @@ function Get-IntuneUserDeviceAssignment {
 
     $categoryDisplay = [ordered]@{
         DeviceConfigs               = "Device Configurations"
+        ImportedAdministrativeTemplates = "Imported Administrative Templates"
         SettingsCatalog             = "Settings Catalog Policies"
         CompliancePolicies          = "Compliance Policies"
         AppProtectionPolicies       = "App Protection Policies"
@@ -553,6 +569,7 @@ function Get-IntuneUserDeviceAssignment {
     })
 
     Add-ExportData -ExportData $exportData -Category "Device Configuration"                  -Items $relevantPolicies.DeviceConfigs               -AssignmentReason { param($i) "$($i.Source) | $($i.AssignmentReason)" }
+    Add-ExportData -ExportData $exportData -Category "Imported Administrative Template"      -Items $relevantPolicies.ImportedAdministrativeTemplates -AssignmentReason { param($i) "$($i.Source) | $($i.AssignmentReason)" }
     Add-ExportData -ExportData $exportData -Category "Settings Catalog Policy"               -Items $relevantPolicies.SettingsCatalog             -AssignmentReason { param($i) "$($i.Source) | $($i.AssignmentReason)" }
     Add-ExportData -ExportData $exportData -Category "Compliance Policy"                     -Items $relevantPolicies.CompliancePolicies          -AssignmentReason { param($i) "$($i.Source) | $($i.AssignmentReason)" }
     Add-ExportData -ExportData $exportData -Category "App Protection Policy"                 -Items $relevantPolicies.AppProtectionPolicies       -AssignmentReason { param($i) "$($i.Source) | $($i.AssignmentReason)" }

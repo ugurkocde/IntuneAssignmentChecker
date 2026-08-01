@@ -14,6 +14,7 @@ BeforeAll {
     . (Join-Path $modulePrivate 'Add-ExportData.ps1')
     . (Join-Path $modulePrivate 'Add-CategoryExportData.ps1')
     . (Join-Path $modulePrivate 'Get-AppProtectionAssignmentUri.ps1')
+    . (Join-Path $modulePrivate 'Test-ImportedAdministrativeTemplate.ps1')
     . (Join-Path $modulePrivate 'Get-IntuneCategoryDefinition.ps1')
     . (Join-Path $modulePrivate 'Invoke-IntuneCategoryScan.ps1')
     . (Join-Path $moduleRoot 'Public/Get-IntuneUserAssignment.ps1')

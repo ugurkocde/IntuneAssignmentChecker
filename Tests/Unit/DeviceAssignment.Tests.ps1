@@ -14,6 +14,7 @@ BeforeAll {
     . (Join-Path $modulePrivate 'Test-PlatformCompatibility.ps1')
     . (Join-Path $modulePrivate 'Test-AppPlatformCompatibility.ps1')
     . (Join-Path $modulePrivate 'Get-AppProtectionAssignmentUri.ps1')
+    . (Join-Path $modulePrivate 'Test-ImportedAdministrativeTemplate.ps1')
     . (Join-Path $modulePrivate 'Get-IntuneCategoryDefinition.ps1')
     . (Join-Path $modulePrivate 'Invoke-IntuneCategoryScan.ps1')
     . (Join-Path $modulePrivate 'Add-ExportData.ps1')
@@ -88,12 +89,12 @@ Describe 'Get-IntuneDeviceAssignment' {
         $script:capturedExport[0].AssignmentReason | Should -BeExactly 'N/A'
     }
 
-    It 'renders the legacy display sections in order with device-specific empty messages' {
+    It 'renders all display sections in order with device-specific empty messages' {
         Get-IntuneDeviceAssignment -DeviceNames 'PC-1'
 
         $sectionTitles = @($script:consoleLines | Where-Object { $_ -match '^------- (.+) -------$' } | ForEach-Object { $Matches[1] })
         $sectionTitles | Should -Be @(
-            'Device Configurations', 'Settings Catalog Policies', 'Compliance Policies', 'App Protection Policies',
+            'Device Configurations', 'Imported Administrative Templates', 'Settings Catalog Policies', 'Compliance Policies', 'App Protection Policies',
             'App Configuration Policies', 'Platform Scripts', 'Proactive Remediation Scripts',
             'Autopilot Deployment Profiles', 'Enrollment Status Page Profiles',
             'Required Apps', 'Available Apps', 'Uninstall Apps',
@@ -132,6 +133,34 @@ Describe 'Get-IntuneDeviceAssignment' {
         $rows[1].AssignmentReason | Should -BeExactly 'Excluded'
         # The iOS-only policy must be dropped for a Windows device
         @($rows | Where-Object { $_.Item -like '*cfg-ios*' }).Count | Should -Be 0
+    }
+
+    It 'gives an imported template group exclusion precedence over an earlier inclusion' {
+        Mock Get-IntuneEntities {
+            if ($EntityType -eq 'groupPolicyConfigurations') {
+                return @([PSCustomObject]@{
+                        id = 'iat-conflict'
+                        displayName = 'Imported Conflict Policy'
+                        policyConfigurationIngestionType = 'custom'
+                    })
+            }
+            @()
+        }
+        Mock Get-IntuneAssignments {
+            if ($EntityId -eq 'iat-conflict') {
+                return @(
+                    [PSCustomObject]@{ Reason = 'Group Assignment'; GroupId = $script:memberGroupId; FilterId = $null; FilterType = $null }
+                    [PSCustomObject]@{ Reason = 'Group Exclusion'; GroupId = $script:memberGroupId; FilterId = $null; FilterType = $null }
+                )
+            }
+            @()
+        }
+
+        Get-IntuneDeviceAssignment -DeviceNames 'PC-1'
+
+        $row = @($script:capturedExport | Where-Object { $_.Category -eq 'Imported Administrative Template' })
+        $row | Should -HaveCount 1
+        $row[0].AssignmentReason | Should -BeExactly 'Excluded'
     }
 
     Context 'applications' {
@@ -261,18 +290,18 @@ Describe 'Get-IntuneDeviceAssignment' {
     }
 
     Context 'Windows-conditional categories' {
-        It 'fetches Autopilot, ESP and Windows 365 categories for a Windows device' {
+        It 'fetches Imported Administrative Templates, Autopilot, ESP and Windows 365 categories for a Windows device' {
             Get-IntuneDeviceAssignment -DeviceNames 'PC-1'
 
-            foreach ($windowsEntityType in @('windowsAutopilotDeploymentProfiles', 'deviceEnrollmentConfigurations', 'virtualEndpoint/provisioningPolicies', 'virtualEndpoint/userSettings')) {
+            foreach ($windowsEntityType in @('groupPolicyConfigurations', 'windowsAutopilotDeploymentProfiles', 'deviceEnrollmentConfigurations', 'virtualEndpoint/provisioningPolicies', 'virtualEndpoint/userSettings')) {
                 Should -Invoke Get-IntuneEntities -Exactly -Times 1 -ParameterFilter { $EntityType -eq $windowsEntityType }
             }
         }
 
-        It 'never fetches Autopilot, ESP or Windows 365 categories for a macOS device' {
+        It 'never fetches Imported Administrative Templates, Autopilot, ESP or Windows 365 categories for a macOS device' {
             Get-IntuneDeviceAssignment -DeviceNames 'MAC-1'
 
-            foreach ($windowsEntityType in @('windowsAutopilotDeploymentProfiles', 'deviceEnrollmentConfigurations', 'virtualEndpoint/provisioningPolicies', 'virtualEndpoint/userSettings')) {
+            foreach ($windowsEntityType in @('groupPolicyConfigurations', 'windowsAutopilotDeploymentProfiles', 'deviceEnrollmentConfigurations', 'virtualEndpoint/provisioningPolicies', 'virtualEndpoint/userSettings')) {
                 Should -Invoke Get-IntuneEntities -Times 0 -ParameterFilter { $EntityType -eq $windowsEntityType }
             }
         }

@@ -114,7 +114,7 @@ function Get-IntuneUserAssignment {
                 if ($null -eq $appProgress.Total) {
                     $allCachedApps = @($entityCache[$ctx.Category.EntityType])
                     $appProgress.Total = $allCachedApps.Count
-                    $appProgress.FilteredTotal = @($allCachedApps | Where-Object { -not ($_.isFeatured -or $_.isBuiltIn) }).Count
+                    $appProgress.FilteredTotal = @($allCachedApps).Count
                 }
                 $appProgress.Current++
                 Write-Host "`rFetching Application $($appProgress.Current) of $($appProgress.Total)" -NoNewline
@@ -254,7 +254,7 @@ function Get-IntuneUserAssignment {
         Write-Host "`nAssignments for User: $upn" -ForegroundColor Green
 
         # Calculate category summary
-        $categoryNames = @('DeviceConfigs', 'SettingsCatalog', 'CompliancePolicies', 'AppProtectionPolicies', 'AppConfigurationPolicies', 'PlatformScripts', 'HealthScripts', 'AppsRequired', 'AppsAvailable', 'AppsUninstall', 'AntivirusProfiles', 'DiskEncryptionProfiles', 'FirewallProfiles', 'EndpointDetectionProfiles', 'AttackSurfaceProfiles', 'AccountProtectionProfiles', 'CloudPCProvisioningPolicies', 'CloudPCUserSettings')
+        $categoryNames = @('DeviceConfigs', 'ImportedAdministrativeTemplates', 'SettingsCatalog', 'CompliancePolicies', 'AppProtectionPolicies', 'AppConfigurationPolicies', 'PlatformScripts', 'HealthScripts', 'AppsRequired', 'AppsAvailable', 'AppsUninstall', 'AntivirusProfiles', 'DiskEncryptionProfiles', 'FirewallProfiles', 'EndpointDetectionProfiles', 'AttackSurfaceProfiles', 'AccountProtectionProfiles', 'CloudPCProvisioningPolicies', 'CloudPCUserSettings')
         $nonEmptyCount = ($categoryNames | Where-Object { $relevantPolicies[$_].Count -gt 0 }).Count
         $totalDisplayCategories = $categoryNames.Count
         Write-Host "`nFound assignments in $nonEmptyCount of $totalDisplayCategories categories." -ForegroundColor Cyan
@@ -287,6 +287,7 @@ function Get-IntuneUserAssignment {
             Write-Host $separator
         }
 
+        Show-UserSectionTable -Title 'Imported Administrative Templates' -Items @($relevantPolicies.ImportedAdministrativeTemplates) -NameLabel 'Policy Name' -IdLabel 'Policy ID' -GetName $displayNameOnly
         Show-UserSectionTable -Title 'Settings Catalog Policies' -Items @($relevantPolicies.SettingsCatalog) -NameLabel 'Policy Name' -IdLabel 'Policy ID' -GetName $nameFirst
         Show-UserSectionTable -Title 'Compliance Policies' -Items @($relevantPolicies.CompliancePolicies) -NameLabel 'Policy Name' -IdLabel 'Policy ID' -GetName $nameFirst
 
@@ -363,7 +364,7 @@ function Get-IntuneUserAssignment {
 
         $reasonProperty = { param($item) $item.AssignmentReason }
         $exportBatches = @(
-            @{ Ids = @('DeviceConfigurations', 'SettingsCatalog', 'CompliancePolicies'); Reason = $reasonProperty }
+            @{ Ids = @('DeviceConfigurations', 'ImportedAdministrativeTemplates', 'SettingsCatalog', 'CompliancePolicies'); Reason = $reasonProperty }
             # App Protection rows export the AssignmentSummary built during the scan
             @{ Ids = @('AppProtectionPolicies'); Reason = { param($item) $item.AssignmentSummary } }
             @{ Ids = @('AppConfigurationPolicies', 'PlatformScripts', 'HealthScripts', 'DeploymentProfiles', 'ESPProfiles',

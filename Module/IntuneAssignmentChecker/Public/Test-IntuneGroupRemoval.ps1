@@ -116,6 +116,7 @@ function Test-IntuneGroupRemoval {
     Write-Host "Looking up group: $simGroupInput" -ForegroundColor Yellow
     $simTargetGroupId = $null
     $simTargetGroupName = $null
+    $simResolvedGroupInfo = $null
 
     if ($simGroupInput -match '^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$') {
         $simGroupInfo = Get-GroupInfo -GroupId $simGroupInput
@@ -125,10 +126,12 @@ function Test-IntuneGroupRemoval {
         }
         $simTargetGroupId = $simGroupInfo.Id
         $simTargetGroupName = $simGroupInfo.DisplayName
+        $simResolvedGroupInfo = $simGroupInfo
     }
     else {
         $escapedSimGroupName = $simGroupInput -replace "'", "''"
-        $simGroupUri = "$script:GraphEndpoint/v1.0/groups?`$filter=displayName eq '$escapedSimGroupName'"
+        $simGroupSelect = 'id,displayName,groupTypes,mailEnabled,securityEnabled,mail'
+        $simGroupUri = "$script:GraphEndpoint/v1.0/groups?`$filter=displayName eq '$escapedSimGroupName'&`$select=$simGroupSelect"
         $simGroupResponse = Invoke-MgGraphRequest -Uri $simGroupUri -Method Get
 
         if ($simGroupResponse.value.Count -eq 0) {
@@ -138,16 +141,23 @@ function Test-IntuneGroupRemoval {
         elseif ($simGroupResponse.value.Count -gt 1) {
             Write-Host "Multiple groups found with name: $simGroupInput. Please use the Object ID instead:" -ForegroundColor Red
             foreach ($g in $simGroupResponse.value) {
-                Write-Host "  - $($g.displayName) (ID: $($g.id))" -ForegroundColor Yellow
+                $candidateInfo = ConvertTo-IntuneGroupInfo -Group $g
+                Write-Host "  - $($candidateInfo.DisplayName) (ID: $($candidateInfo.Id); Type: $($candidateInfo.GroupType); Membership: $($candidateInfo.MembershipType))" -ForegroundColor Yellow
             }
             return
         }
 
-        $simTargetGroupId = $simGroupResponse.value[0].id
-        $simTargetGroupName = $simGroupResponse.value[0].displayName
+        $simResolvedGroupInfo = ConvertTo-IntuneGroupInfo -Group $simGroupResponse.value[0]
+        if (-not $simResolvedGroupInfo.Success) {
+            Write-Host "The group lookup for '$simGroupInput' returned an invalid response without an Object ID." -ForegroundColor Red
+            return
+        }
+        $simTargetGroupId = $simResolvedGroupInfo.Id
+        $simTargetGroupName = $simResolvedGroupInfo.DisplayName
     }
 
     Write-Host "Target group: $simTargetGroupName (ID: $simTargetGroupId)" -ForegroundColor Green
+    Write-Host "Group details: Type: $($simResolvedGroupInfo.GroupType); Membership: $($simResolvedGroupInfo.MembershipType)$(if ($simResolvedGroupInfo.Mail) { "; Mail: $($simResolvedGroupInfo.Mail)" })" -ForegroundColor Green
 
     # Get current group memberships (union of user and device, depending on what was supplied)
     $simCurrentGroupIds = @()
@@ -196,12 +206,12 @@ function Test-IntuneGroupRemoval {
     Write-Host "Analyzing removal impact..." -ForegroundColor Yellow
 
     # UserContext supplies this cmdlet's legacy display names and the unfiltered Settings
-    # Catalog fetch; reorder to the legacy 18-step walk and fetch the Autopilot/ESP
-    # categories that UserContext keeps bucket-only.
+    # Catalog fetch; extend the legacy walk with Imported Administrative Templates and
+    # fetch the Autopilot/ESP categories that UserContext keeps bucket-only.
     $categoryIndex = @{}
     foreach ($category in (Get-IntuneCategoryDefinition -Audience 'UserContext')) { $categoryIndex[$category.Id] = $category }
     $categories = foreach ($id in @(
-            'DeviceConfigurations', 'SettingsCatalog', 'CompliancePolicies', 'AppProtectionPolicies',
+            'DeviceConfigurations', 'ImportedAdministrativeTemplates', 'SettingsCatalog', 'CompliancePolicies', 'AppProtectionPolicies',
             'AppConfigurationPolicies', 'Applications', 'PlatformScripts', 'HealthScripts',
             'ESAntivirus', 'ESDiskEncryption', 'ESFirewall', 'ESEndpointDetection',
             'ESAttackSurface', 'ESAccountProtection', 'DeploymentProfiles', 'ESPProfiles',
@@ -235,7 +245,7 @@ function Test-IntuneGroupRemoval {
             if ($null -eq $appProgress.Total) {
                 $allCachedApps = @($entityCache[$ctx.Category.EntityType])
                 $appProgress.Total = $allCachedApps.Count
-                $appProgress.FilteredTotal = @($allCachedApps | Where-Object { -not ($_.isFeatured -or $_.isBuiltIn) }).Count
+                $appProgress.FilteredTotal = @($allCachedApps).Count
             }
             $appProgress.Current++
             Write-Host "`rFetching Application $($appProgress.Current) of $($appProgress.Total)" -NoNewline
@@ -364,6 +374,7 @@ function Test-IntuneGroupRemoval {
     # Per-bucket display and export labels in the legacy order
     $categoryTable = @(
         @{ Key = 'DeviceConfigs'; Display = 'Device Configurations'; Export = 'Device Configuration' }
+        @{ Key = 'ImportedAdministrativeTemplates'; Display = 'Imported Administrative Templates'; Export = 'Imported Administrative Template' }
         @{ Key = 'SettingsCatalog'; Display = 'Settings Catalog Policies'; Export = 'Settings Catalog Policy' }
         @{ Key = 'CompliancePolicies'; Display = 'Compliance Policies'; Export = 'Compliance Policy' }
         @{ Key = 'AppProtectionPolicies'; Display = 'App Protection Policies'; Export = 'App Protection Policy' }

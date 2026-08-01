@@ -1,6 +1,6 @@
 @{
     RootModule        = 'IntuneAssignmentChecker.psm1'
-    ModuleVersion     = '4.3.1'
+    ModuleVersion     = '4.3.2'
     GUID              = 'c6e25ec6-5787-45ef-95af-8abeb8a17daf'
     Author            = 'Ugur Koc'
     CompanyName       = 'Community'
@@ -43,6 +43,14 @@
             ProjectUri   = 'https://github.com/ugurkocde/IntuneAssignmentChecker'
             IconUri      = ''
             ReleaseNotes = @'
+Version 4.3.2:
+- Recognize Microsoft 365 (Unified) groups as first-class Intune assignment targets and expose group type, membership mode, and mail address in group checks and exports (issue #128).
+- Restore Imported Administrative Template support across assignment views, simulations, search, CSV exports, and HTML reports; imported and mixed group policy configurations are included while built-in-only configurations remain excluded (issue #129).
+- Allow delegated sign-in with an explicit application (client) ID, with or without a tenant ID, while preserving app-only certificate authentication (issue #130).
+- Return every application scope tag by explicitly selecting roleScopeTagIds in Microsoft Graph mobile-app collection queries (issue #131).
+- Generate a flat, formula-safe CSV companion alongside every HTML report, with -CSVReportPath for centralized ingestion/Azure Workbooks and -NoCSVReport for HTML-only automation (issue #132).
+- Return assigned applications regardless of the unrelated isFeatured metadata flag so featured apps are no longer omitted from results (issue #134).
+
 Version 4.3.1:
 Security:
 - Replace the broad Group.Read.All permission with GroupMember.Read.All for group lookup, membership, and transitive membership operations. This preserves IntuneAssignmentChecker behavior without granting access to Microsoft 365 group content.

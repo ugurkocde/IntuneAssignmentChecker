@@ -5,6 +5,7 @@ BeforeAll {
     $modulePrivate = Join-Path $PSScriptRoot '../../Module/IntuneAssignmentChecker/Private'
 
     . (Join-Path $modulePrivate 'Get-AppProtectionAssignmentUri.ps1')
+    . (Join-Path $modulePrivate 'Test-ImportedAdministrativeTemplate.ps1')
     . (Join-Path $modulePrivate 'Get-IntuneCategoryDefinition.ps1')
     . (Join-Path $modulePrivate 'Invoke-IntuneCategoryScan.ps1')
     . (Join-Path $modulePrivate 'Get-ScopeTagNames.ps1')
@@ -285,7 +286,7 @@ Describe 'Invoke-IntuneCategoryScan' {
     }
 
     Context 'mobile apps' {
-        It 'skips isFeatured/isBuiltIn apps and passes RawAssignments to the callback' {
+        It 'keeps every assigned app regardless of featured metadata and passes RawAssignments to the callback' {
             Mock Invoke-MgGraphRequest {
                 if ($Uri.Contains('mobileApps?$filter=isAssigned')) {
                     return @{ value = @(
@@ -311,11 +312,13 @@ Describe 'Invoke-IntuneCategoryScan' {
                 $script:appContexts.Add($ctx)
             }
 
-            $script:appContexts.Count | Should -Be 1
+            $script:appContexts.Count | Should -Be 3
             $script:appContexts[0].Entity.id | Should -Be 'app-1'
             @($script:appContexts[0].RawAssignments).Count | Should -Be 1
             $script:appContexts[0].RawAssignments[0].intent | Should -Be 'required'
             $script:appContexts[0].Assignments[0].Reason | Should -BeExactly 'All Users'
+            @($script:appContexts.Entity.id) | Should -Contain 'app-2'
+            @($script:appContexts.Entity.id) | Should -Contain 'app-3'
         }
     }
 
@@ -468,9 +471,40 @@ Describe 'Add-CategoryExportData' {
         $script:exportData[1].AssignmentReason | Should -BeExactly ''
     }
 
+    It 'adds caller-provided attribution columns uniformly to category rows' {
+        $categories = @(
+            New-TestCategory @{ Id = 'DeviceConfigurations'; BucketKeys = @('DeviceConfigs'); ExportCategory = 'Device Configuration' }
+        )
+        $buckets = @{
+            DeviceConfigs = @(
+                [PSCustomObject]@{ id = 'cfg-1'; displayName = 'Config 1' }
+                [PSCustomObject]@{ id = 'cfg-2'; displayName = 'Config 2' }
+            )
+        }
+        $attribution = [ordered]@{ GroupId = 'group-1'; GroupType = 'Microsoft 365' }
+
+        Add-CategoryExportData -ExportData $script:exportData -Categories $categories -Buckets $buckets -AdditionalProperties $attribution
+
+        $script:exportData | Should -HaveCount 2
+        @($script:exportData.GroupId | Select-Object -Unique) | Should -Be @('group-1')
+        @($script:exportData.GroupType | Select-Object -Unique) | Should -Be @('Microsoft 365')
+    }
+
+    It 'rejects additional properties that collide with reserved export columns' {
+        $item = [PSCustomObject]@{ id = 'cfg-1'; displayName = 'Config 1' }
+
+        {
+            Add-ExportData -ExportData $script:exportData -Category 'Device Configuration' -Items @($item) `
+                -AdditionalProperties ([ordered]@{ Category = 'Overwritten' })
+        } | Should -Throw '*conflicts with a reserved export column*'
+
+        $script:exportData | Should -HaveCount 0
+    }
+
     It 'covers every AllPolicies export label in registry order matching the pre-migration sequence' {
         $expectedLabels = @(
             'Device Configuration'
+            'Imported Administrative Template'
             'Settings Catalog Policy'
             'Compliance Policy'
             'App Protection Policy'
@@ -504,44 +538,58 @@ Describe 'Add-CategoryExportData' {
 }
 
 Describe 'Get-IntuneCategoryDefinition' {
-    It 'returns 16 fetchable categories plus Autopilot/ESP bucket placeholders for UserContext' {
+    It 'returns 17 fetchable categories plus Autopilot/ESP bucket placeholders for UserContext' {
         $categories = Get-IntuneCategoryDefinition -Audience UserContext
-        @($categories | Where-Object { -not $_.BucketOnly }).Count | Should -Be 16
+        @($categories | Where-Object { -not $_.BucketOnly }).Count | Should -Be 17
         @($categories | Where-Object { $_.BucketOnly }).Id | Should -Be @('DeploymentProfiles', 'ESPProfiles')
     }
 
-    It 'returns 16 fetchable categories plus Autopilot/ESP bucket placeholders for DeviceContext' {
+    It 'returns 17 fetchable categories plus Autopilot/ESP bucket placeholders for DeviceContext' {
         $categories = Get-IntuneCategoryDefinition -Audience DeviceContext
-        @($categories | Where-Object { -not $_.BucketOnly }).Count | Should -Be 16
+        @($categories | Where-Object { -not $_.BucketOnly }).Count | Should -Be 17
         @($categories | Where-Object { $_.BucketOnly }).Id | Should -Be @('DeploymentProfiles', 'ESPProfiles')
     }
 
-    It 'returns 18 categories including Autopilot and ESP for GroupContext' {
+    It 'returns 19 categories including Imported Administrative Templates, Autopilot and ESP for GroupContext' {
         $categories = Get-IntuneCategoryDefinition -Audience GroupContext
-        @($categories).Count | Should -Be 18
+        @($categories).Count | Should -Be 19
         @($categories | Where-Object { $_.BucketOnly }).Count | Should -Be 0
         $categories.Id | Should -Contain 'DeploymentProfiles'
         $categories.Id | Should -Contain 'ESPProfiles'
     }
 
-    It 'returns 17 categories without Applications for AllPolicies' {
+    It 'returns 18 categories without Applications for AllPolicies' {
         $categories = Get-IntuneCategoryDefinition -Audience AllPolicies
-        @($categories).Count | Should -Be 17
+        @($categories).Count | Should -Be 18
         $categories.Id | Should -Not -Contain 'Applications'
     }
 
-    It 'returns 18 categories with a shared SearchResults bucket for Search' {
+    It 'returns 19 categories with a shared SearchResults bucket for Search' {
         $categories = Get-IntuneCategoryDefinition -Audience Search
-        @($categories).Count | Should -Be 18
+        @($categories).Count | Should -Be 19
         foreach ($category in $categories) {
             $category.BucketKeys | Should -Be @('SearchResults')
         }
     }
 
-    It 'returns 13 categories for Compare' {
+    It 'returns 14 categories for Compare' {
         $categories = Get-IntuneCategoryDefinition -Audience Compare
-        @($categories).Count | Should -Be 13
+        @($categories).Count | Should -Be 14
         $categories.Id | Should -Contain 'ShellScripts'
+    }
+
+    It 'includes custom and mixed imported templates but excludes built-in-only configurations' {
+        $category = @(Get-IntuneCategoryDefinition -Audience GroupContext | Where-Object { $_.Id -eq 'ImportedAdministrativeTemplates' })[0]
+        $policies = @(
+            [PSCustomObject]@{ id = 'custom'; policyConfigurationIngestionType = 'custom' }
+            [PSCustomObject]@{ id = 'mixed'; policyConfigurationIngestionType = 'mixed' }
+            [PSCustomObject]@{ id = 'built-in'; policyConfigurationIngestionType = 'builtIn' }
+            [PSCustomObject]@{ id = 'unknown'; policyConfigurationIngestionType = 'unknown' }
+        )
+
+        @($policies | Where-Object $category.EntityFilter).id | Should -Be @('custom', 'mixed')
+        $category.EntityType | Should -BeExactly 'groupPolicyConfigurations'
+        $category.ExportCategory | Should -BeExactly 'Imported Administrative Template'
     }
 
     Context 'audience-specific SettingsCatalog filters' {

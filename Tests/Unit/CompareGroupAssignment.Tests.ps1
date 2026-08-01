@@ -5,6 +5,8 @@ BeforeAll {
     $moduleRoot = Join-Path $PSScriptRoot '../../Module/IntuneAssignmentChecker'
     $modulePrivate = Join-Path $moduleRoot 'Private'
 
+    . (Join-Path $modulePrivate 'ConvertTo-IntuneGroupInfo.ps1')
+    . (Join-Path $modulePrivate 'Test-ImportedAdministrativeTemplate.ps1')
     . (Join-Path $modulePrivate 'Get-IntuneCategoryDefinition.ps1')
     . (Join-Path $modulePrivate 'Invoke-IntuneCategoryScan.ps1')
     . (Join-Path $modulePrivate 'Format-AssignmentFilter.ps1')
@@ -119,13 +121,17 @@ Describe 'Compare-IntuneGroupAssignment' {
                 }
                 return @{ value = @() }
             }
-            if ($Uri -like "*/v1.0/groups/$($script:groupA)") { return @{ id = $script:groupA; displayName = 'Group A' } }
-            if ($Uri -like "*/v1.0/groups/$($script:groupB)") { return @{ id = $script:groupB; displayName = 'Group B' } }
+            if ($Uri -like "*/v1.0/groups/$($script:groupA)*") {
+                return @{ id = $script:groupA; displayName = 'Group A'; groupTypes = @(); mailEnabled = $false; securityEnabled = $true }
+            }
+            if ($Uri -like "*/v1.0/groups/$($script:groupB)*") {
+                return @{ id = $script:groupB; displayName = 'Group B'; groupTypes = @('Unified'); mailEnabled = $true; securityEnabled = $false; mail = 'groupb@contoso.com' }
+            }
             if ($Uri -like '*mobileApps*isAssigned eq true*') {
                 return @{ value = @(
                         [PSCustomObject]@{ id = 'app-shared'; displayName = 'Shared App'; isFeatured = $false; isBuiltIn = $false }
                         [PSCustomObject]@{ id = 'app-excluded'; displayName = 'Excluded App'; isFeatured = $false; isBuiltIn = $false }
-                        [PSCustomObject]@{ id = 'app-builtin'; displayName = 'Builtin App'; isFeatured = $false; isBuiltIn = $true }
+                        [PSCustomObject]@{ id = 'app-featured'; displayName = 'Featured App'; isFeatured = $true }
                     )
                 }
             }
@@ -140,6 +146,12 @@ Describe 'Compare-IntuneGroupAssignment' {
                 # Exclusion-only app assignment (issue #126 shape): stays visible, tagged [EXCLUDED]
                 return @{ value = @(
                         @{ intent = 'required'; target = @{ '@odata.type' = '#microsoft.graph.exclusionGroupAssignmentTarget'; groupId = $script:groupA } }
+                    )
+                }
+            }
+            if ($Uri -like "*mobileApps('app-featured')/assignments*") {
+                return @{ value = @(
+                        @{ intent = 'available'; target = @{ '@odata.type' = '#microsoft.graph.groupAssignmentTarget'; groupId = $script:groupA } }
                     )
                 }
             }
@@ -171,6 +183,21 @@ Describe 'Compare-IntuneGroupAssignment' {
             Compare-IntuneGroupAssignment -CompareGroupNames "O'Brien Team, $($script:groupA)" -ExportToCSV -ExportPath $script:csvPath
 
             Should -Invoke Invoke-MgGraphRequest -ParameterFilter { $Uri -like "*displayName eq 'O''Brien Team'*" }
+        }
+
+        It 'skips a GUID lookup response that omits the group Object ID' {
+            Mock Invoke-MgGraphRequest {
+                @{ displayName = 'Incomplete Group'; groupTypes = @('Unified'); mailEnabled = $true }
+            } -ParameterFilter { $Uri -like "*/v1.0/groups/$($script:groupA)*" }
+
+            Compare-IntuneGroupAssignment -CompareGroupNames "$($script:groupA), $($script:groupB)" -ExportToCSV -ExportPath $script:csvPath
+
+            Should -Invoke Write-Host -Exactly 1 -ParameterFilter {
+                $Object -eq "The group lookup for '$($script:groupA)' returned an invalid response without an Object ID."
+            }
+            Should -Invoke Get-IntuneAssignments -Exactly 0 -ParameterFilter {
+                $null -eq $GroupIds -or $GroupIds -contains $null
+            }
         }
     }
 
@@ -211,12 +238,14 @@ Describe 'Compare-IntuneGroupAssignment' {
             $row.'Group B' | Should -BeExactly ''
         }
 
-        It 'buckets apps by assignment intent and skips built-in apps' {
+        It 'buckets every assigned app by intent, including featured apps' {
             $row = $script:rows | Where-Object { $_.PolicyName -eq 'Shared App' }
             $row.Category | Should -BeExactly 'Required Apps'
             $row.'Group A' | Should -BeExactly 'Included'
             $row.'Group B' | Should -BeExactly 'Included'
-            @($script:rows | Where-Object { $_.PolicyName -like 'Builtin App*' }).Count | Should -Be 0
+            $featuredRow = $script:rows | Where-Object { $_.PolicyName -eq 'Featured App' }
+            $featuredRow.Category | Should -BeExactly 'Available Apps'
+            $featuredRow.'Group A' | Should -BeExactly 'Included'
         }
 
         It 'labels platform and shell scripts with their type marker' {

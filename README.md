@@ -82,6 +82,8 @@ IntuneAssignmentChecker
 - 🔐 Support for certificate-based and client secret authentication
 - 🔄 Version check on connect with an update notice when a newer PSGallery release is available
 - 📊 Detailed reporting of Configuration Profiles, Compliance Policies, and Applications
+- 🧩 Imported Administrative Template coverage across assignment checks, search, CSV exports, and HTML reports
+- 👥 First-class Microsoft 365 group recognition with group type, membership mode, and mail address in group assignment checks and exports
 - 📈 Interactive HTML reports with charts and filterable tables
 
 ## 🎥 Demo
@@ -129,7 +131,7 @@ For interactive authentication, IntuneAssignmentChecker automatically requests t
 
 For certificate, client secret, managed identity, or pre-fetched token authentication, configure the listed application permissions on the app registration and grant administrator consent. App-only authentication cannot add or consent permissions automatically.
 
-`GroupMember.Read.All` provides the group and membership data used by IntuneAssignmentChecker without granting access to Microsoft 365 group content.
+`GroupMember.Read.All` provides the basic group properties and membership data used by IntuneAssignmentChecker without granting access to Microsoft 365 group conversations, files, calendars, or other group content.
 
 > **Existing app registrations**: Add `GroupMember.Read.All` and grant administrator consent before removing `Group.Read.All`. After confirming the updated module works, remove `Group.Read.All` from the configured API permissions and revoke its application consent. Updating the app registration manifest alone might not remove an existing service principal consent grant.
 
@@ -238,6 +240,12 @@ If you prefer not to set up an app registration, you can use interactive authent
 # Opens a browser sign-in prompt using delegated permissions
 Connect-IntuneAssignmentChecker
 
+# Use your own public-client application ID for delegated sign-in
+Connect-IntuneAssignmentChecker -AppId '<application-client-id>'
+
+# Optionally constrain that delegated sign-in to a specific tenant
+Connect-IntuneAssignmentChecker -AppId '<application-client-id>' -TenantId '<tenant-id>'
+
 # Or just launch the menu and pick interactive auth when prompted
 IntuneAssignmentChecker
 ```
@@ -336,14 +344,23 @@ Get-IntuneUserAssignment -UserPrincipalNames "user1@contoso.com,user2@contoso.co
 # Check assignments for a specific group
 Get-IntuneGroupAssignment -GroupNames "Marketing Team"
 
+# Microsoft 365 (Unified) groups are resolved by name or Object ID like any other group
+Get-IntuneGroupAssignment -GroupNames "Messaging Team" -ExportToCSV -ExportPath "C:\Temp\MessagingTeamAssignments.csv"
+
 # Check assignments for a specific device
 Get-IntuneDeviceAssignment -DeviceNames "Laptop123"
 
 # Show all policies with 'All Users' assignments
 Get-IntuneAllUsersAssignment -ExportToCSV
 
-# Generate HTML report
+# Generate HTML report and a companion CSV at the same base path
 New-IntuneHTMLReport -HTMLReportPath "C:\Temp\IntuneAssignmentReport.html"
+
+# Store the CSV companion in a separate central location
+New-IntuneHTMLReport -HTMLReportPath "C:\Temp\IntuneAssignmentReport.html" -CSVReportPath "C:\CentralReports\IntuneAssignments.csv"
+
+# Preserve the previous HTML-only behavior when no CSV is wanted
+New-IntuneHTMLReport -HTMLReportPath "C:\Temp\IntuneAssignmentReport.html" -NoCSVReport
 
 # Simulate what policies a user would receive if added to a group
 Test-IntuneGroupMembership -UserPrincipalNames "user@contoso.com" -SimulateTargetGroup "Marketing Team"
@@ -364,6 +381,21 @@ Search-IntunePolicy -PolicySearchTerm "BitLocker"
 Search-IntuneSetting -SearchTerm "BitLocker"
 ```
 
+`Get-IntuneGroupAssignment` CSV/Excel exports include `GroupId`, `GroupName`,
+`GroupType`, `MembershipType`, and `GroupMail` on every group and policy/app
+row. This keeps multi-group exports attributable and lets workbooks distinguish
+Microsoft 365 groups from security, mail-enabled security, and distribution
+groups without parsing display names.
+
+HTML reports include a flat CSV companion by default. The CSV uses a stable
+`Category`, `Name`, `ID`, `Type`, `Platform`, `ScopeTags`, `AssignmentType`,
+`AssignedTo`, and `Filter` schema for Azure Log Analytics, workbooks, and other
+automation. `-CSVReportPath` accepts either a `.csv` file or a directory; when a
+directory is supplied, the HTML report's base name is reused. Missing values are
+exported as empty fields, while the absence of an assignment filter is represented
+consistently as `None`. Values beginning with spreadsheet formula prefixes are
+escaped with a leading apostrophe. Use `-NoCSVReport` for HTML-only output.
+
 Available cmdlets:
 
 | Cmdlet                             | Description                                                           |
@@ -375,7 +407,7 @@ Available cmdlets:
 | `Get-IntuneAllPolicies`            | Show all policies and their assignments                               |
 | `Get-IntuneAllUsersAssignment`     | Show all 'All Users' assignments                                      |
 | `Get-IntuneAllDevicesAssignment`   | Show all 'All Devices' assignments                                    |
-| `New-IntuneHTMLReport`             | Generate interactive HTML report                                      |
+| `New-IntuneHTMLReport`             | Generate interactive HTML and flat CSV companion reports              |
 | `Get-IntuneUnassignedPolicy`       | Show policies without assignments                                     |
 | `Get-IntuneEmptyGroup`             | Check for empty groups used in assignments                            |
 | `Get-IntuneFailedAssignment`       | Show all failed policy assignments                                    |
@@ -424,6 +456,9 @@ Running `IntuneAssignmentChecker` opens a menu-driven interface with the followi
    - View all policies and apps assigned to specific groups
    - Supports checking multiple groups
    - Shows assignment types (Include/Exclude)
+   - Recognizes Microsoft 365, security, mail-enabled security, and distribution groups
+   - Shows group type, assigned/dynamic membership, and mail address in the console and CSV export
+   - Covers Intune policy and app assignments only; Exchange, Teams, SharePoint, and other Microsoft 365 service policies/content are outside this module's scope
 
 3. **Check Device(s) Assignments**
    - View all policies and apps assigned to specific devices
