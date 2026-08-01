@@ -36,7 +36,7 @@ BeforeAll {
     function Add-IntentTemplateFamilyInfo {
         param($IntentPolicies)
     }
-    function Invoke-MgGraphRequest {
+    function Invoke-IACGraphRequest {
         param($Uri, $Method)
         @{ value = @() }
     }
@@ -155,7 +155,7 @@ Describe 'Get-IntuneGroupAssignment' {
             }
         }
         Mock Export-ResultsIfRequested { $script:capturedExport = @($ExportData) }
-        Mock Invoke-MgGraphRequest {
+        Mock Invoke-IACGraphRequest {
             if ($Uri -like '*mobileApps*isAssigned eq true*') {
                 return @{
                     value = @(
@@ -163,12 +163,6 @@ Describe 'Get-IntuneGroupAssignment' {
                         [PSCustomObject]@{ id = 'app-exc'; displayName = 'Excluded Only App'; isFeatured = $false; isBuiltIn = $false }
                         [PSCustomObject]@{ id = 'app-both'; displayName = 'Included And Excluded App'; isFeatured = $false; isBuiltIn = $false }
                         [PSCustomObject]@{ id = 'app-exc-uninstall'; displayName = 'Excluded Uninstall App'; isFeatured = $false; isBuiltIn = $false }
-                    )
-                    '@odata.nextLink' = 'https://graph.test/next-mobile-app-page'
-                }
-            }
-            if ($Uri -eq 'https://graph.test/next-mobile-app-page') {
-                return @{ value = @(
                         [PSCustomObject]@{ id = 'app-featured-required'; displayName = 'Featured Required App'; isFeatured = $true; roleScopeTagIds = @('0') }
                         [PSCustomObject]@{ id = 'app-featured-available'; displayName = 'Featured Available App'; isFeatured = $true; roleScopeTagIds = @('0') }
                     )
@@ -261,14 +255,14 @@ Describe 'Get-IntuneGroupAssignment' {
     }
 
     It 'recognizes a Microsoft 365 group by display name without filtering it out' {
-        Mock Invoke-MgGraphRequest {
+        Mock Invoke-IACGraphRequest {
             @{
                 value = @([PSCustomObject]@{
                         id = 'm365-by-name'; displayName = 'Messaging Team'; groupTypes = @('Unified')
                         mailEnabled = $true; securityEnabled = $false; mail = 'messaging@contoso.com'
                     })
             }
-        } -ParameterFilter { $Uri -like '*/v1.0/groups?*displayName eq*' }
+        } -ParameterFilter { $Uri -like '*/beta/groups?*displayName eq*' }
 
         Get-IntuneGroupAssignment -GroupNames 'Messaging Team' -IncludeNestedGroups
 
@@ -276,8 +270,8 @@ Describe 'Get-IntuneGroupAssignment' {
         $groupRow.Item | Should -BeExactly 'Messaging Team (ID: m365-by-name)'
         $groupRow.GroupType | Should -BeExactly 'Microsoft 365'
         $groupRow.GroupMail | Should -BeExactly 'messaging@contoso.com'
-        Should -Invoke Invoke-MgGraphRequest -Exactly 1 -ParameterFilter {
-            $Uri -like '*/v1.0/groups?*' -and
+        Should -Invoke Invoke-IACGraphRequest -Exactly 1 -ParameterFilter {
+            $Uri -like '*/beta/groups?*' -and
             $Uri -match '\$select=id,displayName,groupTypes,mailEnabled,securityEnabled,mail'
         }
     }
@@ -348,7 +342,7 @@ Describe 'Get-IntuneGroupAssignment' {
 
         $appRow = $script:capturedExport | Where-Object { $_.Item -eq 'Included App (ID: app-inc)' }
         $appRow.ScopeTags | Should -BeExactly 'Default, Finance'
-        Should -Invoke Invoke-MgGraphRequest -Exactly 1 -ParameterFilter {
+        Should -Invoke Invoke-IACGraphRequest -Exactly 1 -ParameterFilter {
             $Uri -like '*deviceAppManagement/mobileApps?*' -and
             $Uri -match '\$select=[^&]*roleScopeTagIds'
         }
@@ -364,7 +358,7 @@ Describe 'Get-IntuneGroupAssignment' {
         $availableRow.Category | Should -BeExactly 'Available Apps'
         $requiredRow.AssignmentReason | Should -BeExactly 'Direct Assignment (Filter: Unknown Filter (shared-filter) [Include])'
         $availableRow.AssignmentReason | Should -BeExactly 'Direct Assignment (Filter: Unknown Filter (shared-filter) [Include])'
-        Should -Invoke Invoke-MgGraphRequest -Exactly 1 -ParameterFilter { $Uri -eq 'https://graph.test/next-mobile-app-page' }
+        Should -Invoke Invoke-IACGraphRequest -Exactly 1 -ParameterFilter { $Uri -like '*mobileApps*isAssigned eq true*' }
     }
 
     It 'prefers the inclusion intent when the group is both included and excluded' {

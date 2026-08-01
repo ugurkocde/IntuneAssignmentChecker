@@ -68,7 +68,7 @@ BeforeAll {
     function Add-IntentTemplateFamilyInfo {
         param($IntentPolicies)
     }
-    function Invoke-MgGraphRequest {
+    function Invoke-IACGraphRequest {
         param($Uri, $Method)
         @{ value = @() }
     }
@@ -170,10 +170,10 @@ Describe 'Test-IntuneGroupRemoval' {
                 default { @() }
             }
         }
-        Mock Invoke-MgGraphRequest {
+        Mock Invoke-IACGraphRequest {
             $script:requestedUris.Add([string]$Uri)
             switch -Wildcard ($Uri) {
-                '*/v1.0/groups[?]*' { return @{ value = @([PSCustomObject]@{ id = 'g-target'; displayName = 'Target Group' }) } }
+                '*/beta/groups[?]*' { return @{ value = @([PSCustomObject]@{ id = 'g-target'; displayName = 'Target Group' }) } }
                 '*mobileApps[?]*' {
                     return @{
                         value = @(
@@ -316,7 +316,7 @@ Describe 'Test-IntuneGroupRemoval' {
     Context 'input handling' {
         It 'escapes single quotes in the group name OData filter' {
             Test-IntuneGroupRemoval -UserPrincipalNames 'user1@contoso.com' -GroupNames "O'Brien Team" | Out-Null
-            $groupLookup = @($script:requestedUris | Where-Object { $_ -like '*/v1.0/groups*' })
+            $groupLookup = @($script:requestedUris | Where-Object { $_ -like '*/beta/groups*' })
             $groupLookup[0] | Should -Match ([regex]::Escape("displayName eq 'O''Brien Team'"))
         }
 

@@ -77,8 +77,8 @@ function Get-IntuneGroupAssignment {
             # Try to find group by display name (single quotes escaped for the OData filter)
             $escapedGroupName = $groupInput -replace "'", "''"
             $groupSelect = 'id,displayName,groupTypes,mailEnabled,securityEnabled,mail'
-            $groupUri = "$script:GraphEndpoint/v1.0/groups?`$filter=displayName eq '$escapedGroupName'&`$select=$groupSelect"
-            $groupResponse = Invoke-MgGraphRequest -Uri $groupUri -Method Get
+            $groupUri = "$script:GraphEndpoint/beta/groups?`$filter=displayName eq '$escapedGroupName'&`$select=$groupSelect"
+            $groupResponse = Invoke-IACGraphRequest -Uri $groupUri -Method Get
 
             if ($groupResponse.value.Count -eq 0) {
                 Write-Host "No group found with name: $groupInput" -ForegroundColor Red

@@ -39,7 +39,7 @@ function Switch-Tenant {
 
             # Try to get tenant display name
             try {
-                $org = Invoke-MgGraphRequest -Method GET -Uri "$script:GraphEndpoint/v1.0/organization" -ErrorAction SilentlyContinue
+                $org = Invoke-IACGraphRequest -Method GET -Uri "$script:GraphEndpoint/beta/organization" -ErrorAction SilentlyContinue
                 if ($org.value -and $org.value.Count -gt 0) {
                     $script:CurrentTenantName = $org.value[0].displayName
                 }

@@ -19,7 +19,7 @@ BeforeAll {
     }
 
     function Get-MgContext { }
-    function Invoke-MgGraphRequest { }
+    function Invoke-IACGraphRequest { }
     function Set-Environment { }
     function Get-ScopeTagLookup { }
     function Get-AssignmentFilterLookup { }
@@ -61,7 +61,7 @@ Describe 'Connect-IntuneAssignmentChecker interactive authentication' {
             }
         }
         Mock Connect-MgGraph
-        Mock Invoke-MgGraphRequest {
+        Mock Invoke-IACGraphRequest {
             @{ value = @([PSCustomObject]@{ displayName = 'Contoso' }) }
         }
         Mock Get-ScopeTagLookup { @{} }

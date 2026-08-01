@@ -56,16 +56,7 @@ function Invoke-IntuneCategoryScan {
 
     function Get-PagedGraphValue {
         param([string]$Uri)
-        $items = [System.Collections.Generic.List[object]]::new()
-        $currentUri = $Uri
-        do {
-            $response = Invoke-MgGraphRequest -Uri $currentUri -Method Get
-            if ($response -and $null -ne $response.value) {
-                $items.AddRange(@($response.value))
-            }
-            $currentUri = $response.'@odata.nextLink'
-        } while (![string]::IsNullOrEmpty($currentUri))
-        return , $items
+        return , @((Invoke-IACGraphRequest -Uri $Uri -Method Get).value)
     }
 
     # Normalizes raw Graph assignment objects to the standard record shape, reproducing

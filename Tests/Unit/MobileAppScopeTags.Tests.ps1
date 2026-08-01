@@ -14,7 +14,7 @@ BeforeAll {
     function Get-IntuneAssignments { param([string]$EntityType, [string]$EntityId) @() }
     function Get-AppProtectionAssignmentUri { param($Policy) $null }
     function Add-IntentTemplateFamilyInfo { param($IntentPolicies) }
-    function Invoke-MgGraphRequest { param([string]$Uri, [string]$Method) @{ value = @() } }
+    function Invoke-IACGraphRequest { param([string]$Uri, [string]$Method) @{ value = @() } }
     function Filter-ByScopeTag { param($Items) $Items }
     function Export-ResultsIfRequested {
         param(
@@ -39,7 +39,7 @@ Describe 'Mobile application scope tags' {
         Mock Get-IntuneEntities { @() }
         Mock Get-IntuneAssignments { @() }
         Mock Add-IntentTemplateFamilyInfo
-        Mock Invoke-MgGraphRequest {
+        Mock Invoke-IACGraphRequest {
             if ($Uri -like '*deviceAppManagement/mobileApps?*isAssigned eq false*') {
                 return @{
                     value = @(
@@ -79,7 +79,7 @@ Describe 'Mobile application scope tags' {
 
         $appRow = $script:capturedExport | Where-Object { $_.Item -eq 'Unassigned App (ID: unassigned-app)' }
         $appRow.ScopeTags | Should -BeExactly 'Default, Finance'
-        Should -Invoke Invoke-MgGraphRequest -Exactly 1 -ParameterFilter {
+        Should -Invoke Invoke-IACGraphRequest -Exactly 1 -ParameterFilter {
             $Uri -like '*deviceAppManagement/mobileApps?*' -and
             $Uri -match '\$select=[^&]*roleScopeTagIds'
         }

@@ -139,6 +139,10 @@ For certificate, client secret, managed identity, or pre-fetched token authentic
 
 > **Note**: The automated setup script ([`Register-IntuneAssignmentCheckerApp.ps1`](./Register-IntuneAssignmentCheckerApp.ps1)) additionally grants `DeviceManagementServiceConfig.Read.All`, which covers Intune service configuration such as enrollment settings. It is not validated by `Connect-IntuneAssignmentChecker`, but granting it avoids gaps when reading enrollment-related configurations.
 
+### Microsoft Graph API behavior
+
+IntuneAssignmentChecker uses the Microsoft Graph `/beta` endpoint in every supported cloud. Starting with v4.4, all Graph traffic is routed through one internal transport that follows collection paging automatically, honors throttling responses, retries transient service and network failures, and preserves Graph request identifiers in structured errors for troubleshooting. The beta endpoint can change more frequently than a generally available endpoint, so validate a new module version in a test tenant before broad automation rollout.
+
 ## 🔐 Authentication Options
 
 ### Option 1: Certificate-Based Authentication (Recommended for automation)

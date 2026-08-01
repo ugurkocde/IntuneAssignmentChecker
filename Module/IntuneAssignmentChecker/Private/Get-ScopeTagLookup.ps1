@@ -4,13 +4,9 @@ function Get-ScopeTagLookup {
     $lookup = @{ "0" = "Default" }
     try {
         $uri = "$script:GraphEndpoint/beta/deviceManagement/roleScopeTags?`$select=id,displayName"
-        do {
-            $response = Invoke-MgGraphRequest -Uri $uri -Method Get
-            foreach ($tag in $response.value) {
-                $lookup["$($tag.id)"] = $tag.displayName
-            }
-            $uri = $response.'@odata.nextLink'
-        } while ($uri)
+        foreach ($tag in @((Invoke-IACGraphRequest -Uri $uri -Method Get).value)) {
+            $lookup["$($tag.id)"] = $tag.displayName
+        }
     }
     catch {
         Write-Warning "Could not fetch scope tags: $($_.Exception.Message)"

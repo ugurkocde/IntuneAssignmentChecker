@@ -9,7 +9,7 @@ BeforeAll {
 
     $script:GraphEndpoint = 'https://graph.test'
 
-    function Invoke-MgGraphRequest {
+    function Invoke-IACGraphRequest {
         param([string]$Uri, [string]$Method)
         @{ value = @() }
     }
@@ -62,15 +62,13 @@ Describe 'Test-ImportedAdministrativeTemplate' {
 Describe 'Imported Administrative Template assignments' {
     BeforeEach {
         Mock Write-Warning {}
-        Mock Invoke-MgGraphRequest { @{ value = @() } }
+        Mock Invoke-IACGraphRequest { @{ value = @() } }
     }
 
     It 'uses the documented resource-path URI and follows assignment pagination' {
         $script:expectedGroupId = '11111111-1111-1111-1111-111111111111'
         $firstPage = 'https://graph.test/beta/deviceManagement/groupPolicyConfigurations/imported-1/assignments'
-        $nextPage = 'https://graph.test/imported-assignments-page-2'
-
-        Mock Invoke-MgGraphRequest {
+        Mock Invoke-IACGraphRequest {
             if ($Uri -eq $firstPage) {
                 return @{
                     value = @(
@@ -80,13 +78,6 @@ Describe 'Imported Administrative Template assignments' {
                                 groupId = $script:expectedGroupId
                             }
                         }
-                    )
-                    '@odata.nextLink' = $nextPage
-                }
-            }
-            if ($Uri -eq $nextPage) {
-                return @{
-                    value = @(
                         [PSCustomObject]@{
                             target = [PSCustomObject]@{
                                 '@odata.type' = '#microsoft.graph.exclusionGroupAssignmentTarget'
@@ -103,13 +94,12 @@ Describe 'Imported Administrative Template assignments' {
 
         $assignments.Reason | Should -Be @('Group Assignment', 'Group Exclusion')
         $assignments.GroupId | Should -Be @($script:expectedGroupId, $script:expectedGroupId)
-        Should -Invoke Invoke-MgGraphRequest -Exactly 1 -ParameterFilter { $Uri -eq $firstPage -and $Method -eq 'Get' }
-        Should -Invoke Invoke-MgGraphRequest -Exactly 1 -ParameterFilter { $Uri -eq $nextPage -and $Method -eq 'Get' }
+        Should -Invoke Invoke-IACGraphRequest -Exactly 1 -ParameterFilter { $Uri -eq $firstPage -and $Method -eq 'Get' }
     }
 
     It 'preserves group filtering semantics for an imported template' {
         $wantedGroup = '11111111-1111-1111-1111-111111111111'
-        Mock Invoke-MgGraphRequest {
+        Mock Invoke-IACGraphRequest {
             @{
                 value = @(
                     [PSCustomObject]@{ target = [PSCustomObject]@{ '@odata.type' = '#microsoft.graph.groupAssignmentTarget'; groupId = $wantedGroup } }

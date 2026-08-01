@@ -54,7 +54,7 @@ BeforeAll {
     function Add-IntentTemplateFamilyInfo {
         param($IntentPolicies)
     }
-    function Invoke-MgGraphRequest {
+    function Invoke-IACGraphRequest {
         param($Uri, $Method)
         @{ value = @() }
     }
@@ -146,8 +146,8 @@ Describe 'Test-IntuneGroupMembership' {
                 default { @() }
             }
         }
-        Mock Invoke-MgGraphRequest {
-            if ($Uri -like '*v1.0/groups?*') {
+        Mock Invoke-IACGraphRequest {
+            if ($Uri -like '*beta/groups?*') {
                 return @{ value = @([PSCustomObject]@{ id = 'g-target'; displayName = 'Target Group' }) }
             }
             if ($Uri -like '*mobileApps?*isAssigned*') {
@@ -288,7 +288,7 @@ Describe 'Test-IntuneGroupMembership' {
         Should -Invoke Get-IntuneEntities -Times 1 -Exactly -ParameterFilter { $EntityType -eq 'configurationPolicies' }
         Should -Invoke Get-IntuneEntities -Times 1 -Exactly -ParameterFilter { $EntityType -eq 'deviceManagement/intents' }
         Should -Invoke Get-IntuneEntities -Times 1 -Exactly -ParameterFilter { $EntityType -eq 'deviceConfigurations' }
-        Should -Invoke Invoke-MgGraphRequest -Times 1 -Exactly -ParameterFilter { $Uri -like '*mobileApps?*isAssigned*' }
+        Should -Invoke Invoke-IACGraphRequest -Times 1 -Exactly -ParameterFilter { $Uri -like '*mobileApps?*isAssigned*' }
     }
 
     It 'emits the 19-step progress lines including Imported Administrative Templates' {
@@ -307,7 +307,7 @@ Describe 'Test-IntuneGroupMembership' {
     It 'escapes single quotes in the group name OData filter (F9)' {
         Test-IntuneGroupMembership -UserPrincipalNames 'user1@contoso.com' -SimulateTargetGroup "O'Brien Team"
 
-        Should -Invoke Invoke-MgGraphRequest -Times 1 -Exactly -ParameterFilter { $Uri -like "*displayName eq 'O''Brien Team'*" }
+        Should -Invoke Invoke-IACGraphRequest -Times 1 -Exactly -ParameterFilter { $Uri -like "*displayName eq 'O''Brien Team'*" }
     }
 
     It 'emits export categories in the legacy CSV order' {

@@ -19,8 +19,8 @@ function Get-IntuneEmptyGroup {
         )
 
         try {
-            $membersUri = "$script:GraphEndpoint/v1.0/groups/$GroupId/members?`$select=id"
-            $response = Invoke-MgGraphRequest -Uri $membersUri -Method Get
+            $membersUri = "$script:GraphEndpoint/beta/groups/$GroupId/members?`$select=id"
+            $response = Invoke-IACGraphRequest -Uri $membersUri -Method Get
             return $response.value.Count -eq 0
         }
         catch {

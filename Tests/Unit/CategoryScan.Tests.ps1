@@ -26,7 +26,7 @@ BeforeAll {
     function Add-IntentTemplateFamilyInfo {
         param($IntentPolicies)
     }
-    function Invoke-MgGraphRequest {
+    function Invoke-IACGraphRequest {
         param($Uri, $Method)
         @{ value = @() }
     }
@@ -100,7 +100,7 @@ Describe 'Invoke-IntuneCategoryScan' {
         Mock Get-IntuneEntities { @() }
         Mock Get-IntuneAssignments { @() }
         Mock Add-IntentTemplateFamilyInfo {}
-        Mock Invoke-MgGraphRequest { @{ value = @() } }
+        Mock Invoke-IACGraphRequest { @{ value = @() } }
     }
 
     Context 'entity caching' {
@@ -154,7 +154,7 @@ Describe 'Invoke-IntuneCategoryScan' {
                     default { return @() }
                 }
             }
-            Mock Invoke-MgGraphRequest {
+            Mock Invoke-IACGraphRequest {
                 @{ value = @(@{ target = @{ '@odata.type' = '#microsoft.graph.allDevicesAssignmentTarget' } }) }
             }
 
@@ -169,7 +169,7 @@ Describe 'Invoke-IntuneCategoryScan' {
             $script:intentContexts[0].Entity.id | Should -Be 'intent-macos-fv'
             $script:intentContexts[0].Assignments[0].Reason | Should -BeExactly 'All Devices'
             @($script:intentContexts[0].RawAssignments).Count | Should -Be 1
-            Should -Invoke Invoke-MgGraphRequest -Exactly 1 -ParameterFilter { $Uri -like '*deviceManagement/intents/intent-macos-fv/assignments*' }
+            Should -Invoke Invoke-IACGraphRequest -Exactly 1 -ParameterFilter { $Uri -like '*deviceManagement/intents/intent-macos-fv/assignments*' }
         }
     }
 
@@ -287,7 +287,7 @@ Describe 'Invoke-IntuneCategoryScan' {
 
     Context 'mobile apps' {
         It 'keeps every assigned app regardless of featured metadata and passes RawAssignments to the callback' {
-            Mock Invoke-MgGraphRequest {
+            Mock Invoke-IACGraphRequest {
                 if ($Uri.Contains('mobileApps?$filter=isAssigned')) {
                     return @{ value = @(
                             @{ id = 'app-1'; displayName = 'Real App'; isFeatured = $false; isBuiltIn = $false }
@@ -330,7 +330,7 @@ Describe 'Invoke-IntuneCategoryScan' {
                 }
                 return @()
             }
-            Mock Invoke-MgGraphRequest {
+            Mock Invoke-IACGraphRequest {
                 @{ value = @(
                         @{ target = @{ '@odata.type' = '#microsoft.graph.groupAssignmentTarget'; groupId = 'grp-1' } }
                         @{ target = @{ '@odata.type' = '#microsoft.graph.exclusionGroupAssignmentTarget'; groupId = 'grp-other' } }

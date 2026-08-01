@@ -139,8 +139,8 @@ function Compare-IntuneGroupAssignment {
         if ($groupInput -match '^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$') {
             try {
                 # Get group info from Graph API
-                $groupUri = "$script:GraphEndpoint/v1.0/groups/$groupInput`?`$select=$groupSelect"
-                $groupResponse = Invoke-MgGraphRequest -Uri $groupUri -Method Get
+                $groupUri = "$script:GraphEndpoint/beta/groups/$groupInput`?`$select=$groupSelect"
+                $groupResponse = Invoke-IACGraphRequest -Uri $groupUri -Method Get
                 $resolvedGroupInfo = ConvertTo-IntuneGroupInfo -Group $groupResponse
                 if (-not $resolvedGroupInfo.Success) {
                     Write-Host "The group lookup for '$groupInput' returned an invalid response without an Object ID." -ForegroundColor Red
@@ -159,8 +159,8 @@ function Compare-IntuneGroupAssignment {
         else {
             # Try to find group by display name (single quotes escaped for the OData filter)
             $escapedGroupName = $groupInput -replace "'", "''"
-            $groupUri = "$script:GraphEndpoint/v1.0/groups?`$filter=displayName eq '$escapedGroupName'&`$select=$groupSelect"
-            $groupResponse = Invoke-MgGraphRequest -Uri $groupUri -Method Get
+            $groupUri = "$script:GraphEndpoint/beta/groups?`$filter=displayName eq '$escapedGroupName'&`$select=$groupSelect"
+            $groupResponse = Invoke-IACGraphRequest -Uri $groupUri -Method Get
 
             if ($groupResponse.value.Count -eq 0) {
                 Write-Host "No group found with name: $groupInput" -ForegroundColor Red
@@ -210,12 +210,7 @@ function Compare-IntuneGroupAssignment {
         }
         foreach ($shellScript in $entityCache['deviceShellScripts']) {
             $assignmentsUri = "$script:GraphEndpoint/beta/deviceManagement/deviceShellScripts('$($shellScript.id)')/groupAssignments"
-            $shellAssignments = [System.Collections.Generic.List[object]]::new()
-            do {
-                $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
-                if ($assignmentResponse -and $null -ne $assignmentResponse.value) { $shellAssignments.AddRange(@($assignmentResponse.value)) }
-                $assignmentsUri = $assignmentResponse.'@odata.nextLink'
-            } while (![string]::IsNullOrEmpty($assignmentsUri))
+            $shellAssignments = @((Invoke-IACGraphRequest -Uri $assignmentsUri -Method Get).value)
 
             $hasAssignment = @($shellAssignments | Where-Object { $allGroupIds -contains $_.targetGroupId })
             if ($hasAssignment.Count -gt 0) {

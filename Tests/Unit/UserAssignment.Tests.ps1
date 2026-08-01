@@ -43,7 +43,7 @@ BeforeAll {
     function Add-IntentTemplateFamilyInfo {
         param($IntentPolicies)
     }
-    function Invoke-MgGraphRequest {
+    function Invoke-IACGraphRequest {
         param($Uri, $Method)
         @{ value = @() }
     }
@@ -130,7 +130,7 @@ Describe 'Get-IntuneUserAssignment' {
                 default { @() }
             }
         }
-        Mock Invoke-MgGraphRequest {
+        Mock Invoke-IACGraphRequest {
             if ($Uri -like '*mobileApps?*isAssigned*') {
                 return @{ value = @(
                         [PSCustomObject]@{ id = 'app-req-inc'; displayName = 'Required Included App'; isFeatured = $false; isBuiltIn = $false }
@@ -248,7 +248,7 @@ Describe 'Get-IntuneUserAssignment' {
         Should -Invoke Get-IntuneEntities -Times 1 -Exactly -ParameterFilter { $EntityType -eq 'configurationPolicies' }
         Should -Invoke Get-IntuneEntities -Times 1 -Exactly -ParameterFilter { $EntityType -eq 'deviceConfigurations' }
         Should -Invoke Get-IntuneEntities -Times 1 -Exactly -ParameterFilter { $EntityType -eq 'deviceManagement/intents' }
-        Should -Invoke Invoke-MgGraphRequest -Times 1 -Exactly -ParameterFilter { $Uri -like '*mobileApps?*isAssigned*' }
+        Should -Invoke Invoke-IACGraphRequest -Times 1 -Exactly -ParameterFilter { $Uri -like '*mobileApps?*isAssigned*' }
     }
 
     It 'still resolves assignments per user when the entity cache is shared (second UPN)' {

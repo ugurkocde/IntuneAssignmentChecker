@@ -4,7 +4,7 @@
 BeforeAll {
     $modulePrivate = Join-Path $PSScriptRoot '../../Module/IntuneAssignmentChecker/Private'
 
-    function Invoke-MgGraphRequest {
+    function Invoke-IACGraphRequest {
         param([string]$Uri, [string]$Method)
         $null = $Uri
         $null = $Method
@@ -20,23 +20,18 @@ Describe 'Get-TransitiveGroupMembership' {
     BeforeEach {
         $script:requestedUris = [System.Collections.Generic.List[string]]::new()
 
-        Mock Invoke-MgGraphRequest {
+        Mock Invoke-IACGraphRequest {
             $script:requestedUris.Add($Uri)
 
-            if ($Uri -eq 'https://graph.test/v1.0/groups/group-1/transitiveMemberOf/microsoft.graph.group?$select=id,displayName') {
+            if ($Uri -eq 'https://graph.test/beta/groups/group-1/transitiveMemberOf/microsoft.graph.group?$select=id,displayName') {
                 return @{
                     value = @(
                         [PSCustomObject]@{ id = 'parent-1'; displayName = 'Parent One' }
+                        [PSCustomObject]@{ id = 'parent-2'; displayName = 'Parent Two' }
                     )
-                    '@odata.nextLink' = 'https://graph.test/v1.0/groups/group-1/transitiveMemberOf/microsoft.graph.group?$skiptoken=next'
                 }
             }
-
-            return @{
-                value = @(
-                    [PSCustomObject]@{ id = 'parent-2'; displayName = 'Parent Two' }
-                )
-            }
+            throw "Unexpected URI: $Uri"
         }
     }
 
@@ -47,9 +42,8 @@ Describe 'Get-TransitiveGroupMembership' {
         $result[0].id | Should -BeExactly 'parent-1'
         $result[1].id | Should -BeExactly 'parent-2'
         $script:requestedUris | Should -Be @(
-            'https://graph.test/v1.0/groups/group-1/transitiveMemberOf/microsoft.graph.group?$select=id,displayName'
-            'https://graph.test/v1.0/groups/group-1/transitiveMemberOf/microsoft.graph.group?$skiptoken=next'
+            'https://graph.test/beta/groups/group-1/transitiveMemberOf/microsoft.graph.group?$select=id,displayName'
         )
-        Should -Invoke Invoke-MgGraphRequest -Exactly 2 -ParameterFilter { $Method -eq 'Get' }
+        Should -Invoke Invoke-IACGraphRequest -Exactly 1 -ParameterFilter { $Method -eq 'Get' }
     }
 }

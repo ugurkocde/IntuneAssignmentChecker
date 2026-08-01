@@ -27,7 +27,7 @@ function Get-IntuneAssignments {
         # For generic App Protection Policies, determine the specific policy type first
         $policyDetailsUri = "$script:GraphEndpoint/beta/deviceAppManagement/managedAppPolicies/$EntityId"
         try {
-            $policyDetailsResponse = Invoke-MgGraphRequest -Uri $policyDetailsUri -Method Get
+            $policyDetailsResponse = Invoke-IACGraphRequest -Uri $policyDetailsUri -Method Get
             $actualAssignmentsUri = Get-AppProtectionAssignmentUri -Policy $policyDetailsResponse
             if (-not $actualAssignmentsUri) {
                 Write-Warning "Could not determine specific App Protection Policy type for $EntityId from OData type '$($policyDetailsResponse.'@odata.type')'."
@@ -69,15 +69,7 @@ function Get-IntuneAssignments {
 
     $assignmentsToReturn = [System.Collections.ArrayList]::new()
     try {
-        $allAssignmentsForEntity = [System.Collections.ArrayList]::new()
-        $currentAssignmentsPageUri = $actualAssignmentsUri
-        do {
-            $pagedAssignmentResponse = Invoke-MgGraphRequest -Uri $currentAssignmentsPageUri -Method Get
-            if ($pagedAssignmentResponse -and $null -ne $pagedAssignmentResponse.value) {
-                $allAssignmentsForEntity.AddRange($pagedAssignmentResponse.value)
-            }
-            $currentAssignmentsPageUri = $pagedAssignmentResponse.'@odata.nextLink'
-        } while (![string]::IsNullOrEmpty($currentAssignmentsPageUri))
+        $allAssignmentsForEntity = @((Invoke-IACGraphRequest -Uri $actualAssignmentsUri -Method Get).value)
 
         # Ensure $allAssignmentsForEntity is not null before trying to iterate
         $assignmentList = if ($allAssignmentsForEntity) { $allAssignmentsForEntity } else { @() }

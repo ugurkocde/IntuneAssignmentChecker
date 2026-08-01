@@ -116,7 +116,7 @@ function Get-IntuneDeviceAssignment {
         if ($deviceName -match '^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$') {
             try {
                 $selectProps = "id,displayName,operatingSystem,operatingSystemVersion,managementType,deviceOwnership,trustType,isCompliant,isManaged,approximateLastSignInDateTime,manufacturer,model,enrollmentProfileName"
-                $directDevice = Invoke-MgGraphRequest -Uri "$script:GraphEndpoint/beta/devices/$($deviceName)?`$select=$selectProps" -Method Get
+                $directDevice = Invoke-IACGraphRequest -Uri "$script:GraphEndpoint/beta/devices/$($deviceName)?`$select=$selectProps" -Method Get
                 $deviceInfo = @{
                     Id              = $directDevice.id
                     DisplayName     = $directDevice.displayName

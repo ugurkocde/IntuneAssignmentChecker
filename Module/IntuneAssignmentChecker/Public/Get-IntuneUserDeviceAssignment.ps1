@@ -65,7 +65,7 @@ function Get-IntuneUserDeviceAssignment {
     if ($devName -match '^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$') {
         try {
             $selectProps = "id,displayName,operatingSystem,operatingSystemVersion"
-            $directDevice = Invoke-MgGraphRequest -Uri "$script:GraphEndpoint/beta/devices/$($devName)?`$select=$selectProps" -Method Get
+            $directDevice = Invoke-IACGraphRequest -Uri "$script:GraphEndpoint/beta/devices/$($devName)?`$select=$selectProps" -Method Get
             $deviceInfo = @{
                 Id              = $directDevice.id
                 DisplayName     = $directDevice.displayName
@@ -209,7 +209,7 @@ function Get-IntuneUserDeviceAssignment {
         foreach ($policy in $matchingIntents) {
             if (-not $processedSet.Add($policy.id)) { continue }
             try {
-                $resp = Invoke-MgGraphRequest -Uri "$script:GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
+                $resp = Invoke-IACGraphRequest -Uri "$script:GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
             }
             catch {
                 Write-Host "Error fetching assignments for intent $($policy.displayName): $($_.Exception.Message)" -ForegroundColor Red
@@ -327,7 +327,7 @@ function Get-IntuneUserDeviceAssignment {
         $assignmentsUri = Get-AppProtectionAssignmentUri -Policy $policy
         if (-not $assignmentsUri) { continue }
         try {
-            $resp = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
+            $resp = Invoke-IACGraphRequest -Uri $assignmentsUri -Method Get
             $assignmentList = foreach ($a in $resp.value) {
                 [PSCustomObject]@{
                     Reason  = switch ($a.target.'@odata.type') {
@@ -375,12 +375,8 @@ function Get-IntuneUserDeviceAssignment {
     $appUri = "$script:GraphEndpoint/beta/deviceAppManagement/mobileApps?`$filter=isAssigned eq true&`$select=id,displayName,roleScopeTagIds"
     $allApps = [System.Collections.Generic.List[object]]::new()
     try {
-        $appResponse = Invoke-MgGraphRequest -Uri $appUri -Method Get
-        if ($appResponse.value) { $allApps.AddRange([object[]]$appResponse.value) }
-        while ($appResponse.'@odata.nextLink') {
-            $appResponse = Invoke-MgGraphRequest -Uri $appResponse.'@odata.nextLink' -Method Get
-            if ($appResponse.value) { $allApps.AddRange([object[]]$appResponse.value) }
-        }
+        $pagedApps = @((Invoke-IACGraphRequest -Uri $appUri -Method Get).value)
+        if ($pagedApps.Count -gt 0) { $allApps.AddRange([object[]]$pagedApps) }
     }
     catch {
         Write-Host "Error fetching applications: $($_.Exception.Message)" -ForegroundColor Red
@@ -392,7 +388,7 @@ function Get-IntuneUserDeviceAssignment {
 
         try {
             $assignmentsUri = "$script:GraphEndpoint/beta/deviceAppManagement/mobileApps('$($app.id)')/assignments"
-            $resp = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
+            $resp = Invoke-IACGraphRequest -Uri $assignmentsUri -Method Get
 
             # Single pass: capture exclusion membership, the winning include, and the intent.
             # We need the intent from an inclusion to know which app bucket to route into,

@@ -719,7 +719,7 @@ function Export-HTMLReport {
 
         if ($assignmentsUri) {
             try {
-                $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
+                $assignmentResponse = Invoke-IACGraphRequest -Uri $assignmentsUri -Method Get
                 # Pass the raw .value to Get-HtmlAssignmentInfo as it expects an array of assignment objects
                 $assignmentInfo = Get-HtmlAssignmentInfo -Assignments $assignmentResponse.value
 
@@ -903,7 +903,7 @@ function Export-HTMLReport {
             foreach ($policy in $intentPolicies) {
                 if ($processedIds.Add($policy.id)) {
                     try {
-                        $assignmentsResponse = Invoke-MgGraphRequest -Uri "$script:GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
+                        $assignmentsResponse = Invoke-IACGraphRequest -Uri "$script:GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
                         $assignmentInfo = Get-HtmlAssignmentInfo -Assignments $assignmentsResponse.value # This expects an array
                         $policies[$esCategory.Key] += @{
                             Name           = if (-not [string]::IsNullOrWhiteSpace($policy.displayName)) { $policy.displayName } else { $policy.name }
@@ -929,12 +929,8 @@ function Export-HTMLReport {
     $appUri = "$script:GraphEndpoint/beta/deviceAppManagement/mobileApps?`$filter=isAssigned eq true&`$select=id,displayName,roleScopeTagIds"
     $allApps = [System.Collections.Generic.List[object]]::new()
     try {
-        $appResponse = Invoke-MgGraphRequest -Uri $appUri -Method Get
-        if ($appResponse.value) { $allApps.AddRange([object[]]$appResponse.value) }
-        while ($appResponse.'@odata.nextLink') {
-            $appResponse = Invoke-MgGraphRequest -Uri $appResponse.'@odata.nextLink' -Method Get
-            if ($appResponse.value) { $allApps.AddRange([object[]]$appResponse.value) }
-        }
+        $pagedApps = @((Invoke-IACGraphRequest -Uri $appUri -Method Get).value)
+        if ($pagedApps.Count -gt 0) { $allApps.AddRange([object[]]$pagedApps) }
     }
     catch {
         Write-Host "Error fetching applications: $($_.Exception.Message)" -ForegroundColor Red
@@ -945,7 +941,7 @@ function Export-HTMLReport {
         $appId = $app.id
         $assignmentsUri = "$script:GraphEndpoint/beta/deviceAppManagement/mobileApps('$appId')/assignments"
         try {
-            $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
+            $assignmentResponse = Invoke-IACGraphRequest -Uri $assignmentsUri -Method Get
         }
         catch {
             Write-Host "Error fetching assignments for app $($app.displayName): $($_.Exception.Message)" -ForegroundColor Red

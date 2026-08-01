@@ -109,8 +109,8 @@ function Test-IntuneGroupMembership {
         # Single quotes escaped for the OData filter (F9)
         $escapedSimGroupName = $simGroupInput -replace "'", "''"
         $simGroupSelect = 'id,displayName,groupTypes,mailEnabled,securityEnabled,mail'
-        $simGroupUri = "$script:GraphEndpoint/v1.0/groups?`$filter=displayName eq '$escapedSimGroupName'&`$select=$simGroupSelect"
-        $simGroupResponse = Invoke-MgGraphRequest -Uri $simGroupUri -Method Get
+        $simGroupUri = "$script:GraphEndpoint/beta/groups?`$filter=displayName eq '$escapedSimGroupName'&`$select=$simGroupSelect"
+        $simGroupResponse = Invoke-IACGraphRequest -Uri $simGroupUri -Method Get
 
         if ($simGroupResponse.value.Count -eq 0) {
             Write-Host "No group found with name: $simGroupInput" -ForegroundColor Red

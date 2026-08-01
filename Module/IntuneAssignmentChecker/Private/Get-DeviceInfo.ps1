@@ -9,7 +9,7 @@ function Get-DeviceInfo {
     $escapedName = $DeviceName -replace "'", "''"
     $deviceUri = "$script:GraphEndpoint/beta/devices?`$filter=displayName eq '$escapedName'&`$select=$selectProps"
     try {
-        $deviceResponse = Invoke-MgGraphRequest -Uri $deviceUri -Method Get
+        $deviceResponse = Invoke-IACGraphRequest -Uri $deviceUri -Method Get
     }
     catch {
         return @{

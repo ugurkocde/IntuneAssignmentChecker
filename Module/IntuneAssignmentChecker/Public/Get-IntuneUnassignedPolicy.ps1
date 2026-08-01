@@ -77,7 +77,7 @@ function Get-IntuneUnassignedPolicy {
 
         if ($assignmentsUri) {
             try {
-                $assignmentResponse = Invoke-MgGraphRequest -Uri $assignmentsUri -Method Get
+                $assignmentResponse = Invoke-IACGraphRequest -Uri $assignmentsUri -Method Get
                 if ($assignmentResponse.value.Count -eq 0) {
                     $unassignedPolicies.AppProtectionPolicies += $policy
                 }
@@ -126,7 +126,7 @@ function Get-IntuneUnassignedPolicy {
     if ($antivirusPolicies) {
         foreach ($policy in $antivirusPolicies) {
             try {
-                $assignments = Invoke-MgGraphRequest -Uri "$script:GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
+                $assignments = Invoke-IACGraphRequest -Uri "$script:GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
                 if ($assignments.value.Count -eq 0) {
                     $unassignedPolicies.AntivirusProfiles += $policy
                 }
@@ -146,7 +146,7 @@ function Get-IntuneUnassignedPolicy {
     if ($diskEncryptionPolicies) {
         foreach ($policy in $diskEncryptionPolicies) {
             try {
-                $assignments = Invoke-MgGraphRequest -Uri "$script:GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
+                $assignments = Invoke-IACGraphRequest -Uri "$script:GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
                 if ($assignments.value.Count -eq 0) {
                     $unassignedPolicies.DiskEncryptionProfiles += $policy
                 }
@@ -166,7 +166,7 @@ function Get-IntuneUnassignedPolicy {
     if ($firewallPolicies) {
         foreach ($policy in $firewallPolicies) {
             try {
-                $assignments = Invoke-MgGraphRequest -Uri "$script:GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
+                $assignments = Invoke-IACGraphRequest -Uri "$script:GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
                 if ($assignments.value.Count -eq 0) {
                     $unassignedPolicies.FirewallProfiles += $policy
                 }
@@ -186,7 +186,7 @@ function Get-IntuneUnassignedPolicy {
     if ($edrPolicies) {
         foreach ($policy in $edrPolicies) {
             try {
-                $assignments = Invoke-MgGraphRequest -Uri "$script:GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
+                $assignments = Invoke-IACGraphRequest -Uri "$script:GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
                 if ($assignments.value.Count -eq 0) {
                     $unassignedPolicies.EndpointDetectionProfiles += $policy
                 }
@@ -206,7 +206,7 @@ function Get-IntuneUnassignedPolicy {
     if ($asrPolicies) {
         foreach ($policy in $asrPolicies) {
             try {
-                $assignments = Invoke-MgGraphRequest -Uri "$script:GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
+                $assignments = Invoke-IACGraphRequest -Uri "$script:GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
                 if ($assignments.value.Count -eq 0) {
                     $unassignedPolicies.AttackSurfaceProfiles += $policy
                 }
@@ -226,7 +226,7 @@ function Get-IntuneUnassignedPolicy {
     if ($accountProtectionPolicies) {
         foreach ($policy in $accountProtectionPolicies) {
             try {
-                $assignments = Invoke-MgGraphRequest -Uri "$script:GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
+                $assignments = Invoke-IACGraphRequest -Uri "$script:GraphEndpoint/beta/deviceManagement/intents/$($policy.id)/assignments" -Method Get
                 if ($assignments.value.Count -eq 0) {
                     $unassignedPolicies.AccountProtectionProfiles += $policy
                 }
@@ -243,12 +243,8 @@ function Get-IntuneUnassignedPolicy {
     $unassignedAppUri = "$script:GraphEndpoint/beta/deviceAppManagement/mobileApps?`$filter=isAssigned eq false&`$select=id,displayName,roleScopeTagIds"
     $unassignedApps = [System.Collections.Generic.List[object]]::new()
     try {
-        $unassignedAppResponse = Invoke-MgGraphRequest -Uri $unassignedAppUri -Method Get
-        if ($unassignedAppResponse.value) { $unassignedApps.AddRange([object[]]$unassignedAppResponse.value) }
-        while ($unassignedAppResponse.'@odata.nextLink') {
-            $unassignedAppResponse = Invoke-MgGraphRequest -Uri $unassignedAppResponse.'@odata.nextLink' -Method Get
-            if ($unassignedAppResponse.value) { $unassignedApps.AddRange([object[]]$unassignedAppResponse.value) }
-        }
+        $pagedApps = @((Invoke-IACGraphRequest -Uri $unassignedAppUri -Method Get).value)
+        if ($pagedApps.Count -gt 0) { $unassignedApps.AddRange([object[]]$pagedApps) }
     }
     catch {
         Write-Host "Error fetching unassigned applications: $($_.Exception.Message)" -ForegroundColor Red

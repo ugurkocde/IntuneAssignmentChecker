@@ -27,7 +27,7 @@ BeforeAll {
     function Add-IntentTemplateFamilyInfo {
         param($IntentPolicies)
     }
-    function Invoke-MgGraphRequest {
+    function Invoke-IACGraphRequest {
         param($Uri, $Method)
         @{ value = @() }
     }
@@ -114,17 +114,17 @@ Describe 'Compare-IntuneGroupAssignment' {
             @($records | Where-Object { $GroupIds -contains $_.GroupId })
         }
 
-        Mock Invoke-MgGraphRequest {
-            if ($Uri -like "*/v1.0/groups*displayName eq*") {
+        Mock Invoke-IACGraphRequest {
+            if ($Uri -like "*/beta/groups*displayName eq*") {
                 if ($Uri -like "*O''Brien Team*") {
                     return @{ value = @(@{ id = $script:groupB; displayName = "O'Brien Team" }) }
                 }
                 return @{ value = @() }
             }
-            if ($Uri -like "*/v1.0/groups/$($script:groupA)*") {
+            if ($Uri -like "*/beta/groups/$($script:groupA)*") {
                 return @{ id = $script:groupA; displayName = 'Group A'; groupTypes = @(); mailEnabled = $false; securityEnabled = $true }
             }
-            if ($Uri -like "*/v1.0/groups/$($script:groupB)*") {
+            if ($Uri -like "*/beta/groups/$($script:groupB)*") {
                 return @{ id = $script:groupB; displayName = 'Group B'; groupTypes = @('Unified'); mailEnabled = $true; securityEnabled = $false; mail = 'groupb@contoso.com' }
             }
             if ($Uri -like '*mobileApps*isAssigned eq true*') {
@@ -182,13 +182,13 @@ Describe 'Compare-IntuneGroupAssignment' {
         It 'escapes single quotes in group name lookups' {
             Compare-IntuneGroupAssignment -CompareGroupNames "O'Brien Team, $($script:groupA)" -ExportToCSV -ExportPath $script:csvPath
 
-            Should -Invoke Invoke-MgGraphRequest -ParameterFilter { $Uri -like "*displayName eq 'O''Brien Team'*" }
+            Should -Invoke Invoke-IACGraphRequest -ParameterFilter { $Uri -like "*displayName eq 'O''Brien Team'*" }
         }
 
         It 'skips a GUID lookup response that omits the group Object ID' {
-            Mock Invoke-MgGraphRequest {
+            Mock Invoke-IACGraphRequest {
                 @{ displayName = 'Incomplete Group'; groupTypes = @('Unified'); mailEnabled = $true }
-            } -ParameterFilter { $Uri -like "*/v1.0/groups/$($script:groupA)*" }
+            } -ParameterFilter { $Uri -like "*/beta/groups/$($script:groupA)*" }
 
             Compare-IntuneGroupAssignment -CompareGroupNames "$($script:groupA), $($script:groupB)" -ExportToCSV -ExportPath $script:csvPath
 
@@ -293,7 +293,7 @@ Describe 'Compare-IntuneGroupAssignment' {
             Should -Invoke Get-IntuneEntities -Exactly 1 -ParameterFilter { $EntityType -eq 'deviceConfigurations' }
             Should -Invoke Get-IntuneEntities -Exactly 1 -ParameterFilter { $EntityType -eq 'deviceManagement/intents' }
             Should -Invoke Get-IntuneEntities -Exactly 1 -ParameterFilter { $EntityType -eq 'deviceShellScripts' }
-            Should -Invoke Invoke-MgGraphRequest -Exactly 1 -ParameterFilter { $Uri -like '*mobileApps*isAssigned eq true*' }
+            Should -Invoke Invoke-IACGraphRequest -Exactly 1 -ParameterFilter { $Uri -like '*mobileApps*isAssigned eq true*' }
         }
     }
 

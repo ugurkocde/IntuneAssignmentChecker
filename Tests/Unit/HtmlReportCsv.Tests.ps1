@@ -17,7 +17,7 @@ BeforeAll {
     function Get-IntuneAssignments { param([string]$EntityType, [string]$EntityId) @() }
     function Get-AppProtectionAssignmentUri { param($Policy) $null }
     function Add-IntentTemplateFamilyInfo { param($IntentPolicies) }
-    function Invoke-MgGraphRequest { param([string]$Uri, [string]$Method) @{ value = @() } }
+    function Invoke-IACGraphRequest { param([string]$Uri, [string]$Method) @{ value = @() } }
     function Get-GroupInfo { param([string]$GroupId) @{ DisplayName = "Group $GroupId"; Success = $true } }
     function Connect-IntuneAssignmentChecker {}
     function Get-MgContext { @{ Account = 'test@contoso.com' } }
@@ -52,7 +52,7 @@ Describe 'HTML report CSV companion' {
         }
         Mock Get-AppProtectionAssignmentUri { $null }
         Mock Add-IntentTemplateFamilyInfo {}
-        Mock Invoke-MgGraphRequest { @{ value = @() } }
+        Mock Invoke-IACGraphRequest { @{ value = @() } }
     }
 
     It 'exports the requested stable CSV schema with the same report data' {
@@ -230,7 +230,7 @@ Describe 'HTML report CSV companion' {
 
     It 'retains mobile-app type metadata for platform classification in report rows' {
         Mock Get-IntuneEntities { @() }
-        Mock Invoke-MgGraphRequest {
+        Mock Invoke-IACGraphRequest {
             if ($Uri -like '*deviceAppManagement/mobileApps?*isAssigned*') {
                 return @{ value = @([PSCustomObject]@{
                             id = 'app-ios'
@@ -257,7 +257,7 @@ Describe 'HTML report CSV companion' {
         $row | Should -HaveCount 1
         $row[0].Category | Should -BeExactly 'Required Applications'
         $row[0].Platform | Should -BeExactly 'iOS/iPadOS'
-        Should -Invoke Invoke-MgGraphRequest -Exactly 1 -ParameterFilter {
+        Should -Invoke Invoke-IACGraphRequest -Exactly 1 -ParameterFilter {
             $Uri -like '*deviceAppManagement/mobileApps?*' -and $Uri -like '*$select=id,displayName,roleScopeTagIds*'
         }
     }
