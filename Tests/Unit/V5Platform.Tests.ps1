@@ -209,12 +209,12 @@ Describe 'v5 task-oriented terminal UI' {
             }
             $partialState = New-IACTuiState -InitialView Assignments
             $partialOutput = @(Invoke-IACTuiCapturedOperation -State $partialState -ViewId Assignments -SuccessMessage 'Loaded.' -SuppressRender -Operation {
-                    Write-Error 'One workload was unavailable.'
+                    Write-Error 'One workload was unavailable.' -ErrorAction Continue
                     [PSCustomObject]@{ Title = 'Usable result'; Status = 'Available' }
                 })
             $errorState = New-IACTuiState -InitialView Settings
             $errorOutput = @(Invoke-IACTuiCapturedOperation -State $errorState -ViewId Settings -SuccessMessage 'Should not appear.' -SuppressRender -Operation {
-                    Write-Error 'The requested user was not found.'
+                    Write-Error 'The requested user was not found.' -ErrorAction Continue
                 })
             [PSCustomObject]@{
                 WarningRows = @($warningState.Rows.Settings)
