@@ -9,6 +9,8 @@ $script:CurrentTenantName = $null
 $script:CurrentUserUPN = $null
 $script:TemplateIdToFamilyCache = $null
 $script:ScopeTagLookup = $null
+$script:RequestedCapabilities = @('Full')
+$script:CapabilityStatus = @()
 $script:IntentTemplateSubtypeToFamily = @{
     'antivirus'                       = 'endpointSecurityAntivirus'
     'diskEncryption'                  = 'endpointSecurityDiskEncryption'
@@ -18,7 +20,7 @@ $script:IntentTemplateSubtypeToFamily = @{
     'accountProtection'               = 'endpointSecurityAccountProtection'
 }
 
-# Required Microsoft Graph permissions (shared by Connect-IntuneAssignmentChecker and Switch-Tenant)
+# Required Microsoft Graph permissions used by connection and tenant-switch commands.
 $script:RequiredPermissions = @(
     @{ Permission = "User.Read.All";                         Reason = "Required to read user profile information and check group memberships" }
     @{ Permission = "GroupMember.Read.All";                  Reason = "Required to read group memberships and basic group properties" }
@@ -29,7 +31,19 @@ $script:RequiredPermissions = @(
     @{ Permission = "DeviceManagementScripts.Read.All";      Reason = "Needed to read device management and health scripts" }
     @{ Permission = "CloudPC.Read.All";                      Reason = "Required to read Windows 365 Cloud PC provisioning policies and settings (optional if W365 not licensed)" }
     @{ Permission = "DeviceManagementRBAC.Read.All";         Reason = "Required to read role scope tags for scope tag display and filtering" }
+    @{ Permission = "DeviceManagementServiceConfig.Read.All"; Reason = "Required to read Autopilot deployment profiles and enrollment status page configurations" }
 )
+
+$script:CapabilityProfiles = [ordered]@{
+    Core         = @('User.Read.All', 'GroupMember.Read.All', 'DeviceManagementConfiguration.Read.All', 'DeviceManagementServiceConfig.Read.All')
+    Applications = @('DeviceManagementApps.Read.All')
+    Devices      = @('DeviceManagementManagedDevices.Read.All', 'Device.Read.All')
+    Scripts      = @('DeviceManagementScripts.Read.All')
+    CloudPC      = @('CloudPC.Read.All')
+    ScopeTags    = @('DeviceManagementRBAC.Read.All')
+    Audit        = @('DeviceManagementApps.Read.All')
+    Full         = @()
+}
 
 # Dot-source all private functions
 $Private = @(Get-ChildItem -Path "$PSScriptRoot/Private/*.ps1" -ErrorAction SilentlyContinue)

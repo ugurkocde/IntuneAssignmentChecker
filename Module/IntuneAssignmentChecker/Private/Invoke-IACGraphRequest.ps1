@@ -17,6 +17,9 @@ function Invoke-IACGraphRequest {
         [switch]$AllPages,
 
         [Parameter()]
+        [switch]$FirstPageOnly,
+
+        [Parameter()]
         [ValidateRange(0, 10)]
         [int]$MaxRetryCount = 3,
 
@@ -27,6 +30,9 @@ function Invoke-IACGraphRequest {
 
     if ([string]::IsNullOrWhiteSpace($script:GraphEndpoint)) {
         throw 'Microsoft Graph is not connected. Run Connect-IntuneAssignmentChecker first.'
+    }
+    if ($AllPages -and $FirstPageOnly) {
+        throw '-AllPages and -FirstPageOnly cannot be used together.'
     }
 
     $graphBase = $script:GraphEndpoint.TrimEnd('/')
@@ -198,6 +204,7 @@ function Invoke-IACGraphRequest {
         if ($null -eq $firstResponse) { $firstResponse = $response }
 
         $nextLink = if ($response) { $response.'@odata.nextLink' } else { $null }
+        if ($FirstPageOnly) { return $response }
         if (-not $AllPages -and $pageCount -eq 1 -and [string]::IsNullOrWhiteSpace($nextLink)) {
             return $response
         }

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package
+      Name="Intune Assignment Checker"
+      Manufacturer="Ugur Koc"
+      Version="$(ProductVersion)"
+      ProductCode="$(ProductCode)"
+      UpgradeCode="{B9D9989C-00DE-474C-B085-3E8848CBE173}"
+      Language="1033"
+      Scope="perMachine">
+    <SummaryInformation Description="PowerShell module and terminal UI for Intune assignment governance" />
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Intune Assignment Checker is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="PowerShellFolder" Name="PowerShell">
+        <Directory Id="PowerShellModulesFolder" Name="Modules" />
+      </Directory>
+    </StandardDirectory>
+
+    <Feature Id="Complete" Title="Intune Assignment Checker" Level="1">
+      <ComponentGroupRef Id="PowerShellModuleFiles" />
+    </Feature>
+  </Package>
+
+  <Fragment>
+    <ComponentGroup Id="PowerShellModuleFiles" Directory="PowerShellModulesFolder">
+      <Files Include="!(bindpath.ModuleSource)\**" />
+    </ComponentGroup>
+  </Fragment>
+</Wix>

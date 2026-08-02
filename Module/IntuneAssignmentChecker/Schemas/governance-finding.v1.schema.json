@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/ugurkocde/IntuneAssignmentChecker/main/Module/IntuneAssignmentChecker/Schemas/governance-finding.v1.schema.json",
+  "title": "IntuneAssignmentChecker Governance Finding v1",
+  "type": "object",
+  "required": ["SchemaName", "SchemaVersion", "FindingId", "RuleId", "Severity", "Title", "Message", "Remediation", "Suppressed", "DetectedAtUtc"],
+  "properties": {
+    "SchemaName": { "const": "IntuneAssignmentChecker.GovernanceFinding" },
+    "SchemaVersion": { "const": 1 },
+    "FindingId": { "type": "string" },
+    "RuleId": { "type": "string", "pattern": "^IAC\\d{3}$" },
+    "Severity": { "enum": ["Low", "Medium", "High", "Critical"] },
+    "Title": { "type": "string" },
+    "Message": { "type": "string" },
+    "TenantId": { "type": ["string", "null"] },
+    "TenantName": { "type": ["string", "null"] },
+    "CategoryId": { "type": ["string", "null"] },
+    "PolicyId": { "type": ["string", "null"] },
+    "PolicyName": { "type": ["string", "null"] },
+    "AssignmentId": { "type": ["string", "null"] },
+    "TargetId": { "type": ["string", "null"] },
+    "TargetName": { "type": ["string", "null"] },
+    "Evidence": {},
+    "Remediation": { "type": "string" },
+    "Suppressed": { "type": "boolean" },
+    "Waiver": {},
+    "DetectedAtUtc": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,142 @@
+name: Windows MSI and WinGet
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'Module/**'
+      - 'packaging/**'
+      - '.github/workflows/windows-package.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'Module/**'
+      - 'packaging/**'
+      - '.github/workflows/windows-package.yml'
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  build:
+    name: Build and verify MSI
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      SIGNING_CERTIFICATE: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE }}
+      SIGNING_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PASSWORD }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install WiX
+        shell: pwsh
+        run: |
+          dotnet tool install --global wix --version 6.0.2
+          wix --version
+
+      - name: Build MSI
+        id: package
+        shell: pwsh
+        run: |
+          $manifest = Import-PowerShellDataFile ./Module/IntuneAssignmentChecker/IntuneAssignmentChecker.psd1
+          $version = "$($manifest.ModuleVersion)"
+          if ('${{ github.event_name }}' -eq 'release') {
+              $tagVersion = '${{ github.event.release.tag_name }}' -replace '^v', ''
+              if ($tagVersion -cne $version) { throw "Release tag version '$tagVersion' does not match '$version'." }
+          }
+          $package = ./packaging/Build-WindowsInstaller.ps1 -Version $version -OutputDirectory ./artifacts
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "installer=$($package.Path)" >> $env:GITHUB_OUTPUT
+          "product_code=$($package.ProductCode)" >> $env:GITHUB_OUTPUT
+          $package | Format-List
+
+      - name: Require release signing credentials
+        if: github.event_name == 'release'
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:SIGNING_CERTIFICATE) -or [string]::IsNullOrWhiteSpace($env:SIGNING_PASSWORD)) {
+              throw 'WINDOWS_SIGNING_CERTIFICATE and WINDOWS_SIGNING_PASSWORD secrets are required for a release MSI.'
+          }
+
+      - name: Sign release MSI
+        if: github.event_name == 'release'
+        shell: pwsh
+        run: |
+          $certificatePath = Join-Path $env:RUNNER_TEMP 'intune-assignment-checker-signing.pfx'
+          [IO.File]::WriteAllBytes($certificatePath, [Convert]::FromBase64String($env:SIGNING_CERTIFICATE))
+          & signtool sign /fd SHA256 /td SHA256 /tr http://timestamp.digicert.com /f $certificatePath /p $env:SIGNING_PASSWORD '${{ steps.package.outputs.installer }}'
+          if ($LASTEXITCODE -ne 0) { throw 'Authenticode signing failed.' }
+          & signtool verify /pa /v '${{ steps.package.outputs.installer }}'
+          if ($LASTEXITCODE -ne 0) { throw 'Authenticode signature verification failed.' }
+          Remove-Item -LiteralPath $certificatePath -Force
+
+      - name: Verify installation and removal
+        shell: pwsh
+        run: |
+          $msi = '${{ steps.package.outputs.installer }}'
+          $install = Start-Process msiexec.exe -ArgumentList @('/i', $msi, '/qn', '/norestart') -Wait -PassThru
+          if ($install.ExitCode -ne 0) { throw "MSI installation failed with exit code $($install.ExitCode)." }
+          Import-Module IntuneAssignmentChecker -RequiredVersion '${{ steps.package.outputs.version }}' -Force
+          $module = Get-Module IntuneAssignmentChecker
+          if ($module.Version.ToString() -cne '${{ steps.package.outputs.version }}') { throw 'Installed module version mismatch.' }
+          $catalog = @(Get-IntuneAssignmentOperation)
+          $expected = @($module.ExportedFunctions.Keys | Where-Object { $_ -notin @('Get-IntuneAssignmentOperation', 'Invoke-IntuneAssignmentChecker', 'Start-IntuneAssignmentCheckerTui') })
+          if (@(Compare-Object $expected $catalog.Name).Count -gt 0) { throw 'TUI operation catalog is not in parity with installed exports.' }
+          Remove-Module IntuneAssignmentChecker
+          $remove = Start-Process msiexec.exe -ArgumentList @('/x', '${{ steps.package.outputs.product_code }}', '/qn', '/norestart') -Wait -PassThru
+          if ($remove.ExitCode -ne 0) { throw "MSI removal failed with exit code $($remove.ExitCode)." }
+
+      - name: Generate WinGet manifests
+        shell: pwsh
+        run: |
+          $version = '${{ steps.package.outputs.version }}'
+          $url = "https://github.com/${{ github.repository }}/releases/download/v$version/IntuneAssignmentChecker-$version-x64.msi"
+          ./packaging/New-WinGetManifest.ps1 -InstallerPath '${{ steps.package.outputs.installer }}' `
+              -InstallerUrl $url -Version $version -ProductCode '${{ steps.package.outputs.product_code }}' `
+              -OutputDirectory ./artifacts/winget
+
+      - name: Generate SBOM
+        uses: anchore/sbom-action@f8bdd1d8ac5e901a77a92f111440fdb1b593736b # v0.20.6
+        with:
+          path: ./artifacts/windows-package-staging
+          format: spdx-json
+          output-file: ./artifacts/IntuneAssignmentChecker-${{ steps.package.outputs.version }}.spdx.json
+          upload-artifact: false
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0b # v7.0.1
+        with:
+          name: intune-assignment-checker-windows-${{ steps.package.outputs.version }}
+          path: |
+            artifacts/*.msi
+            artifacts/*.spdx.json
+            artifacts/winget/*.yaml
+          if-no-files-found: error
+
+      - name: Attest release installer
+        if: github.event_name == 'release'
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3.0.0
+        with:
+          subject-path: '${{ steps.package.outputs.installer }}'
+
+      - name: Upload release assets
+        if: github.event_name == 'release'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $assets = @(
+              (Get-Item -LiteralPath '${{ steps.package.outputs.installer }}').FullName
+              (Get-Item -LiteralPath "./artifacts/IntuneAssignmentChecker-${{ steps.package.outputs.version }}.spdx.json").FullName
+              (Get-ChildItem -LiteralPath ./artifacts/winget -File -Filter *.yaml).FullName
+          )
+          if ($assets.Count -lt 5) { throw 'Expected the MSI, SBOM, and three WinGet manifest files.' }
+          gh release upload '${{ github.event.release.tag_name }}' @assets --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'GitHub release asset upload failed.' }

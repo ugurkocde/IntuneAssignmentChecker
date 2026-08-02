@@ -42,6 +42,7 @@ function Select-IACAssignmentRecord {
         if ($copy.TargetType -eq 'Group' -and $copy.TargetId -and -not $copy.TargetName) {
             $copy.TargetName = (Get-GroupInfo -GroupId $copy.TargetId).DisplayName
         }
+        if ($copy.PSObject.Properties['RecordId']) { $copy.RecordId = Get-IACAssignmentRecordId -Record $copy }
         $copy.PSObject.TypeNames.Insert(0, 'IntuneAssignmentChecker.AssignmentRecord')
         $copy
     }

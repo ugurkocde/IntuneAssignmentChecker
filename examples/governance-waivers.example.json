@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "waivers": [
+    {
+      "RuleId": "IAC001",
+      "PolicyId": "00000000-0000-0000-0000-000000000000",
+      "TargetId": null,
+      "Owner": "endpoint-governance@contoso.com",
+      "Justification": "Approved tenant-wide enrollment policy.",
+      "Ticket": "CHG-000000",
+      "ExpiresAtUtc": "2027-01-01T00:00:00Z"
+    }
+  ]
+}

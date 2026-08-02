@@ -16,7 +16,12 @@ function Get-IntuneEntities {
         # Optional beta workloads are not available in every tenant. Callers can
         # suppress the expected warning without changing the empty-result contract.
         [Parameter(Mandatory = $false)]
-        [switch]$Quiet
+        [switch]$Quiet,
+
+        # Preserve legacy empty-result behavior by default, while coverage-aware
+        # callers can require a terminating error for an unavailable workload.
+        [Parameter(Mandatory = $false)]
+        [switch]$ThrowOnError
     )
 
     # Handle special cases for app management and specific deviceManagement endpoints
@@ -41,6 +46,7 @@ function Get-IntuneEntities {
         if ($pagedEntities.Count -gt 0) { $entities.AddRange([object[]]$pagedEntities) }
     }
     catch {
+        if ($ThrowOnError) { throw }
         $errorMessage = $_.Exception.Message
         $statusCode = if ($_.Exception.Data.Contains('StatusCode')) { $_.Exception.Data['StatusCode'] } else { $null }
         if ($statusCode -eq 403 -or $errorMessage -match "403|Forbidden|Authorization_RequestDenied") {

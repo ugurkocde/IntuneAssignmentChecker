@@ -35,17 +35,33 @@
 
 > **Important**: All commands must be run in a PowerShell 7 session. The module will not work in PowerShell 5.1 or earlier versions.
 
-### Option 1: Install from PowerShell Gallery (Recommended)
+### Option 1: Install with WinGet on Windows
+
+```powershell
+winget install --id UgurKoc.IntuneAssignmentChecker --exact
+
+# Open PowerShell 7, then launch the full terminal UI
+pwsh
+Start-IntuneAssignmentCheckerTui
+```
+
+The WinGet package is an MSI that installs the PowerShell module and its Graph
+authentication dependency. It does not install or generate an executable version
+of IntuneAssignmentChecker.
+
+### Option 2: Install from PowerShell Gallery
 
 ```powershell
 # Install from PowerShell Gallery
 Install-Module IntuneAssignmentChecker -Scope CurrentUser
 
-# Launch the interactive menu
-IntuneAssignmentChecker
+# Launch the full-parity terminal UI
+Start-IntuneAssignmentCheckerTui
 ```
 
-The `IntuneAssignmentChecker` alias opens the menu-driven interface. Each feature is also available as a standalone cmdlet (see [Usage](#-usage)).
+The legacy `IntuneAssignmentChecker` alias remains available. The v5 terminal UI
+discovers the module's exported commands dynamically, so every module operation is
+also available through `Start-IntuneAssignmentCheckerTui` without a separate UI codebase.
 
 If you encounter any issues during installation, try reinstalling:
 
@@ -59,7 +75,7 @@ To update to the latest version:
 Update-Module IntuneAssignmentChecker
 ```
 
-### Option 2: Manual Installation (from a local clone)
+### Option 3: Manual Installation (from a local clone)
 
 ```powershell
 # Install required Microsoft Graph SDK
@@ -68,14 +84,25 @@ Install-Module Microsoft.Graph.Authentication -Scope CurrentUser
 # Import the module from your clone
 Import-Module ./Module/IntuneAssignmentChecker -Force
 
-# Launch the interactive menu
-IntuneAssignmentChecker
+# Launch the terminal UI
+Start-IntuneAssignmentCheckerTui
 ```
 
 > **Migrating from v3.x?** v3.x shipped as a single script installed via `Install-Script`. v4.x is a PowerShell module installed via `Install-Module`. If you previously used `Install-Script IntuneAssignmentChecker`, uninstall it first: `Uninstall-Script IntuneAssignmentChecker`.
 
 ## ✨ Features
 
+- 🖥️ Full-parity, dependency-free terminal UI generated from the module's real command metadata
+- 🛡️ Policy-as-code assignment governance with severity, evidence, remediation, waivers, and automation exit behavior
+- 💥 Read-only pre-change simulation for target, filter, mode, and app-intent changes
+- 🔭 Capture-and-compare drift monitoring with approved baselines, risk classification, audit attribution, JSON Lines, and webhooks
+- 🏢 Multi-tenant fleet scans with tenant isolation, shared governance rules, and continue-on-error behavior
+- 🔑 Capability-based least-privilege authentication (`Core`, `Applications`, `Devices`, `Scripts`, `CloudPC`, `ScopeTags`, `Audit`, or `Full`)
+- 🚚 Assignment delivery-health correlation with explicit per-workload partial coverage
+- 👮 Intune RBAC and scope-boundary analysis
+- 🧪 Tenant-wide assignment-filter governance
+- ⚙️ Resumable, budgeted high-scale scans with durable checkpoints, request caching, diagnostics, and a declarative workload registry
+- 📐 Versioned JSON Schemas and deterministic v2 assignment records with v1 migration
 - 🔍 Check assignments for users, groups, and devices
 - 📱 View all 'All User' and 'All Device' assignments
 - 🎯 See Intune assignment filters (name and Include/Exclude type) inline on every assignment, in the console, CSV exports, and HTML reports
@@ -130,8 +157,9 @@ Your Entra ID application registration needs these permissions:
 | DeviceManagementScripts.Read.All | Application | Read device management and health scripts |
 | CloudPC.Read.All | Application | Read Windows 365 Cloud PC provisioning policies and settings |
 | DeviceManagementRBAC.Read.All | Application | Read role scope tags for scope tag display and filtering |
+| DeviceManagementServiceConfig.Read.All | Application | Read Autopilot deployment profiles and enrollment status page configurations |
 
-For interactive authentication, IntuneAssignmentChecker automatically requests the delegated versions of these permissions during sign-in. Administrator consent is still required.
+For interactive authentication, IntuneAssignmentChecker automatically requests the delegated versions of these permissions during sign-in. Administrator consent is still required. The `Core` capability includes `DeviceManagementServiceConfig.Read.All` because Autopilot and enrollment status page profiles are part of the standard assignment scan.
 
 For certificate, client secret, managed identity, or pre-fetched token authentication, configure the listed application permissions on the app registration and grant administrator consent. App-only authentication cannot add or consent permissions automatically.
 
@@ -141,7 +169,9 @@ For certificate, client secret, managed identity, or pre-fetched token authentic
 
 > **Hidden memberships**: Reading groups with hidden membership requires the additional `Member.Read.Hidden` application permission. IntuneAssignmentChecker does not request this permission by default.
 
-> **Note**: The automated setup script ([`Register-IntuneAssignmentCheckerApp.ps1`](./Register-IntuneAssignmentCheckerApp.ps1)) additionally grants `DeviceManagementServiceConfig.Read.All`, which covers Intune service configuration such as enrollment settings. It is not validated by `Connect-IntuneAssignmentChecker`, but granting it avoids gaps when reading enrollment-related configurations.
+The automated setup script accepts the same capability profiles as
+`Connect-IntuneAssignmentChecker`, so it only registers the selected application
+permissions. For example: `./Register-IntuneAssignmentCheckerApp.ps1 -Capability Core,Applications,Audit`.
 
 ### Microsoft Graph API behavior
 
@@ -332,8 +362,12 @@ Entra ID → App registrations → Your App → API permissions → "Grant admin
 
 The module can be used in two ways:
 
-1. **Interactive Mode**: Menu-driven interface for manual exploration (`IntuneAssignmentChecker`)
+1. **Terminal UI**: Full exported-command parity (`Start-IntuneAssignmentCheckerTui`)
 2. **Cmdlet Mode**: Individual cmdlets for automation and scripting
+
+The TUI is metadata-driven: it reads the same parameter sets, validation choices,
+and help used by direct PowerShell calls. `Get-IntuneAssignmentOperation` exposes
+that catalog for testing and integrations.
 
 ### 🖥️ Cmdlet Reference
 
@@ -413,6 +447,28 @@ Export-IntuneAssignmentSnapshot -Path 'C:\IntuneSnapshots\assignments.json' -For
 Compare-IntuneAssignmentSnapshot `
     -ReferencePath 'C:\IntuneSnapshots\baseline.json' `
     -DifferencePath 'C:\IntuneSnapshots\latest.json'
+
+# Evaluate the built-in governance pack (or provide -RulePath/-WaiverPath)
+Test-IntuneAssignmentGovernance -FailOnSeverity High -SetExitCode
+
+# Prove the blast radius of a proposed change without writing to Intune
+Get-Content ./records.json | ConvertFrom-Json |
+    Test-IntuneAssignmentChange -ChangeType AddAssignment -PolicyId '<policy-id>' `
+        -TargetType AllDevices -Intent required
+
+# Capture current state, classify drift, and correlate matching Intune audit events
+Get-IntuneAssignmentDrift -BaselinePath ./baseline.json -IncludeAuditAttribution `
+    -OutputPath ./drift.jsonl -OutputFormat JsonLines
+
+# Run the workload registry with a time budget and resumable checkpoint
+Invoke-IntuneAssignmentScan -ScanBudgetSeconds 900 -CheckpointPath ./scan.json -KeepCheckpoint
+
+# Correlate targeting with workload delivery status and transparent coverage records
+Get-IntuneAssignmentHealth -Workload DeviceConfiguration,Compliance,Applications
+
+# Audit RBAC boundaries and assignment-filter hygiene
+Get-IntuneAssignmentAccess
+Test-IntuneAssignmentFilterSet
 ```
 
 `Get-IntuneUserAssignment`, `Get-IntuneGroupAssignment`,
@@ -421,7 +477,7 @@ Compare-IntuneAssignmentSnapshot `
 `Get-IntuneUnassignedPolicy`, `Get-IntuneEffectiveAssignment`, and
 `Search-IntunePolicy` support `-PassThru`.
 Using it also suppresses the interactive CSV-export prompt. Each object has the type name
-`IntuneAssignmentChecker.AssignmentRecord` and schema version `1`. The stable
+`IntuneAssignmentChecker.AssignmentRecord` and schema version `2`. The stable
 contract includes tenant and subject metadata, policy/category/platform, scope
 tags, assignment target and include/exclude mode, application intent, assignment
 filter metadata, the display reason, and source command. Console messages remain
@@ -459,7 +515,8 @@ assignments. CSV rows also expose the final `DecisionCode`; inspect the full JSO
 `ReasonChain` for every target, filter, and precedence decision.
 
 Assignment snapshots use the `IntuneAssignmentChecker.AssignmentSnapshot` schema
-version `1`. They contain the UTC capture time, module version, tenant identity,
+version `2`. Version 1 records and snapshots are migrated in memory by
+`ConvertTo-IntuneAssignmentRecord` and the snapshot reader. Snapshots contain the UTC capture time, module version, tenant identity,
 per-category coverage and errors, and canonical assignment records sorted by a
 stable identity key. Only the documented canonical fields are serialized; arbitrary
 properties such as access tokens or client secrets are discarded. Apps are covered
@@ -536,7 +593,20 @@ Available cmdlets:
 | `Search-IntunePolicy`              | Reverse lookup: find all assignment targets for a policy name         |
 | `Search-IntuneSetting`             | Search configured settings across all policies                        |
 | `Update-IntuneSettingDefinition`   | Refresh the local Settings Catalog definition cache                   |
-| `Invoke-IntuneAssignmentChecker`   | Launch the interactive menu (aliased as `IntuneAssignmentChecker`)    |
+| `Start-IntuneAssignmentCheckerTui` | Launch the metadata-driven terminal UI with parity across module commands |
+| `Switch-IntuneAssignmentCheckerTenant` | Clear tenant-scoped state and connect the TUI or shell to another tenant |
+| `Get-IntuneAssignmentOperation`    | Return the operation and parameter catalog used by the TUI            |
+| `Invoke-IntuneAssignmentScan`      | Run a budgeted, checkpointed assignment scan with coverage diagnostics |
+| `Test-IntuneAssignmentGovernance`  | Evaluate assignment policy-as-code rules and waivers                  |
+| `Test-IntuneAssignmentChange`      | Simulate a proposed assignment change without Graph writes           |
+| `Get-IntuneAssignmentDrift`        | Capture, compare, classify, and optionally attribute assignment drift |
+| `Invoke-IntuneAssignmentFleetScan` | Apply scans and governance across isolated tenant configurations       |
+| `Get-IntuneAssignmentHealth`       | Correlate targeting with reported delivery health and coverage        |
+| `Get-IntuneAssignmentAccess`       | Explain Intune RBAC role, scope, and policy boundaries                |
+| `Test-IntuneAssignmentFilterSet`   | Audit unused, orphaned, duplicate, invalid, and ineffective filters   |
+| `Test-IntuneAssignmentCheckerEnvironment` | Validate authentication, capabilities, beta workloads, paging, and output paths |
+| `ConvertTo-IntuneAssignmentRecord` | Migrate v1 records into the canonical v2 schema                       |
+| `Invoke-IntuneAssignmentChecker`   | Launch the terminal UI (aliased as `IntuneAssignmentChecker`)         |
 
 Common parameters on assignment cmdlets:
 
@@ -558,114 +628,26 @@ Common parameters on `Connect-IntuneAssignmentChecker`:
 | `-ClientSecretCredential`| PSCredential with the App ID as username and the client secret as password (preferred over `-ClientSecret`) |
 | `-AccessToken`           | Pre-fetched Microsoft Graph access token (SecureString), for managed identities or token reuse |
 | `-Environment`           | Environment (Global, USGov, USGovDoD) - defaults to Global |
+| `-Capability`            | Least-privilege capability profiles to request; defaults to `Full` |
+| `-SkipPermissionPrompt`  | Continue non-interactively while reporting unavailable capabilities |
+| `-PassThru`              | Return structured connection and capability status                   |
 
-### 📋 Interactive Menu Options
+### 📋 Terminal UI controls
 
-Running `IntuneAssignmentChecker` opens a menu-driven interface with the following options:
+Run `Start-IntuneAssignmentCheckerTui` (or the `IntuneAssignmentChecker` alias
+after connecting). The UI groups every exported operation by purpose and shows its
+actual PowerShell help, capability profile, parameter sets, mandatory parameters,
+switches, and validation choices.
 
-### 🎯 Assignment Checks
+- Use Up/Down or J/K to navigate, Page Up/Page Down to jump, and Enter to run an operation.
+- Press `/` to filter by command, category, synopsis, or capability.
+- Press `C` to disconnect and open the tenant-switch connection command, `?` for help, or `Q` to quit.
+- Enter comma-separated array values or `@path-to-json` for structured arrays.
+- Credentials and secure strings use PowerShell's protected input prompts.
 
-1. **Check User(s) Assignments**
-
-   - View all policies and apps assigned to specific users
-   - Supports checking multiple users (comma-separated)
-   - Shows direct and group-based assignments
-
-2. **Check Group(s) Assignments**
-
-   - View all policies and apps assigned to specific groups
-   - Supports checking multiple groups
-   - Shows assignment types (Include/Exclude)
-   - Recognizes Microsoft 365, security, mail-enabled security, and distribution groups
-   - Shows group type, assigned/dynamic membership, and mail address in the console and CSV export
-   - Covers Intune policy and app assignments only; Exchange, Teams, SharePoint, and other Microsoft 365 service policies/content are outside this module's scope
-
-3. **Check Device(s) Assignments**
-   - View all policies and apps assigned to specific devices
-   - Supports checking multiple devices
-   - Shows inherited assignments from device groups
-
-### 📋 Policy Overview
-
-4. **Show All Policies and Their Assignments**
-
-   - Comprehensive view of all Intune policies
-   - Grouped by policy type and platform
-   - Includes assignment details
-
-5. **Show All 'All Users' Assignments**
-
-   - Lists policies assigned to all users
-   - Includes apps and configurations
-   - Helps identify broad-scope policies
-
-6. **Show All 'All Devices' Assignments**
-   - Lists policies assigned to all devices
-   - Shows platform-specific assignments
-   - Identifies universal device policies
-
-### ⚙️ Advanced Options
-
-7. **Generate HTML Report**
-
-   - Creates interactive HTML report
-   - Includes charts and graphs
-   - Filterable tables with search functionality
-   - Dark/Light mode toggle
-   - Export capabilities to Excel/CSV
-
-8. **Show Policies Without Assignments**
-
-   - Identifies unassigned policies
-   - Grouped by policy type
-   - Helps clean up unused policies
-
-9. **Check for Empty Groups in Assignments**
-   - Finds assignments to empty groups
-   - Helps identify ineffective policies
-   - Supports CSV export of findings
-
-10. **Compare Assignments Between Groups**
-
-    - Compare policy and app assignments between two or more groups
-    - Highlights differences and overlaps
-    - Useful for auditing group consistency
-
-11. **Show All Failed Assignments**
-
-    - Displays all failed policy deployment assignments
-    - Helps identify configuration issues
-    - Supports CSV export of findings
-
-12. **Simulate Group Membership Impact (User and/or Device)**
-
-    - Preview what policies and apps a user and/or device would receive if added to a group
-    - Shows deltas vs. the current assignments
-    - Useful for validating planned group changes before applying them
-
-13. **Simulate Removing from Group (User and/or Device)**
-
-    - Preview what policies and apps a user and/or device would lose if removed from a group
-    - Helps evaluate the impact of offboarding or group cleanup
-
-14. **Search Policy Assignments**
-
-    - Reverse lookup: search by policy name and see every assignment target
-    - Works across Configuration Profiles, Compliance, Apps, and Endpoint Security
-
-15. **Search for Specific Settings**
-
-    - Search 17,000+ setting definitions across Settings Catalog and Endpoint Security policies
-    - Shows which policies configure a given setting and the configured value
-    - Supports abbreviation expansion and fuzzy matching
-
-### 🛠️ System Options
-
-- **[T] Switch Tenant**: Disconnect and connect to a different tenant without restarting
-- **[0] Exit**: Safely disconnect and close
-- **[98] Support the Project / [99] Report a Bug**: Opens the matching GitHub page
-
-All operations support CSV export for detailed analysis and reporting.
+Because this list is generated from exported command metadata, adding a public
+module command automatically adds it to the TUI and to the parity test. There is
+no second feature implementation to maintain.
 
 ## 🏃‍♂️ Example Runbook
 

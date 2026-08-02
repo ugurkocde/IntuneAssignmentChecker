@@ -1,6 +1,6 @@
 @{
     RootModule        = 'IntuneAssignmentChecker.psm1'
-    ModuleVersion     = '4.4.0'
+    ModuleVersion     = '5.0.0'
     GUID              = 'c6e25ec6-5787-45ef-95af-8abeb8a17daf'
     Author            = 'Ugur Koc'
     CompanyName       = 'Community'
@@ -11,6 +11,7 @@
     FunctionsToExport = @(
         'Invoke-IntuneAssignmentChecker'
         'Connect-IntuneAssignmentChecker'
+        'Switch-IntuneAssignmentCheckerTenant'
         'Get-IntuneUserAssignment'
         'Get-IntuneGroupAssignment'
         'Get-IntuneDeviceAssignment'
@@ -32,6 +33,18 @@
         'Search-IntunePolicy'
         'Search-IntuneSetting'
         'Update-IntuneSettingDefinition'
+        'Get-IntuneAssignmentOperation'
+        'Start-IntuneAssignmentCheckerTui'
+        'Test-IntuneAssignmentCheckerEnvironment'
+        'Test-IntuneAssignmentGovernance'
+        'Test-IntuneAssignmentChange'
+        'Get-IntuneAssignmentDrift'
+        'Invoke-IntuneAssignmentFleetScan'
+        'Test-IntuneAssignmentFilterSet'
+        'Get-IntuneAssignmentAccess'
+        'Get-IntuneAssignmentHealth'
+        'ConvertTo-IntuneAssignmentRecord'
+        'Invoke-IntuneAssignmentScan'
     )
     CmdletsToExport   = @()
     VariablesToExport  = @()
@@ -39,6 +52,12 @@
     FormatsToProcess   = @('IntuneAssignmentChecker.Format.ps1xml')
     FileList           = @(
         'Data/SettingDefinitions.json'
+        'Data/GovernanceRules.json'
+        'Schemas/assignment-record.v2.schema.json'
+        'Schemas/assignment-snapshot.v2.schema.json'
+        'Schemas/governance-finding.v1.schema.json'
+        'Schemas/drift-event.v1.schema.json'
+        'Schemas/README.md'
         'html-export.ps1'
     )
     PrivateData = @{
@@ -48,6 +67,11 @@
             ProjectUri   = 'https://github.com/ugurkocde/IntuneAssignmentChecker'
             IconUri      = ''
             ReleaseNotes = @'
+Version 5.0.0:
+- Add a PowerShell-native terminal UI whose dynamic operation catalog stays in parity with exported module commands.
+- Add assignment governance, change simulation, drift attribution, fleet orchestration, delivery health, RBAC analysis, filter-set governance, capability-based authentication, and environment diagnostics.
+- Add schema-governed structured output, MSI packaging, and WinGet release automation without converting the module to an executable.
+
 Version 4.4.0:
 - Centralize every Microsoft Graph call behind a beta-only transport with automatic paging, bounded retry/backoff, nextLink validation, and structured error metadata (issue #136).
 - Add schema-versioned IntuneAssignmentChecker.AssignmentRecord objects and non-interactive -PassThru output to the primary assignment and policy-search cmdlets (issue #137).

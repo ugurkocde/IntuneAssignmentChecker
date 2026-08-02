@@ -27,14 +27,18 @@ BeforeAll {
 }
 
 Describe 'IntuneAssignmentChecker.AssignmentRecord' {
-    It 'pins schema version 1, property order, and the PowerShell type name' {
+    It 'pins schema version 2, property order, and the PowerShell type name' {
         $record = New-IACAssignmentRecord -CategoryId Configuration -Category 'Configuration Policy' -PolicyId policy-1 -PolicyName Baseline -AssignmentMode Include -TargetType AllDevices -TargetName 'All Devices'
 
         $record.PSObject.TypeNames[0] | Should -BeExactly 'IntuneAssignmentChecker.AssignmentRecord'
-        $record.SchemaVersion | Should -Be 1
+        $record.SchemaName | Should -BeExactly 'IntuneAssignmentChecker.AssignmentRecord'
+        $record.SchemaVersion | Should -Be 2
+        $record.RecordId | Should -Match '^[a-f0-9]{64}$'
+        $record.GraphApiVersion | Should -BeExactly beta
         $record.TenantId | Should -BeExactly 'tenant-1'
         @($record.PSObject.Properties.Name) | Should -Be @(
-            'SchemaVersion', 'TenantId', 'TenantName', 'SubjectType', 'SubjectId', 'SubjectName',
+            'SchemaName', 'SchemaVersion', 'RecordId', 'GraphApiVersion',
+            'TenantId', 'TenantName', 'SubjectType', 'SubjectId', 'SubjectName',
             'CategoryId', 'Category', 'PolicyId', 'PolicyName', 'Platform', 'ScopeTagIds', 'ScopeTags',
             'AssignmentId', 'AssignmentMode', 'TargetType', 'TargetId', 'TargetName', 'Intent',
             'FilterId', 'FilterName', 'FilterMode', 'FilterRule', 'FilterPlatform',

@@ -67,4 +67,11 @@ Describe 'IntuneAssignmentChecker release package' {
         (Get-Command IntuneAssignmentChecker -CommandType Alias).Definition |
             Should -BeExactly Invoke-IntuneAssignmentChecker
     }
+
+    It 'keeps the Windows distribution PowerShell-native' {
+        Test-Path -LiteralPath (Join-Path $repoRoot 'packaging/IntuneAssignmentChecker.wxs') -PathType Leaf | Should -BeTrue
+        Test-Path -LiteralPath (Join-Path $repoRoot 'packaging/Build-WindowsInstaller.ps1') -PathType Leaf | Should -BeTrue
+        @(Get-ChildItem $repoRoot -Recurse -File -Include '*.csproj', '*.cs', '*.exe').Count | Should -Be 0
+        (Get-Content (Join-Path $repoRoot 'packaging/README.md') -Raw) | Should -Match 'does not compile or wrap'
+    }
 }

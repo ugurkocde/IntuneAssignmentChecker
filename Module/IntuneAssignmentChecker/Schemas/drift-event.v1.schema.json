@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/ugurkocde/IntuneAssignmentChecker/main/Module/IntuneAssignmentChecker/Schemas/drift-event.v1.schema.json",
+  "title": "IntuneAssignmentChecker Assignment Drift Event v1",
+  "type": "object",
+  "required": ["SchemaName", "SchemaVersion", "TenantId", "ChangeType", "Risk", "IdentityKey", "Attribution"],
+  "properties": {
+    "SchemaName": { "const": "IntuneAssignmentChecker.AssignmentDriftEvent" },
+    "SchemaVersion": { "const": 1 },
+    "TenantId": { "type": "string" },
+    "TenantName": { "type": ["string", "null"] },
+    "BaselineCaptured": { "type": "string", "format": "date-time" },
+    "CurrentCaptured": { "type": "string", "format": "date-time" },
+    "ChangeType": { "enum": ["Added", "Removed", "Changed"] },
+    "Risk": { "enum": ["Low", "Medium", "High", "Critical"] },
+    "IdentityKey": { "type": "string" },
+    "CategoryId": { "type": ["string", "null"] },
+    "PolicyId": { "type": ["string", "null"] },
+    "PolicyName": { "type": ["string", "null"] },
+    "AssignmentId": { "type": ["string", "null"] },
+    "ChangedFields": { "type": "array", "items": { "type": "string" } },
+    "Before": { "type": ["object", "null"] },
+    "After": { "type": ["object", "null"] },
+    "AuditEventId": { "type": ["string", "null"] },
+    "AuditOperation": { "type": ["string", "null"] },
+    "AuditActor": { "type": ["string", "null"] },
+    "AuditActivityUtc": { "type": ["string", "null"] },
+    "Attribution": { "enum": ["Correlated", "NotFound", "NotRequested"] }
+  },
+  "additionalProperties": false
+}

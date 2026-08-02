@@ -60,10 +60,10 @@ Describe 'Export-IntuneAssignmentSnapshot' {
 
         $snapshot.PSObject.TypeNames | Should -Contain IntuneAssignmentChecker.AssignmentSnapshot
         $loaded.SchemaName | Should -BeExactly IntuneAssignmentChecker.AssignmentSnapshot
-        $loaded.SchemaVersion | Should -Be 1
+        $loaded.SchemaVersion | Should -Be 2
         $loaded.CapturedAtUtc.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffffffZ') |
             Should -BeExactly '2026-08-01T10:00:00.0000000Z'
-        $loaded.ModuleVersion | Should -BeExactly '4.4.0'
+        $loaded.ModuleVersion | Should -BeExactly '5.0.0'
         $loaded.Tenant.Id | Should -BeExactly tenant-1
         $loaded.Coverage.Complete | Should -BeTrue
         $loaded.Coverage.RecordCount | Should -Be 1
@@ -73,6 +73,32 @@ Describe 'Export-IntuneAssignmentSnapshot' {
         @($loaded.Records[0].ReasonChain).Count | Should -Be 0
         @($loaded.Records[0].ScopeTagIds).Count | Should -Be 0
         @($loaded.Records[0].ScopeTags).Count | Should -Be 0
+    }
+
+    It 'migrates a v1 snapshot and validates the migrated document against the v2 schema' {
+        $path = Join-Path $TestDrive 'snapshot-v1.json'
+        $record = New-SnapshotTestRecord
+        $record | Export-IntuneAssignmentSnapshot -Path $path -CoverageCategory DeviceConfigurations `
+            -CoverageComplete -CapturedAtUtc $script:fixedCapture
+        $document = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json -Depth 30
+        $document.SchemaVersion = 1
+        $document.Records[0].SchemaVersion = 1
+        foreach ($propertyName in @('SchemaName', 'RecordId', 'GraphApiVersion')) {
+            $document.Records[0].PSObject.Properties.Remove($propertyName)
+        }
+        [IO.File]::WriteAllText($path, ($document | ConvertTo-Json -Depth 30))
+
+        $migrated = Read-IACAssignmentSnapshot -Path $path
+        $schemaPath = Join-Path $moduleRoot 'Schemas/assignment-snapshot.v2.schema.json'
+        $snapshotSchema = Get-Content -LiteralPath $schemaPath -Raw | ConvertFrom-Json -Depth 40
+        $recordSchema = Get-Content -LiteralPath (Join-Path $moduleRoot 'Schemas/assignment-record.v2.schema.json') -Raw | ConvertFrom-Json -Depth 40
+        $snapshotSchema.properties.Records.items = $recordSchema
+
+        $migrated.SchemaVersion | Should -Be 2
+        $migrated.MigratedFromSchemaVersion | Should -Be 1
+        $migrated.Records[0].SchemaVersion | Should -Be 2
+        $migrated.Records[0].RecordId | Should -Match '^[0-9a-f]{64}$'
+        Test-Json -Json ($migrated | ConvertTo-Json -Depth 30) -Schema ($snapshotSchema | ConvertTo-Json -Depth 40) | Should -BeTrue
     }
 
     It 'reads the installed version without validating external module dependencies' {
@@ -435,13 +461,13 @@ Describe 'Compare-IntuneAssignmentSnapshot' {
         $nonNumericVersionPath = Join-Path $TestDrive 'non-numeric-version.json'
         $missingRecordsPath = Join-Path $TestDrive 'missing-records.json'
         [System.IO.File]::WriteAllText($malformedPath, '{not-json')
-        [System.IO.File]::WriteAllText($unsupportedPath, '{"SchemaName":"IntuneAssignmentChecker.AssignmentSnapshot","SchemaVersion":2}')
+        [System.IO.File]::WriteAllText($unsupportedPath, '{"SchemaName":"IntuneAssignmentChecker.AssignmentSnapshot","SchemaVersion":3}')
         [System.IO.File]::WriteAllText($nonNumericVersionPath, '{"SchemaName":"IntuneAssignmentChecker.AssignmentSnapshot","SchemaVersion":"v1"}')
         [System.IO.File]::WriteAllText($missingRecordsPath, '{"SchemaName":"IntuneAssignmentChecker.AssignmentSnapshot","SchemaVersion":1,"CapturedAtUtc":"2026-08-01T10:00:00Z","ModuleVersion":"4.4.0","Tenant":{},"Coverage":{}}')
 
         { Read-IACAssignmentSnapshot -Path $malformedPath } | Should -Throw '*not valid JSON*'
-        { Read-IACAssignmentSnapshot -Path $unsupportedPath } | Should -Throw '*unsupported schema version*expected version 1*'
-        { Read-IACAssignmentSnapshot -Path $nonNumericVersionPath } | Should -Throw '*unsupported schema version*expected version 1*'
+        { Read-IACAssignmentSnapshot -Path $unsupportedPath } | Should -Throw '*unsupported schema version*expected version 1 or 2*'
+        { Read-IACAssignmentSnapshot -Path $nonNumericVersionPath } | Should -Throw '*unsupported schema version*expected version 1 or 2*'
         { Read-IACAssignmentSnapshot -Path $missingRecordsPath } | Should -Throw "*missing 'Records'*"
     }
 

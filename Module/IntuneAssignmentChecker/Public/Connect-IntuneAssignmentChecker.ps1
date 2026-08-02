@@ -21,7 +21,17 @@ function Connect-IntuneAssignmentChecker {
 
         [Parameter(Mandatory = $false, HelpMessage = "Environment (Global, USGov, USGovDoD)")]
         [ValidateSet("Global", "USGov", "USGovDoD")]
-        [string]$Environment = "Global"
+        [string]$Environment = "Global",
+
+        [Parameter(Mandatory = $false, HelpMessage = "Capability profiles whose least-privilege permissions should be requested")]
+        [ValidateSet('Core', 'Applications', 'Devices', 'Scripts', 'CloudPC', 'ScopeTags', 'Audit', 'Full')]
+        [string[]]$Capability = @('Full'),
+
+        [Parameter(Mandatory = $false)]
+        [switch]$SkipPermissionPrompt,
+
+        [Parameter(Mandatory = $false)]
+        [switch]$PassThru
     )
 
     # ── Banner ────────────────────────────────────────────────────────────
@@ -60,7 +70,7 @@ function Connect-IntuneAssignmentChecker {
             Write-Host ""
         }
         elseif ($local -gt $latest) {
-            Write-Host "Note: You are running a pre-release version ($localVersion)" -ForegroundColor Magenta
+            Write-Host "Note: The installed version ($localVersion) is newer than the current PSGallery version." -ForegroundColor Magenta
             Write-Host ""
         }
     }
@@ -79,7 +89,11 @@ function Connect-IntuneAssignmentChecker {
     $parameterMode     = $hasAppId -or $hasTenantId -or $hasClientSecret -or $hasClientSecretCredential -or $hasCertThumbprint -or $hasAccessToken
 
     # ── Required permissions ──────────────────────────────────────────────
-    $requiredPermissions = $script:RequiredPermissions
+    $script:RequestedCapabilities = @($Capability | Select-Object -Unique)
+    $requiredPermissions = if (Get-Command Resolve-IACCapabilityPermission -ErrorAction SilentlyContinue) {
+        @(Resolve-IACCapabilityPermission -Capability $script:RequestedCapabilities)
+    }
+    else { @($script:RequiredPermissions) }
 
     # ── Connect to Microsoft Graph ────────────────────────────────────────
     try {
@@ -239,7 +253,7 @@ function Connect-IntuneAssignmentChecker {
                 Write-Host "The script will continue, but it may not function correctly without these permissions." -ForegroundColor Red
                 Write-Host "Please ensure these permissions are granted to the app registration for full functionality." -ForegroundColor Yellow
 
-                $continueChoice = Read-Host "Do you want to continue anyway? (y/n)"
+                $continueChoice = if ($SkipPermissionPrompt) { 'y' } else { Read-Host "Do you want to continue anyway? (y/n)" }
                 if ($continueChoice -notmatch '^[Yy]') {
                     Write-Host "Connection cancelled by user." -ForegroundColor Red
                     return
@@ -262,8 +276,30 @@ function Connect-IntuneAssignmentChecker {
     }
 
     # ── Initialize scope tag lookup ───────────────────────────────────────
-    $script:ScopeTagLookup = Get-ScopeTagLookup
+    $hasScopeTagCapability = $script:RequestedCapabilities -contains 'Full' -or $script:RequestedCapabilities -contains 'ScopeTags'
+    $script:ScopeTagLookup = if ($hasScopeTagCapability) { Get-ScopeTagLookup } else { @{} }
 
     # ── Initialize assignment filter lookup ───────────────────────────────
-    $script:AssignmentFilterLookup = Get-AssignmentFilterLookup
+    $hasConfigurationCapability = $script:RequestedCapabilities -contains 'Full' -or
+        $script:RequestedCapabilities -contains 'Core' -or $script:RequestedCapabilities -contains 'Devices'
+    $script:AssignmentFilterLookup = if ($hasConfigurationCapability) { Get-AssignmentFilterLookup } else { @{} }
+
+    $context = Get-MgContext -ErrorAction SilentlyContinue
+    $isAppOnly = $null -eq $context.Scopes -or @($context.Scopes).Count -eq 0
+    if (Get-Command Get-IACCapabilityStatus -ErrorAction SilentlyContinue) {
+        $script:CapabilityStatus = @(Get-IACCapabilityStatus -GrantedPermission @($context.Scopes) -AppOnly:$isAppOnly)
+    }
+    if ($PassThru) {
+        $connection = [PSCustomObject][ordered]@{
+            SchemaVersion = 1
+            TenantId      = $script:CurrentTenantId
+            TenantName    = $script:CurrentTenantName
+            Account       = $script:CurrentUserUPN
+            Environment   = $script:GraphEnvironment
+            Authentication = if ($isAppOnly) { 'AppOnly' } else { 'Delegated' }
+            Capabilities  = @($script:CapabilityStatus)
+        }
+        $connection.PSObject.TypeNames.Insert(0, 'IntuneAssignmentChecker.Connection')
+        $connection
+    }
 }

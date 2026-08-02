@@ -52,6 +52,7 @@ jobs:
               Get-ChildItem ./Module/IntuneAssignmentChecker -Recurse -File -Include *.ps1, *.psm1
               Get-ChildItem ./Tests -Recurse -File -Include *.ps1
               Get-Item ./Register-IntuneAssignmentCheckerApp.ps1
+              Get-ChildItem ./packaging -File -Filter *.ps1
           ) | Sort-Object FullName
           $results = @(
               foreach ($file in $files) {

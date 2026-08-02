@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "rules": [
+    { "id": "IAC001", "enabled": true, "severity": "High", "title": "Broad All Users targeting" },
+    { "id": "IAC002", "enabled": true, "severity": "High", "title": "Broad All Devices targeting" },
+    { "id": "IAC003", "enabled": true, "severity": "Medium", "title": "Required application has no exclusion" },
+    { "id": "IAC004", "enabled": true, "severity": "High", "title": "Empty or unresolved target group" },
+    { "id": "IAC005", "enabled": true, "severity": "Critical", "title": "Conflicting inclusion and exclusion" },
+    { "id": "IAC006", "enabled": true, "severity": "Medium", "title": "Assignment filter result is unknown" },
+    { "id": "IAC007", "enabled": true, "severity": "Critical", "title": "Assignment scan coverage is incomplete" },
+    { "id": "IAC008", "enabled": true, "severity": "High", "title": "Critical policy or application is unassigned" }
+  ]
+}

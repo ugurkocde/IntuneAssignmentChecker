@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "RulePath": null,
+  "WaiverPath": null,
+  "tenants": [
+    {
+      "TenantId": "00000000-0000-0000-0000-000000000000",
+      "AppId": "00000000-0000-0000-0000-000000000000",
+      "CertificateThumbprint": "CERTIFICATE_THUMBPRINT",
+      "Environment": "Global",
+      "Capability": ["Full"],
+      "BaselinePath": null
+    },
+    {
+      "TenantId": "11111111-1111-1111-1111-111111111111",
+      "AppId": "11111111-1111-1111-1111-111111111111",
+      "ClientSecretEnvironmentVariable": "IAC_CUSTOMER2_CLIENT_SECRET",
+      "Environment": "Global",
+      "Capability": ["Core", "Applications", "Devices", "Audit"]
+    }
+  ]
+}

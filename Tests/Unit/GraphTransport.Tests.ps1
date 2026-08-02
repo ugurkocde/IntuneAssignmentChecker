@@ -83,6 +83,14 @@ Describe 'Get-IntuneEntities optional workload diagnostics' {
 
         Should -Invoke Write-Warning -Exactly 0
     }
+
+    It 'throws for coverage-aware callers instead of converting failure to an empty workload' {
+        Mock Invoke-IACGraphRequest { throw 'HTTP 403 Forbidden' }
+
+        { Get-IntuneEntities -EntityType 'deviceConfigurations' -ThrowOnError } |
+            Should -Throw '*403*'
+        Should -Invoke Write-Warning -Exactly 0
+    }
 }
 
 Describe 'Invoke-IACGraphRequest' {
@@ -151,6 +159,26 @@ Describe 'Invoke-IACGraphRequest' {
         $response.value.id | Should -Be @('one', 'two')
         $response.PSObject.Properties.Name | Should -Not -Contain '@odata.nextLink'
         Should -Invoke Invoke-MgGraphRequest -Exactly 2
+    }
+
+    It 'returns only the first response when FirstPageOnly is requested' {
+        Mock Invoke-MgGraphRequest {
+            @{ value = @([PSCustomObject]@{ id = 'one' }); '@odata.nextLink' = 'https://graph.test/beta/groups?$skiptoken=next' }
+        }
+
+        $response = Invoke-IACGraphRequest -Uri '/groups?$top=1' -FirstPageOnly
+
+        $response.value.id | Should -BeExactly 'one'
+        $response.'@odata.nextLink' | Should -Not -BeNullOrEmpty
+        Should -Invoke Invoke-MgGraphRequest -Exactly 1
+    }
+
+    It 'rejects conflicting paging modes' {
+        Mock Invoke-MgGraphRequest
+
+        { Invoke-IACGraphRequest -Uri '/groups' -AllPages -FirstPageOnly } |
+            Should -Throw '*cannot be used together*'
+        Should -Invoke Invoke-MgGraphRequest -Exactly 0
     }
 
     It 'retries transient responses and succeeds' {

@@ -1,3 +1,29 @@
+function Get-IACSha256Hex {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$InputText)
+
+    $algorithm = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($InputText)
+        $hash = $algorithm.ComputeHash($bytes)
+        return ([System.BitConverter]::ToString($hash) -replace '-', '').ToLowerInvariant()
+    }
+    finally {
+        $algorithm.Dispose()
+    }
+}
+
+function Get-IACAssignmentRecordId {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Record)
+
+    $identity = @(
+        $Record.SubjectType, $Record.SubjectId, $Record.CategoryId, $Record.PolicyId,
+        $(if ($Record.AssignmentId) { "id:$($Record.AssignmentId)" } else { "fallback:$($Record.AssignmentMode)|$($Record.TargetType)|$($Record.TargetId)|$($Record.Intent)" })
+    ) -join "`u{001f}"
+    Get-IACSha256Hex -InputText $identity
+}
+
 function New-IACAssignmentRecord {
     [CmdletBinding()]
     param(
@@ -41,7 +67,10 @@ function New-IACAssignmentRecord {
     )
 
     $record = [PSCustomObject][ordered]@{
-        SchemaVersion    = 1
+        SchemaName       = 'IntuneAssignmentChecker.AssignmentRecord'
+        SchemaVersion    = 2
+        RecordId         = $null
+        GraphApiVersion  = 'beta'
         TenantId         = $script:CurrentTenantId
         TenantName       = $script:CurrentTenantName
         SubjectType      = $SubjectType
@@ -65,11 +94,12 @@ function New-IACAssignmentRecord {
         FilterMode       = $FilterMode
         FilterRule       = $FilterRule
         FilterPlatform   = $FilterPlatform
-        EffectiveState   = $EffectiveState
+        EffectiveState   = if ([string]::IsNullOrWhiteSpace($EffectiveState)) { $null } else { $EffectiveState }
         ReasonChain      = @($ReasonChain)
         AssignmentReason = $AssignmentReason
         Source           = $Source
     }
+    $record.RecordId = Get-IACAssignmentRecordId -Record $record
     $record.PSObject.TypeNames.Insert(0, 'IntuneAssignmentChecker.AssignmentRecord')
     return $record
 }

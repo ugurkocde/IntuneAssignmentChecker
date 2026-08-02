@@ -3,12 +3,31 @@ function Get-IACAssignmentRecordPropertyNames {
     param()
 
     @(
-        'SchemaVersion', 'TenantId', 'TenantName', 'SubjectType', 'SubjectId', 'SubjectName',
+        'SchemaName', 'SchemaVersion', 'RecordId', 'GraphApiVersion',
+        'TenantId', 'TenantName', 'SubjectType', 'SubjectId', 'SubjectName',
         'CategoryId', 'Category', 'PolicyId', 'PolicyName', 'Platform', 'ScopeTagIds', 'ScopeTags',
         'AssignmentId', 'AssignmentMode', 'TargetType', 'TargetId', 'TargetName', 'Intent',
         'FilterId', 'FilterName', 'FilterMode', 'FilterRule', 'FilterPlatform', 'EffectiveState',
         'ReasonChain', 'AssignmentReason', 'Source'
     )
+}
+
+function Test-IACCoverageHasBlockingFailure {
+    [CmdletBinding()]
+    param([AllowNull()]$Coverage)
+
+    if ($null -eq $Coverage -or [bool]$Coverage.Complete) { return $false }
+    $skippedCategories = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+    $hasBlockingStatus = $false
+    foreach ($category in @($Coverage.Categories)) {
+        if ($category.Status -ceq 'Skipped') { [void]$skippedCategories.Add("$($category.CategoryId)") }
+        elseif ($category.Status -in @('Failed', 'Unknown')) { $hasBlockingStatus = $true }
+    }
+    if ($hasBlockingStatus) { return $true }
+    foreach ($coverageError in @($Coverage.Errors)) {
+        if (-not $skippedCategories.Contains("$($coverageError.CategoryId)")) { return $true }
+    }
+    return $skippedCategories.Count -eq 0
 }
 
 function Get-IACOrdinalSortedUniqueString {
@@ -60,14 +79,20 @@ function ConvertTo-IACSnapshotRecord {
     )
 
     process {
-        $requiredProperties = Get-IACAssignmentRecordPropertyNames
+        $requiredProperties = @(
+            'SchemaVersion', 'TenantId', 'TenantName', 'SubjectType', 'SubjectId', 'SubjectName',
+            'CategoryId', 'Category', 'PolicyId', 'PolicyName', 'Platform', 'ScopeTagIds', 'ScopeTags',
+            'AssignmentId', 'AssignmentMode', 'TargetType', 'TargetId', 'TargetName', 'Intent',
+            'FilterId', 'FilterName', 'FilterMode', 'FilterRule', 'FilterPlatform', 'EffectiveState',
+            'ReasonChain', 'AssignmentReason', 'Source'
+        )
         $missing = @($requiredProperties | Where-Object { $null -eq $InputObject.PSObject.Properties[$_] })
         if ($missing.Count -gt 0) {
             throw "Snapshot input is not a canonical assignment record; missing properties: $($missing -join ', ')."
         }
         $recordSchemaVersion = 0
-        if (-not [int]::TryParse("$($InputObject.SchemaVersion)", [ref]$recordSchemaVersion) -or $recordSchemaVersion -ne 1) {
-            throw "Assignment record schema version '$($InputObject.SchemaVersion)' is not supported; expected version 1."
+        if (-not [int]::TryParse("$($InputObject.SchemaVersion)", [ref]$recordSchemaVersion) -or $recordSchemaVersion -notin @(1, 2)) {
+            throw "Assignment record schema version '$($InputObject.SchemaVersion)' is not supported; expected version 1 or 2."
         }
         if ([string]::IsNullOrWhiteSpace("$($InputObject.CategoryId)")) {
             throw 'Snapshot input contains an assignment record without CategoryId.'
@@ -130,8 +155,11 @@ function ConvertTo-IACSnapshotRecord {
             }
         }
 
-        [PSCustomObject][ordered]@{
-            SchemaVersion    = 1
+        $record = [PSCustomObject][ordered]@{
+            SchemaName       = 'IntuneAssignmentChecker.AssignmentRecord'
+            SchemaVersion    = 2
+            RecordId         = $null
+            GraphApiVersion  = 'beta'
             TenantId         = $InputObject.TenantId
             TenantName       = $InputObject.TenantName
             SubjectType      = $InputObject.SubjectType
@@ -162,6 +190,9 @@ function ConvertTo-IACSnapshotRecord {
             AssignmentReason = $InputObject.AssignmentReason
             Source           = $InputObject.Source
         }
+        $record.RecordId = Get-IACAssignmentRecordId -Record $record
+        $record.PSObject.TypeNames.Insert(0, 'IntuneAssignmentChecker.AssignmentRecord')
+        $record
     }
 }
 
@@ -254,7 +285,7 @@ function New-IACAssignmentSnapshot {
 
     [PSCustomObject][ordered]@{
         SchemaName    = 'IntuneAssignmentChecker.AssignmentSnapshot'
-        SchemaVersion = 1
+        SchemaVersion = 2
         CapturedAtUtc = $CapturedAtUtc.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffffffZ', [System.Globalization.CultureInfo]::InvariantCulture)
         ModuleVersion = Get-IACInstalledModuleVersion
         Tenant        = [PSCustomObject][ordered]@{
@@ -308,8 +339,8 @@ function Read-IACAssignmentSnapshot {
         throw "Assignment snapshot '$Path' has schema '$($snapshot.SchemaName)'; expected 'IntuneAssignmentChecker.AssignmentSnapshot'."
     }
     $snapshotSchemaVersion = 0
-    if (-not [int]::TryParse("$($snapshot.SchemaVersion)", [ref]$snapshotSchemaVersion) -or $snapshotSchemaVersion -ne 1) {
-        throw "Assignment snapshot '$Path' uses unsupported schema version '$($snapshot.SchemaVersion)'; expected version 1."
+    if (-not [int]::TryParse("$($snapshot.SchemaVersion)", [ref]$snapshotSchemaVersion) -or $snapshotSchemaVersion -notin @(1, 2)) {
+        throw "Assignment snapshot '$Path' uses unsupported schema version '$($snapshot.SchemaVersion)'; expected version 1 or 2."
     }
     foreach ($property in @('CapturedAtUtc', 'ModuleVersion', 'Tenant', 'Coverage', 'Records')) {
         if ($null -eq $snapshot.PSObject.Properties[$property]) {
@@ -425,5 +456,9 @@ function Read-IACAssignmentSnapshot {
     }
 
     $snapshot.Records = @($recordsByKey.Values)
+    if ($snapshotSchemaVersion -eq 1) {
+        $snapshot | Add-Member -NotePropertyName MigratedFromSchemaVersion -NotePropertyValue 1 -Force
+        $snapshot.SchemaVersion = 2
+    }
     return $snapshot
 }

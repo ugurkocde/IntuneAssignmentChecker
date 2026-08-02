@@ -10,8 +10,8 @@
 
 .DESCRIPTION
     This script fully automates the creation of an Azure AD App Registration for use with Microsoft Intune Graph API queries.
-    It assigns the required Microsoft Graph permissions, generates a self-signed certificate, creates a temporary Client Secret 
-    (as a workaround to allow certificate injection via Graph API), uploads the certificate as KeyCredential, removes the Client Secret, 
+    It assigns the required Microsoft Graph permissions, generates a self-signed certificate, creates a temporary Client Secret
+    (as a workaround to allow certificate injection via Graph API), uploads the certificate as KeyCredential, removes the Client Secret,
     and finally exports the certificate to disk for later use with client credentials authentication.
     The script uses Update-MgApplication for certificate injection to avoid common Graph SDK permission issues.
 
@@ -23,6 +23,13 @@
     Inspired by Ugur Koc's Intune Assignment Checker (@UgurKocDe), which motivated the automation of the App Registration process.
     Many thanks for sharing this great tool - big shoutout to the IT community!
 #>
+
+[CmdletBinding()]
+param(
+    [Parameter()]
+    [ValidateSet('Core', 'Applications', 'Devices', 'Scripts', 'CloudPC', 'ScopeTags', 'Audit', 'Full')]
+    [string[]]$Capability = @('Full')
+)
 
 # STEP 1: Connect to Microsoft Graph and get tenant information
 Import-Module Microsoft.Graph
@@ -42,18 +49,34 @@ Write-Host "Short Tenant Name: $shortTenantName" -ForegroundColor Green
 
 # STEP 2: Define required permissions
 $graphAppId = "00000003-0000-0000-c000-000000000000"
-$permissions = @(
+$permissionCatalog = @(
     @{ id = "df021288-bdef-4463-88db-98f22de89214"; displayName = "User.Read.All" },
     @{ id = "98830695-27a2-44f7-8c18-0c3ebc9698f6"; displayName = "GroupMember.Read.All" },
     @{ id = "7438b122-aefc-4978-80ed-43db9fcc7715"; displayName = "Device.Read.All" },
     @{ id = "7a6ee1e7-141e-4cec-ae74-d9db155731ff"; displayName = "DeviceManagementApps.Read.All" },
     @{ id = "dc377aa6-52d8-4e23-b271-2a7ae04cedf3"; displayName = "DeviceManagementConfiguration.Read.All" },
     @{ id = "2f51be20-0bb4-4fed-bf7b-db946066c75e"; displayName = "DeviceManagementManagedDevices.Read.All" },
-    @{ id = "06a5fe6d-c49d-46a7-b082-56b1b14103c7"; displayName = "DeviceManagementServiceConfig.Read.All" },
     @{ id = "c7a5be92-2b3d-4540-8a67-c96dcaae8b43"; displayName = "DeviceManagementScripts.Read.All" },
     @{ id = "a9e09520-8ed4-4cde-838e-4fdea192c227"; displayName = "CloudPC.Read.All" },
     @{ id = "58ca0d9a-1575-47e1-a3cb-007ef2e4583b"; displayName = "DeviceManagementRBAC.Read.All" }
+    @{ id = "06a5fe6d-c49d-46a7-b082-56b1b14103c7"; displayName = "DeviceManagementServiceConfig.Read.All" }
 )
+
+$capabilityPermissions = [ordered]@{
+    Core         = @('User.Read.All', 'GroupMember.Read.All', 'DeviceManagementConfiguration.Read.All', 'DeviceManagementServiceConfig.Read.All')
+    Applications = @('DeviceManagementApps.Read.All')
+    Devices      = @('DeviceManagementManagedDevices.Read.All', 'Device.Read.All')
+    Scripts      = @('DeviceManagementScripts.Read.All')
+    CloudPC      = @('CloudPC.Read.All')
+    ScopeTags    = @('DeviceManagementRBAC.Read.All')
+    Audit        = @('DeviceManagementApps.Read.All')
+}
+$selectedCapabilities = if ($Capability -contains 'Full') { @($capabilityPermissions.Keys) } else { @($Capability | Select-Object -Unique) }
+$selectedPermissionNames = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+foreach ($selectedCapability in $selectedCapabilities) {
+    foreach ($permissionName in $capabilityPermissions[$selectedCapability]) { [void]$selectedPermissionNames.Add($permissionName) }
+}
+$permissions = @($permissionCatalog | Where-Object { $selectedPermissionNames.Contains($_.displayName) })
 
 $requiredResourceAccess = @(
     @{
@@ -68,13 +91,14 @@ $requiredResourceAccess = @(
 $appDisplayName = "Intune Assignment Checker [$shortTenantName]"
 $app = New-MgApplication -DisplayName $appDisplayName -SignInAudience AzureADMyOrg -RequiredResourceAccess $requiredResourceAccess
 Write-Host "App Registration created: AppId: $($app.AppId)" -ForegroundColor Green
+Write-Host "Capabilities: $($selectedCapabilities -join ', ')" -ForegroundColor Green
 
 $sp = New-MgServicePrincipal -AppId $app.AppId
 Write-Host "Service Principal created: ObjectId: $($sp.Id)" -ForegroundColor Green
 
 # STEP 4: Create Temporary Client Secret (workaround)
 $passwordCred = @{ "displayName" = "TemporaryClientSecret"; "endDateTime" = (Get-Date).AddHours(1) }
-$clientSecret = Add-MgApplicationPassword -ApplicationId $app.Id -PasswordCredential $passwordCred
+$null = Add-MgApplicationPassword -ApplicationId $app.Id -PasswordCredential $passwordCred
 Write-Host "Temporary Client Secret created. Will be removed after certificate upload." -ForegroundColor Green
 
 # STEP 5: Generate and upload self-signed certificate
@@ -113,9 +137,9 @@ catch {
 
 # STEP 6: Remove Temporary Client Secret
 $passwords = (Get-MgApplication -ApplicationId $app.Id).PasswordCredentials
-foreach ($pwd in $passwords) {
-    if ($pwd.DisplayName -eq "TemporaryClientSecret") {
-        Remove-MgApplicationPassword -ApplicationId $app.Id -KeyId $pwd.KeyId
+foreach ($passwordCredential in $passwords) {
+    if ($passwordCredential.DisplayName -eq "TemporaryClientSecret") {
+        Remove-MgApplicationPassword -ApplicationId $app.Id -KeyId $passwordCredential.KeyId
         Write-Host "Temporary Client Secret removed." -ForegroundColor Green
     }
 }
@@ -140,6 +164,6 @@ $appId = $app.AppId
 
 Write-Host "`n----------------------------" -ForegroundColor Cyan
 Write-Host "You can now connect IntuneAssignmentChecker with the following command:" -ForegroundColor Cyan
-Write-Host "Connect-IntuneAssignmentChecker -AppId `"$appId`" -TenantId `"$tenantId`" -CertificateThumbprint `"$certificateThumbprint`"" -ForegroundColor Yellow
-Write-Host "Afterwards, run 'IntuneAssignmentChecker' to start the interactive menu." -ForegroundColor Cyan
+Write-Host "Connect-IntuneAssignmentChecker -AppId `"$appId`" -TenantId `"$tenantId`" -CertificateThumbprint `"$certificateThumbprint`" -Capability $($selectedCapabilities -join ',')" -ForegroundColor Yellow
+Write-Host "Afterwards, run 'Start-IntuneAssignmentCheckerTui' for the terminal UI or call any exported command directly." -ForegroundColor Cyan
 Write-Host "----------------------------"

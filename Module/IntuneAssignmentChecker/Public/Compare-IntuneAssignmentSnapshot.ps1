@@ -46,32 +46,8 @@ function Compare-IntuneAssignmentSnapshot {
     if ("$($reference.Tenant.Id)" -cne "$($difference.Tenant.Id)") {
         throw "Snapshots belong to different tenants ('$($reference.Tenant.Id)' and '$($difference.Tenant.Id)')."
     }
-    $hasBlockingIncompleteCoverage = $false
-    foreach ($snapshot in @($reference, $difference)) {
-        if ([bool]$snapshot.Coverage.Complete) { continue }
-
-        $snapshotSkippedCategories = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
-        $hasBlockingStatus = $false
-        foreach ($category in @($snapshot.Coverage.Categories)) {
-            if ($category.Status -ceq 'Skipped') {
-                [void]$snapshotSkippedCategories.Add("$($category.CategoryId)")
-            }
-            elseif ($category.Status -in @('Failed', 'Unknown')) {
-                $hasBlockingStatus = $true
-            }
-        }
-        $hasNonSkippedError = $false
-        foreach ($coverageError in @($snapshot.Coverage.Errors)) {
-            if (-not $snapshotSkippedCategories.Contains("$($coverageError.CategoryId)")) {
-                $hasNonSkippedError = $true
-                break
-            }
-        }
-        if ($hasBlockingStatus -or $hasNonSkippedError -or $snapshotSkippedCategories.Count -eq 0) {
-            $hasBlockingIncompleteCoverage = $true
-            break
-        }
-    }
+    $hasBlockingIncompleteCoverage = (Test-IACCoverageHasBlockingFailure -Coverage $reference.Coverage) -or
+        (Test-IACCoverageHasBlockingFailure -Coverage $difference.Coverage)
     if (-not $AllowIncompleteCoverage -and $hasBlockingIncompleteCoverage) {
         throw 'One or both snapshots have incomplete category coverage; use -AllowIncompleteCoverage to compare them explicitly.'
     }

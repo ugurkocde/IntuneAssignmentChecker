@@ -171,17 +171,19 @@ function Invoke-IntuneAssignmentChecker {
         return
     }
 
-    # ── Main loop ─────────────────────────────────────────────────────────
-    do {
-        if (-not $parameterMode) {
-            Show-Menu
-            $selection = Read-Host
-        }
-        else {
-            $selection = $selectedOption
-        }
+    # The v5 interactive surface is generated from the exported command catalog.
+    # Keep the legacy feature switches below for non-interactive compatibility,
+    # but route the alias/default invocation to the full-parity terminal UI.
+    if (-not $parameterMode) {
+        Start-IntuneAssignmentCheckerTui
+        return
+    }
 
-        switch ($selection) {
+    # The legacy feature switches remain one-shot compatibility entry points.
+    # Interactive navigation and tenant switching now live in the exported TUI.
+    $selection = $selectedOption
+
+    switch ($selection) {
             '1' {
                 Get-IntuneUserAssignment `
                     -UserPrincipalNames $UserPrincipalNames `
@@ -292,42 +294,5 @@ function Invoke-IntuneAssignmentChecker {
                     -ExportPath $ExportPath `
                     -ScopeTagFilter $ScopeTagFilter
             }
-            {$_ -eq 'T' -or $_ -eq 't'} {
-                Switch-Tenant
-            }
-            '0' {
-                Write-Host "Disconnecting from Microsoft Graph..." -ForegroundColor Yellow
-                Disconnect-MgGraph | Out-Null
-                Write-Host "Thank you for using IntuneAssignmentChecker!" -ForegroundColor Green
-                Write-Host "If you found this tool helpful, please consider:" -ForegroundColor Cyan
-                Write-Host "- Starring the repository: https://github.com/ugurkocde/IntuneAssignmentChecker" -ForegroundColor White
-                Write-Host "- Supporting the project: https://github.com/sponsors/ugurkocde" -ForegroundColor White
-                Write-Host ""
-                return
-            }
-            '98' {
-                Write-Host "Opening GitHub Sponsor Page ..." -ForegroundColor Green
-                Start-Process "https://github.com/sponsors/ugurkocde"
-            }
-            '99' {
-                Write-Host "Opening GitHub Repository..." -ForegroundColor Green
-                Start-Process "https://github.com/ugurkocde/IntuneAssignmentChecker"
-            }
-            default {
-                Write-Host "Invalid choice, please select 1-16, T, 98, 99, or 0." -ForegroundColor Red
-            }
         }
-
-        # In parameter mode, exit after completing the task
-        # In interactive mode, return to the menu unless exit was selected
-        if ($selection -ne '0') {
-            if ($parameterMode) {
-                break
-            }
-            else {
-                Write-Host "Press any key to return to the main menu..." -ForegroundColor Cyan
-                $null = $host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
-            }
-        }
-    } while ($selection -ne '0')
 }

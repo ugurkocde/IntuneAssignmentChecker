@@ -55,7 +55,7 @@ function Invoke-IntuneCategoryScan {
     function Get-CachedEntitySet {
         param([string]$EntityType, [switch]$Quiet)
         if (-not $EntityCache.ContainsKey($EntityType)) {
-            $EntityCache[$EntityType] = @(Get-IntuneEntities -EntityType $EntityType -Quiet:$Quiet)
+            $EntityCache[$EntityType] = @(Get-IntuneEntities -EntityType $EntityType -Quiet:$Quiet -ThrowOnError)
         }
         return , @($EntityCache[$EntityType])
     }
