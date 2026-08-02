@@ -16,10 +16,14 @@
       <Directory Id="PowerShellFolder" Name="PowerShell">
         <Directory Id="PowerShellModulesFolder" Name="Modules" />
       </Directory>
+      <Directory Id="ApplicationFolder" Name="Intune Assignment Checker">
+        <Directory Id="CommandFolder" Name="bin" />
+      </Directory>
     </StandardDirectory>
 
     <Feature Id="Complete" Title="Intune Assignment Checker" Level="1">
       <ComponentGroupRef Id="PowerShellModuleFiles" />
+      <ComponentRef Id="CommandLauncher" />
     </Feature>
   </Package>
 
@@ -27,5 +31,18 @@
     <ComponentGroup Id="PowerShellModuleFiles" Directory="PowerShellModulesFolder">
       <Files Include="!(bindpath.ModuleSource)\**" />
     </ComponentGroup>
+  </Fragment>
+
+  <Fragment>
+    <Component Id="CommandLauncher" Directory="CommandFolder" Guid="{8E4D71C8-1F16-4E7C-9B2F-997B6DCB5C35}">
+      <File Id="CommandLauncherFile" Source="!(bindpath.LauncherSource)\IntuneAssignmentChecker.cmd" KeyPath="yes" />
+      <Environment
+          Id="CommandPath"
+          Name="PATH"
+          Value="[CommandFolder]"
+          Action="set"
+          Part="last"
+          System="yes" />
+    </Component>
   </Fragment>
 </Wix>

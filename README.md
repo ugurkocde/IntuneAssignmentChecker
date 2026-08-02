@@ -40,14 +40,16 @@
 ```powershell
 winget install --id UgurKoc.IntuneAssignmentChecker --exact
 
-# Open PowerShell 7, then launch the command center
-pwsh
-Start-IntuneAssignmentCheckerTui
+# Open a new terminal, then launch the command center from any Windows shell
+IntuneAssignmentChecker
 ```
 
 The WinGet package is an MSI that installs the PowerShell module and its Graph
 authentication dependency. It does not install or generate an executable version
-of IntuneAssignmentChecker.
+of IntuneAssignmentChecker. Its small command launcher hands off immediately to
+PowerShell 7, so the same command also works from Windows PowerShell 5.1. Use
+`IntuneAssignmentChecker --disable-mouse` when the terminal should retain mouse
+events.
 
 ### Option 2: Install from PowerShell Gallery
 

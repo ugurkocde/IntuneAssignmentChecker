@@ -85,6 +85,9 @@ jobs:
           $installLog = Join-Path $env:RUNNER_TEMP 'intune-assignment-checker-install.log'
           $removeLog = Join-Path $env:RUNNER_TEMP 'intune-assignment-checker-remove.log'
           $verificationScript = Join-Path $env:RUNNER_TEMP 'verify-intune-assignment-checker.ps1'
+          $commandFolder = Join-Path $env:ProgramFiles 'Intune Assignment Checker\bin'
+          $normalizedCommandFolder = $commandFolder.TrimEnd([IO.Path]::DirectorySeparatorChar)
+          $launcherPath = Join-Path $commandFolder 'IntuneAssignmentChecker.cmd'
           $installed = $false
           try {
               Write-Host "Installing $msi"
@@ -103,6 +106,22 @@ jobs:
                   Where-Object Version -EQ '${{ steps.package.outputs.version }}')
               $available | Format-List Name, Version, Path
               if ($available.Count -eq 0) { throw 'The installed module was not discoverable through PSModulePath.' }
+              if (-not (Test-Path -LiteralPath $launcherPath -PathType Leaf)) {
+                  throw "The PowerShell 7 command launcher was not installed at '$launcherPath'."
+              }
+              $machinePath = [Environment]::GetEnvironmentVariable('PATH', 'Machine')
+              $machinePathEntries = @($machinePath -split ';' | ForEach-Object { $_.Trim().TrimEnd([IO.Path]::DirectorySeparatorChar) })
+              if ($machinePathEntries -notcontains $normalizedCommandFolder) {
+                  throw "The command launcher directory was not added to the machine PATH: '$commandFolder'."
+              }
+              $env:IAC_LAUNCHER_PATH = $launcherPath
+              $launcherOutput = @(& $env:ComSpec /d /s /c 'call "%IAC_LAUNCHER_PATH%" --check' 2>&1)
+              if ($LASTEXITCODE -ne 0) {
+                  throw "The installed command launcher check failed with exit code $LASTEXITCODE: $($launcherOutput -join ' ')"
+              }
+              if (($launcherOutput -join [Environment]::NewLine) -notmatch 'is ready in PowerShell 7') {
+                  throw "The installed command launcher did not confirm a PowerShell 7 handoff: $($launcherOutput -join ' ')"
+              }
 
               @'
           param([Parameter(Mandatory)][string]$Version)
@@ -140,6 +159,7 @@ jobs:
               }
           }
           finally {
+              Remove-Item Env:IAC_LAUNCHER_PATH -ErrorAction SilentlyContinue
               Remove-Item -LiteralPath $verificationScript -Force -ErrorAction SilentlyContinue
               if ($installed) {
                   $remove = Start-Process msiexec.exe -ArgumentList @(
@@ -150,6 +170,14 @@ jobs:
                   if ($removeExitCode -ne 0) {
                       Get-Content -LiteralPath $removeLog -Tail 200 -ErrorAction SilentlyContinue
                       throw "MSI removal failed with exit code $removeExitCode."
+                  }
+                  if (Test-Path -LiteralPath $launcherPath) {
+                      throw "The command launcher remained after MSI removal: '$launcherPath'."
+                  }
+                  $machinePathAfterRemoval = [Environment]::GetEnvironmentVariable('PATH', 'Machine')
+                  $machinePathEntriesAfterRemoval = @($machinePathAfterRemoval -split ';' | ForEach-Object { $_.Trim().TrimEnd([IO.Path]::DirectorySeparatorChar) })
+                  if ($machinePathEntriesAfterRemoval -contains $normalizedCommandFolder) {
+                      throw "The command launcher directory remained in the machine PATH after removal: '$commandFolder'."
                   }
               }
           }

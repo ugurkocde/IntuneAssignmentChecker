@@ -48,23 +48,35 @@ New-Item -ItemType Directory -Path $resolvedOutput -Force | Out-Null
 $stagingRoot = Join-Path $resolvedOutput 'windows-package-staging'
 if (Test-Path -LiteralPath $stagingRoot) { Remove-Item -LiteralPath $stagingRoot -Recurse -Force }
 New-Item -ItemType Directory -Path $stagingRoot -Force | Out-Null
+$moduleStagingRoot = Join-Path $stagingRoot 'modules'
+$launcherStagingRoot = Join-Path $stagingRoot 'launcher'
+New-Item -ItemType Directory -Path $moduleStagingRoot -Force | Out-Null
+New-Item -ItemType Directory -Path $launcherStagingRoot -Force | Out-Null
 
-$moduleDestination = Join-Path $stagingRoot "IntuneAssignmentChecker/$Version"
+$moduleDestination = Join-Path $moduleStagingRoot "IntuneAssignmentChecker/$Version"
 New-Item -ItemType Directory -Path $moduleDestination -Force | Out-Null
 Copy-Item -Path (Join-Path $moduleSource '*') -Destination $moduleDestination -Recurse -Force
 
 if (-not $SkipDependencyDownload) {
     Save-Module -Name Microsoft.Graph.Authentication -RequiredVersion $GraphAuthenticationVersion `
-        -Repository PSGallery -Path $stagingRoot -Force -ErrorAction Stop
+        -Repository PSGallery -Path $moduleStagingRoot -Force -ErrorAction Stop
 }
-elseif (-not (Test-Path -LiteralPath (Join-Path $stagingRoot 'Microsoft.Graph.Authentication'))) {
+elseif (-not (Test-Path -LiteralPath (Join-Path $moduleStagingRoot 'Microsoft.Graph.Authentication'))) {
     Write-Warning 'Microsoft.Graph.Authentication was not staged because -SkipDependencyDownload was used.'
 }
+
+# cmd.exe parsing is sensitive to batch-file line endings. Normalize the MSI
+# payload independently of the maintainer's checkout platform or Git settings.
+$launcherSource = Join-Path $PSScriptRoot 'IntuneAssignmentChecker.cmd'
+$launcherDestination = Join-Path $launcherStagingRoot 'IntuneAssignmentChecker.cmd'
+$launcherText = [IO.File]::ReadAllText($launcherSource)
+$launcherText = $launcherText.Replace("`r`n", "`n").Replace("`r", "`n").Replace("`n", "`r`n")
+[IO.File]::WriteAllText($launcherDestination, $launcherText, [Text.UTF8Encoding]::new($false))
 
 $outputPath = Join-Path $resolvedOutput "IntuneAssignmentChecker-$Version-x64.msi"
 $wixOutput = @(& wix build (Join-Path $PSScriptRoot 'IntuneAssignmentChecker.wxs') -arch x64 `
     -d "ProductVersion=$Version" -d "ProductCode=$productCode" `
-    -bindpath "ModuleSource=$stagingRoot" -o $outputPath 2>&1)
+    -bindpath "ModuleSource=$moduleStagingRoot" -bindpath "LauncherSource=$launcherStagingRoot" -o $outputPath 2>&1)
 $wixExitCode = $LASTEXITCODE
 $wixOutput | ForEach-Object { Write-Host $_ }
 if ($wixExitCode -ne 0 -or -not (Test-Path -LiteralPath $outputPath -PathType Leaf)) {

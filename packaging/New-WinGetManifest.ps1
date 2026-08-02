@@ -46,6 +46,8 @@ InstallModes:
 - silent
 - silentWithProgress
 UpgradeBehavior: install
+Commands:
+- IntuneAssignmentChecker
 ReleaseDate: $([datetime]::UtcNow.ToString('yyyy-MM-dd'))
 Dependencies:
   PackageDependencies:
@@ -80,6 +82,7 @@ License: MIT
 LicenseUrl: https://github.com/ugurkocde/IntuneAssignmentChecker/blob/v$Version/LICENSE
 ShortDescription: Audit, simulate, and govern Microsoft Intune assignments from PowerShell or its terminal command center.
 Description: A PowerShell-native, read-only assignment governance platform for Microsoft Intune with a task-oriented mouse and keyboard terminal UI, snapshots, drift analysis, change simulation, delivery health, and multi-tenant scans.
+InstallationNotes: Open a new terminal after installation and run IntuneAssignmentChecker. The launcher automatically uses PowerShell 7, including when it is called from Windows PowerShell 5.1.
 Moniker: intune-assignment-checker
 Tags:
 - intune

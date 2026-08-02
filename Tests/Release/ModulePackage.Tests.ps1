@@ -74,4 +74,41 @@ Describe 'IntuneAssignmentChecker release package' {
         @(Get-ChildItem $repoRoot -Recurse -File -Include '*.csproj', '*.cs', '*.exe').Count | Should -Be 0
         (Get-Content (Join-Path $repoRoot 'packaging/README.md') -Raw) | Should -Match 'does not compile or wrap'
     }
+
+    It 'ships a PowerShell 7 command handoff without duplicating application logic' {
+        $launcherPath = Join-Path $repoRoot 'packaging/IntuneAssignmentChecker.cmd'
+        Test-Path -LiteralPath $launcherPath -PathType Leaf | Should -BeTrue
+        $launcher = Get-Content -LiteralPath $launcherPath -Raw
+        $launcher | Should -Match 'pwsh\.exe'
+        $launcher | Should -Match 'Start-IntuneAssignmentCheckerTui'
+        $launcher | Should -Match 'requires PowerShell 7'
+        $launcher | Should -Not -Match '(?i)powershell\.exe'
+
+        $wix = Get-Content (Join-Path $repoRoot 'packaging/IntuneAssignmentChecker.wxs') -Raw
+        $wix | Should -Match 'LauncherSource'
+        $wix | Should -Match 'Name="PATH"'
+        $wix | Should -Match 'System="yes"'
+
+        $buildScript = Get-Content (Join-Path $repoRoot 'packaging/Build-WindowsInstaller.ps1') -Raw
+        $buildScript | Should -Match 'launcherStagingRoot'
+        $buildScript | Should -Match 'Replace\("`r`n", "`n"\)'
+        $buildScript | Should -Match 'UTF8Encoding.*false'
+    }
+
+    It 'publishes the launch command and PowerShell 5.1 guidance in WinGet metadata' {
+        $fakeInstaller = Join-Path $TestDrive 'IntuneAssignmentChecker-5.0.0-x64.msi'
+        Set-Content -LiteralPath $fakeInstaller -Value 'test installer' -NoNewline
+        $outputDirectory = Join-Path $TestDrive 'winget'
+        & (Join-Path $repoRoot 'packaging/New-WinGetManifest.ps1') `
+            -InstallerPath $fakeInstaller `
+            -InstallerUrl 'https://example.test/IntuneAssignmentChecker-5.0.0-x64.msi' `
+            -ProductCode '{B7F62E8A-5838-4EBB-9EE0-2C3E1B36AE32}' `
+            -OutputDirectory $outputDirectory | Out-Null
+
+        $installerManifest = Get-Content (Join-Path $outputDirectory 'UgurKoc.IntuneAssignmentChecker.installer.yaml') -Raw
+        $localeManifest = Get-Content (Join-Path $outputDirectory 'UgurKoc.IntuneAssignmentChecker.locale.en-US.yaml') -Raw
+        $installerManifest | Should -Match '(?m)^Commands:\s*\r?\n- IntuneAssignmentChecker$'
+        $installerManifest | Should -Match 'PackageIdentifier: Microsoft\.PowerShell'
+        $localeManifest | Should -Match '(?m)^InstallationNotes:.*PowerShell 5\.1\.$'
+    }
 }
