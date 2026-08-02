@@ -62,11 +62,14 @@ elseif (-not (Test-Path -LiteralPath (Join-Path $stagingRoot 'Microsoft.Graph.Au
 }
 
 $outputPath = Join-Path $resolvedOutput "IntuneAssignmentChecker-$Version-x64.msi"
-& wix build (Join-Path $PSScriptRoot 'IntuneAssignmentChecker.wxs') -arch x64 `
+$wixOutput = @(& wix build (Join-Path $PSScriptRoot 'IntuneAssignmentChecker.wxs') -arch x64 `
     -d "ProductVersion=$Version" -d "ProductCode=$productCode" `
-    -bindpath "ModuleSource=$stagingRoot" -output $outputPath
-if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $outputPath -PathType Leaf)) {
-    throw "WiX failed to create '$outputPath'."
+    -bindpath "ModuleSource=$stagingRoot" -o $outputPath 2>&1)
+$wixExitCode = $LASTEXITCODE
+$wixOutput | ForEach-Object { Write-Host $_ }
+if ($wixExitCode -ne 0 -or -not (Test-Path -LiteralPath $outputPath -PathType Leaf)) {
+    $diagnostics = if ($wixOutput.Count -gt 0) { $wixOutput -join [Environment]::NewLine } else { 'No diagnostic output was returned.' }
+    throw "WiX failed to create '$outputPath' (exit code $wixExitCode).$([Environment]::NewLine)$diagnostics"
 }
 
 $hash = (Get-FileHash -LiteralPath $outputPath -Algorithm SHA256).Hash

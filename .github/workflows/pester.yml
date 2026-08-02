@@ -32,15 +32,23 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Install Pester 5
+      - name: Install test dependencies
         shell: pwsh
         run: |
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
           $existing = Get-Module -ListAvailable -Name Pester | Where-Object { $_.Version.Major -ge 5 } | Select-Object -First 1
           if (-not $existing) {
               Install-Module Pester -MinimumVersion 5.0.0 -Scope CurrentUser -Force -SkipPublisherCheck
           }
+          if (-not (Get-Module -ListAvailable -Name Microsoft.Graph.Authentication)) {
+              Install-Module Microsoft.Graph.Authentication -Scope CurrentUser -Force
+          }
           Import-Module Pester -MinimumVersion 5.0.0
           Get-Module Pester | Format-List Name, Version
+          Get-Module -ListAvailable Microsoft.Graph.Authentication |
+              Sort-Object Version -Descending |
+              Select-Object -First 1 Name, Version |
+              Format-List
 
       - name: Run unit tests
         shell: pwsh
