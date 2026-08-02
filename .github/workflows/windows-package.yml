@@ -27,9 +27,6 @@ jobs:
     name: Build and verify MSI
     runs-on: windows-latest
     timeout-minutes: 30
-    env:
-      SIGNING_CERTIFICATE: ${{ secrets.WINDOWS_SIGNING_CERTIFICATE }}
-      SIGNING_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PASSWORD }}
 
     steps:
       - name: Checkout
@@ -56,26 +53,6 @@ jobs:
           "installer=$($package.Path)" >> $env:GITHUB_OUTPUT
           "product_code=$($package.ProductCode)" >> $env:GITHUB_OUTPUT
           $package | Format-List
-
-      - name: Require release signing credentials
-        if: github.event_name == 'release'
-        shell: pwsh
-        run: |
-          if ([string]::IsNullOrWhiteSpace($env:SIGNING_CERTIFICATE) -or [string]::IsNullOrWhiteSpace($env:SIGNING_PASSWORD)) {
-              throw 'WINDOWS_SIGNING_CERTIFICATE and WINDOWS_SIGNING_PASSWORD secrets are required for a release MSI.'
-          }
-
-      - name: Sign release MSI
-        if: github.event_name == 'release'
-        shell: pwsh
-        run: |
-          $certificatePath = Join-Path $env:RUNNER_TEMP 'intune-assignment-checker-signing.pfx'
-          [IO.File]::WriteAllBytes($certificatePath, [Convert]::FromBase64String($env:SIGNING_CERTIFICATE))
-          & signtool sign /fd SHA256 /td SHA256 /tr http://timestamp.digicert.com /f $certificatePath /p $env:SIGNING_PASSWORD '${{ steps.package.outputs.installer }}'
-          if ($LASTEXITCODE -ne 0) { throw 'Authenticode signing failed.' }
-          & signtool verify /pa /v '${{ steps.package.outputs.installer }}'
-          if ($LASTEXITCODE -ne 0) { throw 'Authenticode signature verification failed.' }
-          Remove-Item -LiteralPath $certificatePath -Force
 
       - name: Verify installation and removal
         shell: pwsh
@@ -188,6 +165,15 @@ jobs:
                       throw "The command launcher directory remained in the machine PATH after removal: '$commandFolder'."
                   }
               }
+          }
+
+      - name: Reject executable artifacts
+        shell: pwsh
+        run: |
+          $executables = @(Get-ChildItem -LiteralPath ./artifacts -Recurse -File -Filter *.exe)
+          if ($executables.Count -gt 0) {
+              $paths = $executables.FullName -join [Environment]::NewLine
+              throw "Windows releases must not contain executable artifacts:$([Environment]::NewLine)$paths"
           }
 
       - name: Generate WinGet manifests

@@ -75,6 +75,18 @@ Describe 'IntuneAssignmentChecker release package' {
         (Get-Content (Join-Path $repoRoot 'packaging/README.md') -Raw) | Should -Match 'does not compile or wrap'
     }
 
+    It 'publishes an unsigned MSI without executable artifacts or signing secrets' {
+        $workflow = Get-Content (Join-Path $repoRoot '.github/workflows/windows-package.yml') -Raw
+        $packagingReadme = Get-Content (Join-Path $repoRoot 'packaging/README.md') -Raw
+
+        $workflow | Should -Not -Match 'SIGNING_CERTIFICATE|SIGNING_PASSWORD|signtool|Authenticode'
+        $workflow | Should -Match 'Reject executable artifacts'
+        $workflow | Should -Match 'artifacts/\*\.msi'
+        $workflow | Should -Not -Match 'artifacts/\*\.exe'
+        $packagingReadme | Should -Match 'without Authenticode signing'
+        $packagingReadme | Should -Match 'does not sign or host'
+    }
+
     It 'ships a PowerShell 7 command handoff without duplicating application logic' {
         $launcherPath = Join-Path $repoRoot 'packaging/IntuneAssignmentChecker.cmd'
         $bootstrapPath = Join-Path $repoRoot 'packaging/Start-IntuneAssignmentChecker.ps1'

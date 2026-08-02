@@ -31,7 +31,11 @@ dotnet tool install --global wix --version 6.0.2
 ./packaging/Build-WindowsInstaller.ps1
 ```
 
-The release workflow signs the MSI, emits an SBOM and provenance attestation,
-and generates versioned WinGet manifests after the signed artifact hash is known.
-The generated manifest directory is ready for `winget validate` and submission to
+The Windows MSI is intentionally published without Authenticode signing. The
+release workflow emits the unsigned MSI, an SBOM, a provenance attestation, and
+versioned WinGet manifests using the final artifact hash. It rejects `.exe`
+artifacts before anything is uploaded. The MSI remains a versioned GitHub Release
+asset because WinGet manifests require a publisher-hosted HTTPS `InstallerUrl`;
+WinGet validates and installs the package but does not sign or host it. The
+generated manifest directory is ready for `winget validate` and submission to
 `microsoft/winget-pkgs`.
