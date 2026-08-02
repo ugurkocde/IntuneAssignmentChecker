@@ -28,6 +28,19 @@ network. The full suite normally completes in under a minute.
 **Why these tests matter:** most regressions in this codebase are string-format
 changes that slip past static analysis. Unit tests at this layer catch them.
 
+The MCP parity fixture in `Tests/Parity/assignment-parity.v1.json` is generated
+from the PowerShell normalization helpers by `Export-McpParityFixtures.ps1`.
+Its unit test regenerates the canonical content (normalizing only CRLF to LF),
+so behavior changes cannot silently leave the TypeScript reference contract
+stale on any supported runner operating system.
+
+When the MCP GitHub repository is available, set the repository Actions variable
+`IAC_MCP_REPOSITORY` to its `owner/name`. The `MCP parity gate` workflow then
+checks every relevant PowerShell PR and push against the TypeScript MCP. Private
+MCP repositories also require the `IAC_MCP_REPOSITORY_TOKEN` secret with read
+access. This creates a release gate: update the MCP compatibly first, then merge
+the PowerShell behavior change.
+
 ### Run locally
 
 ```powershell

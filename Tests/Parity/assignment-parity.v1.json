@@ -1,0 +1,442 @@
+{
+  "contractName": "IntuneAssignmentChecker.McpAssignmentParity",
+  "contractVersion": 1,
+  "graphApiVersion": "beta",
+  "generatedBy": "IntuneAssignmentChecker PowerShell reference implementation",
+  "cases": [
+    {
+      "name": "configuration group include with assignment filter",
+      "category": "configurationPolicy",
+      "policy": {
+        "id": "11111111-1111-1111-1111-111111111111",
+        "name": "Windows security baseline",
+        "displayName": null,
+        "platforms": "windows10",
+        "technologies": "mdm",
+        "roleScopeTagIds": [
+          "0",
+          "7"
+        ]
+      },
+      "assignment": {
+        "id": "assignment-group-include",
+        "intent": null,
+        "target": {
+          "@odata.type": "#microsoft.graph.groupAssignmentTarget",
+          "groupId": "22222222-2222-2222-2222-222222222222",
+          "deviceAndAppManagementAssignmentFilterId": "33333333-3333-3333-3333-333333333333",
+          "deviceAndAppManagementAssignmentFilterType": "include"
+        }
+      },
+      "lookups": {
+        "groups": [
+          {
+            "id": "22222222-2222-2222-2222-222222222222",
+            "displayName": "Pilot Devices"
+          }
+        ],
+        "filters": [
+          {
+            "id": "33333333-3333-3333-3333-333333333333",
+            "displayName": "Corporate Windows",
+            "platform": "windows10AndLater",
+            "rule": "(device.deviceOwnership -eq \"Corporate\")"
+          }
+        ]
+      },
+      "expected": {
+        "categoryId": "configurationPolicy",
+        "category": "Settings Catalog and Endpoint Security",
+        "policyId": "11111111-1111-1111-1111-111111111111",
+        "policyName": "Windows security baseline",
+        "platform": "Windows",
+        "roleScopeTagIds": [
+          "0",
+          "7"
+        ],
+        "assignmentId": "assignment-group-include",
+        "assignmentMode": "Include",
+        "targetType": "Group",
+        "targetId": "22222222-2222-2222-2222-222222222222",
+        "targetName": "Pilot Devices",
+        "intent": null,
+        "filterId": "33333333-3333-3333-3333-333333333333",
+        "filterName": "Corporate Windows",
+        "filterMode": "include",
+        "filterRule": "(device.deviceOwnership -eq \"Corporate\")",
+        "filterPlatform": "windows10AndLater",
+        "source": "MicrosoftGraph"
+      }
+    },
+    {
+      "name": "configuration group exclusion",
+      "category": "configurationPolicy",
+      "policy": {
+        "id": "44444444-4444-4444-4444-444444444444",
+        "name": "Windows update ring",
+        "displayName": null,
+        "platforms": "windows10",
+        "technologies": "mdm",
+        "roleScopeTagIds": [
+          "0"
+        ]
+      },
+      "assignment": {
+        "id": "assignment-group-exclude",
+        "intent": null,
+        "target": {
+          "@odata.type": "#microsoft.graph.exclusionGroupAssignmentTarget",
+          "groupId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+          "deviceAndAppManagementAssignmentFilterId": null,
+          "deviceAndAppManagementAssignmentFilterType": "none"
+        }
+      },
+      "lookups": {
+        "groups": [
+          {
+            "id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+            "displayName": "Excluded Devices"
+          }
+        ],
+        "filters": []
+      },
+      "expected": {
+        "categoryId": "configurationPolicy",
+        "category": "Settings Catalog and Endpoint Security",
+        "policyId": "44444444-4444-4444-4444-444444444444",
+        "policyName": "Windows update ring",
+        "platform": "Windows",
+        "roleScopeTagIds": [
+          "0"
+        ],
+        "assignmentId": "assignment-group-exclude",
+        "assignmentMode": "Exclude",
+        "targetType": "Group",
+        "targetId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+        "targetName": "Excluded Devices",
+        "intent": null,
+        "filterId": null,
+        "filterName": null,
+        "filterMode": null,
+        "filterRule": null,
+        "filterPlatform": null,
+        "source": "MicrosoftGraph"
+      }
+    },
+    {
+      "name": "all licensed users target",
+      "category": "configurationPolicy",
+      "policy": {
+        "id": "55555555-5555-5555-5555-555555555555",
+        "name": "User certificate policy",
+        "displayName": null,
+        "platforms": "windows10",
+        "technologies": "mdm",
+        "roleScopeTagIds": []
+      },
+      "assignment": {
+        "id": "assignment-all-users",
+        "intent": null,
+        "target": {
+          "@odata.type": "#microsoft.graph.allLicensedUsersAssignmentTarget",
+          "deviceAndAppManagementAssignmentFilterId": "33333333-3333-3333-3333-333333333333",
+          "deviceAndAppManagementAssignmentFilterType": "none"
+        }
+      },
+      "lookups": {
+        "groups": [],
+        "filters": [
+          {
+            "id": "33333333-3333-3333-3333-333333333333",
+            "displayName": "Corporate Windows",
+            "platform": "windows10AndLater",
+            "rule": "(device.deviceOwnership -eq \"Corporate\")"
+          }
+        ]
+      },
+      "expected": {
+        "categoryId": "configurationPolicy",
+        "category": "Settings Catalog and Endpoint Security",
+        "policyId": "55555555-5555-5555-5555-555555555555",
+        "policyName": "User certificate policy",
+        "platform": "Windows",
+        "roleScopeTagIds": [],
+        "assignmentId": "assignment-all-users",
+        "assignmentMode": "Include",
+        "targetType": "AllUsers",
+        "targetId": null,
+        "targetName": "All Users",
+        "intent": null,
+        "filterId": null,
+        "filterName": null,
+        "filterMode": null,
+        "filterRule": null,
+        "filterPlatform": null,
+        "source": "MicrosoftGraph"
+      }
+    },
+    {
+      "name": "all devices target suppresses empty filter sentinel",
+      "category": "configurationPolicy",
+      "policy": {
+        "id": "66666666-6666-6666-6666-666666666666",
+        "name": "Device restrictions",
+        "displayName": null,
+        "platforms": "windows10",
+        "technologies": "mdm",
+        "roleScopeTagIds": [
+          "7"
+        ]
+      },
+      "assignment": {
+        "id": "assignment-all-devices",
+        "intent": null,
+        "target": {
+          "@odata.type": "#microsoft.graph.allDevicesAssignmentTarget",
+          "deviceAndAppManagementAssignmentFilterId": "00000000-0000-0000-0000-000000000000",
+          "deviceAndAppManagementAssignmentFilterType": "include"
+        }
+      },
+      "lookups": {
+        "groups": [],
+        "filters": []
+      },
+      "expected": {
+        "categoryId": "configurationPolicy",
+        "category": "Settings Catalog and Endpoint Security",
+        "policyId": "66666666-6666-6666-6666-666666666666",
+        "policyName": "Device restrictions",
+        "platform": "Windows",
+        "roleScopeTagIds": [
+          "7"
+        ],
+        "assignmentId": "assignment-all-devices",
+        "assignmentMode": "Include",
+        "targetType": "AllDevices",
+        "targetId": null,
+        "targetName": "All Devices",
+        "intent": null,
+        "filterId": null,
+        "filterName": null,
+        "filterMode": null,
+        "filterRule": null,
+        "filterPlatform": null,
+        "source": "MicrosoftGraph"
+      }
+    },
+    {
+      "name": "mobile application assignment intent and platform",
+      "category": "application",
+      "policy": {
+        "id": "77777777-7777-7777-7777-777777777777",
+        "name": null,
+        "displayName": "Contoso Agent",
+        "@odata.type": "#microsoft.graph.win32LobApp",
+        "roleScopeTagIds": [
+          "0"
+        ],
+        "isAssigned": true
+      },
+      "assignment": {
+        "id": "assignment-app-required",
+        "intent": "required",
+        "source": "direct",
+        "target": {
+          "@odata.type": "#microsoft.graph.groupAssignmentTarget",
+          "groupId": "22222222-2222-2222-2222-222222222222",
+          "deviceAndAppManagementAssignmentFilterId": null,
+          "deviceAndAppManagementAssignmentFilterType": "none"
+        }
+      },
+      "lookups": {
+        "groups": [
+          {
+            "id": "22222222-2222-2222-2222-222222222222",
+            "displayName": "Pilot Devices"
+          }
+        ],
+        "filters": []
+      },
+      "expected": {
+        "categoryId": "application",
+        "category": "Application",
+        "policyId": "77777777-7777-7777-7777-777777777777",
+        "policyName": "Contoso Agent",
+        "platform": "Windows",
+        "roleScopeTagIds": [
+          "0"
+        ],
+        "assignmentId": "assignment-app-required",
+        "assignmentMode": "Include",
+        "targetType": "Group",
+        "targetId": "22222222-2222-2222-2222-222222222222",
+        "targetName": "Pilot Devices",
+        "intent": "required",
+        "filterId": null,
+        "filterName": null,
+        "filterMode": null,
+        "filterRule": null,
+        "filterPlatform": null,
+        "source": "MicrosoftGraph"
+      }
+    },
+    {
+      "name": "device configuration with unresolved group name",
+      "category": "deviceConfiguration",
+      "policy": {
+        "id": "88888888-8888-8888-8888-888888888888",
+        "name": null,
+        "displayName": "Legacy device restrictions",
+        "@odata.type": "#microsoft.graph.windows10GeneralConfiguration",
+        "roleScopeTagIds": [
+          "7"
+        ]
+      },
+      "assignment": {
+        "id": "assignment-unresolved-group",
+        "intent": null,
+        "target": {
+          "@odata.type": "#microsoft.graph.groupAssignmentTarget",
+          "groupId": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+          "deviceAndAppManagementAssignmentFilterId": null,
+          "deviceAndAppManagementAssignmentFilterType": "none"
+        }
+      },
+      "lookups": {
+        "groups": [],
+        "filters": []
+      },
+      "expected": {
+        "categoryId": "deviceConfiguration",
+        "category": "Device Configuration",
+        "policyId": "88888888-8888-8888-8888-888888888888",
+        "policyName": "Legacy device restrictions",
+        "platform": "Windows",
+        "roleScopeTagIds": [
+          "7"
+        ],
+        "assignmentId": "assignment-unresolved-group",
+        "assignmentMode": "Include",
+        "targetType": "Group",
+        "targetId": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+        "targetName": null,
+        "intent": null,
+        "filterId": null,
+        "filterName": null,
+        "filterMode": null,
+        "filterRule": null,
+        "filterPlatform": null,
+        "source": "MicrosoftGraph"
+      }
+    },
+    {
+      "name": "Android compliance assignment with exclude filter",
+      "category": "compliancePolicy",
+      "policy": {
+        "id": "99999999-9999-9999-9999-999999999999",
+        "name": null,
+        "displayName": "Corporate Android compliance",
+        "@odata.type": "#microsoft.graph.androidDeviceOwnerCompliancePolicy",
+        "roleScopeTagIds": [
+          "0"
+        ]
+      },
+      "assignment": {
+        "id": "assignment-compliance-filter-exclude",
+        "intent": null,
+        "target": {
+          "@odata.type": "#microsoft.graph.groupAssignmentTarget",
+          "groupId": "22222222-2222-2222-2222-222222222222",
+          "deviceAndAppManagementAssignmentFilterId": "cccccccc-cccc-cccc-cccc-cccccccccccc",
+          "deviceAndAppManagementAssignmentFilterType": "exclude"
+        }
+      },
+      "lookups": {
+        "groups": [
+          {
+            "id": "22222222-2222-2222-2222-222222222222",
+            "displayName": "Pilot Devices"
+          }
+        ],
+        "filters": [
+          {
+            "id": "cccccccc-cccc-cccc-cccc-cccccccccccc",
+            "displayName": "Personally owned Android",
+            "platform": "androidForWork",
+            "rule": "(device.deviceOwnership -eq \"Personal\")"
+          }
+        ]
+      },
+      "expected": {
+        "categoryId": "compliancePolicy",
+        "category": "Compliance Policy",
+        "policyId": "99999999-9999-9999-9999-999999999999",
+        "policyName": "Corporate Android compliance",
+        "platform": "Android Enterprise",
+        "roleScopeTagIds": [
+          "0"
+        ],
+        "assignmentId": "assignment-compliance-filter-exclude",
+        "assignmentMode": "Include",
+        "targetType": "Group",
+        "targetId": "22222222-2222-2222-2222-222222222222",
+        "targetName": "Pilot Devices",
+        "intent": null,
+        "filterId": "cccccccc-cccc-cccc-cccc-cccccccccccc",
+        "filterName": "Personally owned Android",
+        "filterMode": "exclude",
+        "filterRule": "(device.deviceOwnership -eq \"Personal\")",
+        "filterPlatform": "androidForWork",
+        "source": "MicrosoftGraph"
+      }
+    },
+    {
+      "name": "Android app configuration assigned to all devices",
+      "category": "appConfiguration",
+      "policy": {
+        "id": "dddddddd-dddd-dddd-dddd-dddddddddddd",
+        "name": null,
+        "displayName": "Managed browser configuration",
+        "@odata.type": "#microsoft.graph.androidManagedStoreAppConfiguration",
+        "roleScopeTagIds": [],
+        "targetedMobileApps": [
+          "77777777-7777-7777-7777-777777777777"
+        ]
+      },
+      "assignment": {
+        "id": "assignment-app-configuration-all-devices",
+        "intent": null,
+        "source": "direct",
+        "target": {
+          "@odata.type": "#microsoft.graph.allDevicesAssignmentTarget",
+          "deviceAndAppManagementAssignmentFilterId": null,
+          "deviceAndAppManagementAssignmentFilterType": "none"
+        }
+      },
+      "lookups": {
+        "groups": [],
+        "filters": []
+      },
+      "expected": {
+        "categoryId": "appConfiguration",
+        "category": "App Configuration Policy",
+        "policyId": "dddddddd-dddd-dddd-dddd-dddddddddddd",
+        "policyName": "Managed browser configuration",
+        "platform": "Android",
+        "roleScopeTagIds": [],
+        "assignmentId": "assignment-app-configuration-all-devices",
+        "assignmentMode": "Include",
+        "targetType": "AllDevices",
+        "targetId": null,
+        "targetName": "All Devices",
+        "intent": null,
+        "filterId": null,
+        "filterName": null,
+        "filterMode": null,
+        "filterRule": null,
+        "filterPlatform": null,
+        "source": "MicrosoftGraph"
+      }
+    }
+  ]
+}
