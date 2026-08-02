@@ -80,18 +80,47 @@ jobs:
       - name: Verify installation and removal
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
           $msi = '${{ steps.package.outputs.installer }}'
-          $install = Start-Process msiexec.exe -ArgumentList @('/i', $msi, '/qn', '/norestart') -Wait -PassThru
-          if ($install.ExitCode -ne 0) { throw "MSI installation failed with exit code $($install.ExitCode)." }
-          Import-Module IntuneAssignmentChecker -RequiredVersion '${{ steps.package.outputs.version }}' -Force
-          $module = Get-Module IntuneAssignmentChecker
-          if ($module.Version.ToString() -cne '${{ steps.package.outputs.version }}') { throw 'Installed module version mismatch.' }
-          $catalog = @(Get-IntuneAssignmentOperation)
-          $expected = @($module.ExportedFunctions.Keys | Where-Object { $_ -notin @('Get-IntuneAssignmentOperation', 'Invoke-IntuneAssignmentChecker', 'Start-IntuneAssignmentCheckerTui') })
-          if (@(Compare-Object $expected $catalog.Name).Count -gt 0) { throw 'TUI operation catalog is not in parity with installed exports.' }
-          Remove-Module IntuneAssignmentChecker
-          $remove = Start-Process msiexec.exe -ArgumentList @('/x', '${{ steps.package.outputs.product_code }}', '/qn', '/norestart') -Wait -PassThru
-          if ($remove.ExitCode -ne 0) { throw "MSI removal failed with exit code $($remove.ExitCode)." }
+          $installLog = Join-Path $env:RUNNER_TEMP 'intune-assignment-checker-install.log'
+          $removeLog = Join-Path $env:RUNNER_TEMP 'intune-assignment-checker-remove.log'
+          $installed = $false
+          try {
+              Write-Host "Installing $msi"
+              & msiexec.exe /i $msi /qn /norestart /L*V $installLog
+              $installExitCode = $LASTEXITCODE
+              Write-Host "MSI install exit code: $installExitCode"
+              if ($installExitCode -ne 0) {
+                  Get-Content -LiteralPath $installLog -Tail 200 -ErrorAction SilentlyContinue
+                  throw "MSI installation failed with exit code $installExitCode."
+              }
+              $installed = $true
+
+              $available = @(Get-Module -ListAvailable IntuneAssignmentChecker |
+                  Where-Object Version -EQ '${{ steps.package.outputs.version }}')
+              $available | Format-List Name, Version, Path
+              if ($available.Count -eq 0) { throw 'The installed module was not discoverable through PSModulePath.' }
+
+              Import-Module IntuneAssignmentChecker -RequiredVersion '${{ steps.package.outputs.version }}' -Force
+              $module = Get-Module IntuneAssignmentChecker | Select-Object -First 1
+              if ($module.Version.ToString() -cne '${{ steps.package.outputs.version }}') { throw 'Installed module version mismatch.' }
+              $catalog = @(Get-IntuneAssignmentOperation)
+              $expected = @($module.ExportedFunctions.Keys | Where-Object { $_ -notin @('Get-IntuneAssignmentOperation', 'Invoke-IntuneAssignmentChecker', 'Start-IntuneAssignmentCheckerTui') })
+              if (@(Compare-Object $expected $catalog.Name).Count -gt 0) { throw 'TUI operation catalog is not in parity with installed exports.' }
+              Write-Host "Verified $($catalog.Count) installed TUI operations."
+          }
+          finally {
+              Remove-Module IntuneAssignmentChecker -ErrorAction SilentlyContinue
+              if ($installed) {
+                  & msiexec.exe /x '${{ steps.package.outputs.product_code }}' /qn /norestart /L*V $removeLog
+                  $removeExitCode = $LASTEXITCODE
+                  Write-Host "MSI removal exit code: $removeExitCode"
+                  if ($removeExitCode -ne 0) {
+                      Get-Content -LiteralPath $removeLog -Tail 200 -ErrorAction SilentlyContinue
+                      throw "MSI removal failed with exit code $removeExitCode."
+                  }
+              }
+          }
 
       - name: Generate WinGet manifests
         shell: pwsh
