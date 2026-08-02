@@ -20,7 +20,10 @@ function Test-IntuneGroupRemoval {
         [string]$ExportPath,
 
         [Parameter()]
-        [string]$ScopeTagFilter
+        [string]$ScopeTagFilter,
+
+        [Parameter()]
+        [switch]$PassThru
     )
 
     Write-Host "Group Membership Removal Impact Analysis selected" -ForegroundColor Green
@@ -488,5 +491,6 @@ function Test-IntuneGroupRemoval {
         })
     }
 
-    Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneGroupRemovalImpact.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath -ExportToCSV:$ExportToCSV -ParameterMode:$parameterMode
+    Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneGroupRemovalImpact.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath -ExportToCSV:$ExportToCSV -ParameterMode:$PassThru
+    if ($PassThru) { $exportData }
 }

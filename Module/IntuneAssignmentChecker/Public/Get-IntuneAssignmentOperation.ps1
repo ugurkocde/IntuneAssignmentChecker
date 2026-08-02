@@ -1,13 +1,13 @@
 function Get-IntuneAssignmentOperation {
     <#
     .SYNOPSIS
-    Returns the operation catalog used by the terminal UI.
+    Returns structured metadata for exported module operations.
 
     .DESCRIPTION
     Discovers every exported operational command and returns structured metadata
     for its help, capabilities, parameter sets, parameters, and validation choices.
-    The terminal UI consumes this catalog directly, which keeps it in parity with
-    the PowerShell module without a second command implementation.
+    This is an automation and documentation surface. The task-oriented terminal
+    interface uses its own workflow registry backed by the same module functions.
 
     .PARAMETER Name
     Optional wildcard pattern used to filter command names.

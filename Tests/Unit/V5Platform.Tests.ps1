@@ -10,41 +10,439 @@ AfterAll {
     Remove-Module IntuneAssignmentChecker -Force -ErrorAction SilentlyContinue
 }
 
-Describe 'v5 terminal UI parity' {
-    It 'discovers every exported operation except its own catalog and UI infrastructure' {
+Describe 'v5 task-oriented terminal UI' {
+    It 'maps every operational export to at least one friendly task' {
         $module = Get-Module IntuneAssignmentChecker
         $expected = @($module.ExportedFunctions.Keys | Where-Object {
                 $_ -notin @('Get-IntuneAssignmentOperation', 'Invoke-IntuneAssignmentChecker', 'Start-IntuneAssignmentCheckerTui')
             } | Sort-Object)
-        $actual = @((Get-IntuneAssignmentOperation).Name | Sort-Object)
+        $parity = & $module { param($CommandName) Test-IACTuiFeatureParity -CommandName $CommandName } $expected
 
-        $actual | Should -Be $expected
+        $parity.Complete | Should -BeTrue
+        $parity.Mapped | Should -Be $expected
+        $parity.Missing.Count | Should -Be 0
+        $parity.Unknown.Count | Should -Be 0
     }
 
-    It 'exposes parameter sets and editable parameter metadata from the real command' {
+    It 'provides the approved Command Center workspaces' {
+        $registry = & (Get-Module IntuneAssignmentChecker) { Get-IACTuiFeatureRegistry }
+
+        $registry.Id | Should -Be @('Overview', 'Assignments', 'Governance', 'Simulator', 'Drift', 'Health', 'Access', 'Filters', 'Fleet', 'Reports', 'Settings')
+        $registry.Title | Should -Contain 'Change simulator'
+        $registry.Title | Should -Contain 'RBAC & scope'
+        $registry.Title | Should -Contain 'Reports & data'
+    }
+
+    It 'keeps command names and PowerShell parameter syntax out of visible workflow copy' {
+        $registry = @(& (Get-Module IntuneAssignmentChecker) { Get-IACTuiFeatureRegistry })
+        $visibleCopy = @(
+            $registry.Title
+            $registry.Summary
+            $registry.Actions.Label
+            $registry.Actions.Description
+        ) -join "`n"
+
+        foreach ($commandName in @($registry.Commands)) {
+            $visibleCopy | Should -Not -Match ([regex]::Escape($commandName))
+        }
+        $visibleCopy | Should -Not -Match '(?m)^\s*-[A-Z][A-Za-z]+'
+    }
+
+    It 'renders the Draft A layout with the Draft B palette and clickable targets' {
+        $result = & (Get-Module IntuneAssignmentChecker) {
+            $state = New-IACTuiState
+            $plain = Get-IACTuiFrame -State $state -Width 120 -Height 36
+            $ansi = Get-IACTuiFrame -State $state -Width 120 -Height 36 -Ansi
+            [PSCustomObject]@{ Plain = $plain; Ansi = $ansi; HitTargets = @($state.HitTargets) }
+        }
+
+        $result.Plain | Should -Match 'INTUNE ASSIGNMENT CHECKER'
+        $result.Plain | Should -Match 'WORKSPACES'
+        $result.Plain | Should -Match 'PRIORITY FINDINGS'
+        $result.Plain | Should -Not -Match 'Test-IntuneAssignmentGovernance'
+        @($result.Plain -split "`n").Count | Should -Be 36
+        @($result.Plain -split "`n" | Where-Object Length -NE 120).Count | Should -Be 0
+        $result.Ansi | Should -Match ([regex]::Escape("`e[38;2;244;184;96m"))
+        $result.Ansi | Should -Match ([regex]::Escape("`e[48;2;244;184;96m"))
+        # Eleven workspace rows plus the clickable tenant/profile indicator.
+        @($result.HitTargets | Where-Object Action -EQ Navigate).Count | Should -Be 12
+        @($result.HitTargets | Where-Object Action -EQ InvokeAction).Count | Should -BeGreaterThan 0
+    }
+
+    It 'wraps every workspace action into a mouse-accessible button' {
+        $counts = & (Get-Module IntuneAssignmentChecker) {
+            $state = New-IACTuiState -InitialView Assignments
+            $null = Get-IACTuiFrame -State $state -Width 120 -Height 36
+            [PSCustomObject]@{
+                Expected = @(($state.Registry | Where-Object Id -EQ Assignments).Actions).Count
+                Actual = @($state.HitTargets | Where-Object Action -EQ InvokeAction).Count
+            }
+        }
+
+        $counts.Actual | Should -Be $counts.Expected
+        $counts.Actual | Should -BeGreaterThan 1
+    }
+
+    It 'parses SGR clicks, releases, movement, modifiers, and wheel input' {
+        $events = & (Get-Module IntuneAssignmentChecker) {
+            @(
+                ConvertFrom-IACTuiInputSequence -Sequence "`e[<0;12;7M"
+                ConvertFrom-IACTuiInputSequence -Sequence "`e[<0;12;7m"
+                ConvertFrom-IACTuiInputSequence -Sequence "`e[<36;5;9M"
+                ConvertFrom-IACTuiInputSequence -Sequence "`e[<64;9;4M"
+                ConvertFrom-IACTuiInputSequence -Sequence "`e[<65;9;4M"
+            )
+        }
+
+        $events[0].Kind | Should -BeExactly Mouse
+        $events[0].Button | Should -BeExactly Left
+        $events[0].Action | Should -BeExactly Down
+        $events[0].X | Should -Be 11
+        $events[0].Y | Should -Be 6
+        $events[1].Action | Should -BeExactly Up
+        $events[2].Action | Should -BeExactly Move
+        $events[2].Shift | Should -BeTrue
+        $events[3].WheelDelta | Should -Be 1
+        $events[4].WheelDelta | Should -Be -1
+    }
+
+    It 'resolves the topmost mouse target and routes clicks without executing workflows' {
+        $result = & (Get-Module IntuneAssignmentChecker) {
+            $state = New-IACTuiState
+            Add-IACTuiHitTarget -State $state -X 1 -Y 1 -Width 8 -Height 2 -Action Navigate -Value Overview
+            Add-IACTuiHitTarget -State $state -X 3 -Y 1 -Width 3 -Height 1 -Action Navigate -Value Governance
+            $resolved = Get-IACTuiHitTarget -State $state -X 4 -Y 1
+            Invoke-IACTuiInputEvent -State $state -InputEvent ([PSCustomObject]@{
+                    Kind = 'Mouse'; X = 4; Y = 1; Button = 'Left'; Action = 'Down'; WheelDelta = 0
+                }) -SkipActionInvoke
+            [PSCustomObject]@{ Resolved = $resolved; ActiveViewId = $state.ActiveViewId }
+        }
+
+        $result.Resolved.Value | Should -BeExactly Governance
+        $result.ActiveViewId | Should -BeExactly Governance
+    }
+
+    It 'provides full keyboard navigation when mouse reporting is unavailable' {
+        $state = & (Get-Module IntuneAssignmentChecker) {
+            $state = New-IACTuiState
+            Invoke-IACTuiInputEvent -State $state -InputEvent (New-IACTuiKeyEvent -Key DownArrow) -SkipActionInvoke
+            Invoke-IACTuiInputEvent -State $state -InputEvent (New-IACTuiKeyEvent -Key Enter) -SkipActionInvoke
+            Invoke-IACTuiInputEvent -State $state -InputEvent (New-IACTuiKeyEvent -Key Tab) -SkipActionInvoke
+            $state
+        }
+
+        $state.ActiveViewId | Should -BeExactly Assignments
+        $state.Focus | Should -BeExactly Navigation
+    }
+
+    It 'keeps tiny, minimum, and oversized terminal frames renderable' {
+        $frames = & (Get-Module IntuneAssignmentChecker) {
+            $state = New-IACTuiState -InitialView Assignments
+            [PSCustomObject]@{
+                Tiny = Get-IACTuiFrame -State $state -Width 1 -Height 1
+                Small = Get-IACTuiFrame -State $state -Width 10 -Height 5
+                Minimum = Get-IACTuiFrame -State $state -Width 90 -Height 26
+                Oversized = Get-IACTuiFrame -State $state -Width 1200 -Height 600
+            }
+        }
+
+        $frames.Tiny.Length | Should -Be 1
+        @($frames.Small -split "`n").Count | Should -Be 5
+        $frames.Minimum | Should -Match 'DETAIL'
+        @($frames.Minimum -split "`n").Count | Should -Be 26
+        @($frames.Oversized -split "`n").Count | Should -Be 500
+    }
+
+    It 'combines Windows VT and mouse flags while disabling Quick Edit' {
+        $mode = & (Get-Module IntuneAssignmentChecker) { Get-IACWindowsTuiInputMode -Mode ([uint32]0x0041) }
+
+        ($mode -band 0x0200) | Should -Be 0x0200
+        ($mode -band 0x0010) | Should -Be 0x0010
+        ($mode -band 0x0080) | Should -Be 0x0080
+        ($mode -band 0x0040) | Should -Be 0
+        ($mode -band 0x0001) | Should -Be 0x0001
+    }
+
+    It 'preserves keyboard-selected least-privilege capability combinations' {
+        $selection = @(& (Get-Module IntuneAssignmentChecker) {
+            $queue = [Collections.Generic.Queue[object]]::new()
+            foreach ($key in @('Spacebar', 'DownArrow', 'Spacebar', 'DownArrow', 'DownArrow', 'Enter')) {
+                $queue.Enqueue((New-IACTuiKeyEvent -Key $key))
+            }
+            $reader = { $queue.Dequeue() }.GetNewClosure()
+            $state = New-IACTuiState
+            Read-IACTuiMultiChoice -State $state -Title 'Test' -Prompt 'Test' `
+                -Choice @('Core', 'Audit', 'Full') -DefaultChoice @('Full') `
+                -InputProvider $reader -SuppressRender
+        })
+
+        $selection | Should -Be @('Core', 'Audit')
+        $selection | Should -Not -Contain Full
+    }
+
+    It 'stops connect and switch workflows when capability selection is cancelled' {
+        Mock Read-IACTuiChoice -ModuleName IntuneAssignmentChecker { 'Global' }
+        Mock Read-IACTuiMultiChoice -ModuleName IntuneAssignmentChecker { $null }
+        Mock Read-IACTuiConfirmation -ModuleName IntuneAssignmentChecker { $true }
+        Mock Read-IACTuiTextInput -ModuleName IntuneAssignmentChecker { throw 'The workflow continued after cancellation.' }
+        Mock Connect-IntuneAssignmentChecker -ModuleName IntuneAssignmentChecker {}
+        Mock Switch-IntuneAssignmentCheckerTenant -ModuleName IntuneAssignmentChecker {}
+
+        & (Get-Module IntuneAssignmentChecker) {
+            $state = New-IACTuiState -InitialView Settings
+            Invoke-IACTuiWorkflowAction -State $state -ActionId ConnectTenant
+            Invoke-IACTuiWorkflowAction -State $state -ActionId SwitchTenant
+        }
+
+        Should -Invoke Read-IACTuiMultiChoice -ModuleName IntuneAssignmentChecker -Times 2
+        Should -Invoke Read-IACTuiTextInput -ModuleName IntuneAssignmentChecker -Times 0
+        Should -Invoke Connect-IntuneAssignmentChecker -ModuleName IntuneAssignmentChecker -Times 0
+        Should -Invoke Switch-IntuneAssignmentCheckerTenant -ModuleName IntuneAssignmentChecker -Times 0
+    }
+
+    It 'separates notices, preserves partial data, and fails only empty error results' {
+        $result = & (Get-Module IntuneAssignmentChecker) {
+            $warningState = New-IACTuiState -InitialView Settings
+            $null = Invoke-IACTuiCapturedOperation -State $warningState -ViewId Settings -SuccessMessage 'Completed.' -SuppressRender -Operation {
+                Write-Warning 'Partial workload coverage.'
+                [PSCustomObject]@{ Title = 'Result'; Status = 'Available' }
+            }
+            $partialState = New-IACTuiState -InitialView Assignments
+            $partialOutput = @(Invoke-IACTuiCapturedOperation -State $partialState -ViewId Assignments -SuccessMessage 'Loaded.' -SuppressRender -Operation {
+                    Write-Error 'One workload was unavailable.'
+                    [PSCustomObject]@{ Title = 'Usable result'; Status = 'Available' }
+                })
+            $errorState = New-IACTuiState -InitialView Settings
+            $errorOutput = @(Invoke-IACTuiCapturedOperation -State $errorState -ViewId Settings -SuccessMessage 'Should not appear.' -SuppressRender -Operation {
+                    Write-Error 'The requested user was not found.'
+                })
+            [PSCustomObject]@{
+                WarningRows = @($warningState.Rows.Settings)
+                WarningStatus = $warningState.StatusStyle
+                WarningNotices = @($warningState.Notices.Settings)
+                PartialRows = @($partialState.Rows.Assignments)
+                PartialNotices = @($partialState.Notices.Assignments)
+                PartialStatus = $partialState.StatusStyle
+                PartialOutputCount = $partialOutput.Count
+                ErrorRows = @($errorState.Rows.Settings)
+                ErrorStatus = $errorState.StatusStyle
+                ErrorMessage = $errorState.StatusMessage
+                ErrorOutputCount = $errorOutput.Count
+            }
+        }
+
+        $result.WarningRows.Count | Should -Be 1
+        $result.WarningRows[0].Title | Should -BeExactly Result
+        $result.WarningNotices.Count | Should -Be 1
+        $result.WarningStatus | Should -BeExactly Warning
+        $result.PartialRows.Count | Should -Be 1
+        $result.PartialRows[0].Title | Should -BeExactly 'Usable result'
+        $result.PartialNotices.Count | Should -Be 1
+        $result.PartialStatus | Should -BeExactly Warning
+        $result.PartialOutputCount | Should -Be 1
+        $result.ErrorRows[0].Status | Should -BeExactly Error
+        $result.ErrorStatus | Should -BeExactly Error
+        $result.ErrorMessage | Should -Match 'not found'
+        $result.ErrorOutputCount | Should -Be 0
+    }
+
+    It 'recognizes legacy host-rendered validation failures as errors' {
+        $state = & (Get-Module IntuneAssignmentChecker) {
+            $state = New-IACTuiState -InitialView Simulator
+            $output = @(Invoke-IACTuiCapturedOperation -State $state -ViewId Simulator -SuccessMessage 'Should not appear.' -SuppressRender -Operation {
+                    Write-Host "Multiple devices match name 'DESKTOP-01'. Use a more specific name." -ForegroundColor Red
+                    Write-Host '  - DESKTOP-01 (ID: device-1, OS: Windows)'
+                    Write-Host '  - DESKTOP-01 (ID: device-2, OS: Windows)'
+                })
+            [PSCustomObject]@{ State = $state; OutputCount = $output.Count }
+        }
+
+        $state.State.StatusStyle | Should -BeExactly Error
+        $state.State.Rows.Simulator[0].Status | Should -BeExactly Error
+        $state.State.Rows.Simulator.Count | Should -Be 3
+        $state.State.StatusMessage | Should -Match 'Multiple devices match'
+        $state.OutputCount | Should -Be 0
+    }
+
+    It 'keeps progress messages visible without treating them as semantic results' {
+        $result = & (Get-Module IntuneAssignmentChecker) {
+            $state = New-IACTuiState -InitialView Drift
+            $output = @(Invoke-IACTuiCapturedOperation -State $state -ViewId Drift -SuccessMessage 'No drift detected.' -SuppressRender -Operation {
+                    Write-Host '[1/2] Capturing Device configurations...'
+                    Write-Host '[2/2] Capturing Applications...'
+                })
+            [PSCustomObject]@{ State = $state; OutputCount = $output.Count }
+        }
+
+        $result.OutputCount | Should -Be 0
+        $result.State.Rows.Drift.Count | Should -Be 2
+        $result.State.RawResults.Drift.Count | Should -Be 0
+        $result.State.StatusStyle | Should -BeExactly Success
+    }
+
+    It 'replaces stale workspace data when an operation terminates' {
+        $state = & (Get-Module IntuneAssignmentChecker) {
+            $state = New-IACTuiState -InitialView Assignments
+            $state.Rows.Assignments = @([PSCustomObject]@{ Title = 'Stale result'; Status = 'Available' })
+            $state.RawResults.Assignments = @([PSCustomObject]@{ Id = 'stale' })
+            $state.Notices.Assignments = @([PSCustomObject]@{ Status = 'Warning'; Message = 'Stale notice' })
+            $null = Invoke-IACTuiCapturedOperation -State $state -ViewId Assignments -SuccessMessage 'Should not appear.' -SuppressRender -Operation {
+                throw 'The operation terminated.'
+            }
+            $state
+        }
+
+        $state.Rows.Assignments.Count | Should -Be 1
+        $state.Rows.Assignments[0].Title | Should -BeExactly 'Operation failed'
+        $state.RawResults.Assignments[0].Title | Should -BeExactly 'Operation failed'
+        $state.Notices.Assignments.Count | Should -Be 1
+        $state.Notices.Assignments[0].Message | Should -BeExactly 'The operation terminated.'
+        $state.StatusStyle | Should -BeExactly Error
+    }
+
+    It 'keeps overview and drift metrics unknown when their operations fail' {
+        Mock Test-IACTuiConnected -ModuleName IntuneAssignmentChecker { $true }
+        Mock Read-IACTuiTextInput -ModuleName IntuneAssignmentChecker {
+            if ($Prompt -like 'Approved baseline*') { 'baseline.json' } else { 'current.json' }
+        }
+        Mock Invoke-IACTuiCapturedOperation -ModuleName IntuneAssignmentChecker {
+            $State.StatusMessage = 'Graph request failed.'
+            $State.StatusStyle = 'Error'
+            @()
+        }
+
+        $states = & (Get-Module IntuneAssignmentChecker) {
+            $overview = New-IACTuiState -InitialView Overview
+            $overview.Metrics.Critical = 0
+            $overview.Metrics.Coverage = 'Complete'
+            Invoke-IACTuiWorkflowAction -State $overview -ActionId RefreshOverview
+
+            $drift = New-IACTuiState -InitialView Drift
+            $drift.Metrics.Drift = 0
+            Invoke-IACTuiWorkflowAction -State $drift -ActionId RefreshDrift
+            [PSCustomObject]@{ Overview = $overview; Drift = $drift }
+        }
+
+        $states.Overview.Metrics.Critical | Should -BeNullOrEmpty
+        $states.Overview.Metrics.Coverage | Should -BeNullOrEmpty
+        $states.Drift.Metrics.Drift | Should -BeNullOrEmpty
+        $states.Overview.StatusStyle | Should -BeExactly Error
+        $states.Drift.StatusStyle | Should -BeExactly Error
+    }
+
+    It 'exports scan records and preserves incomplete snapshot coverage' {
+        $path = Join-Path $TestDrive 'tui-scan-snapshot.json'
+        $snapshot = & (Get-Module IntuneAssignmentChecker) {
+            param($Path)
+            $script:CurrentTenantId = 'tenant-1'
+            $record = New-IACAssignmentRecord -CategoryId Applications -Category Applications `
+                -PolicyId app-1 -PolicyName 'Required App' -AssignmentMode Include -TargetType AllUsers
+            $run = [PSCustomObject]@{
+                Records = @($record)
+                Selected = @('Applications', 'WindowsFeatureUpdates')
+                Complete = $false
+                Errors = @([PSCustomObject]@{ CategoryId = 'WindowsFeatureUpdates'; Message = 'Permission denied.' })
+                Skipped = @()
+            }
+            Export-IACTuiScanRunSnapshot -Run $run -Path $Path
+        } $path
+
+        $snapshot.Records.Count | Should -Be 1
+        $snapshot.Coverage.Complete | Should -BeFalse
+        ($snapshot.Coverage.Categories | Where-Object CategoryId -EQ WindowsFeatureUpdates).Status | Should -BeExactly Failed
+    }
+
+    It 'uses Escape as back and reserves Q or Ctrl+C for clean exit' {
+        $states = & (Get-Module IntuneAssignmentChecker) {
+            $escapeState = New-IACTuiState -InitialView Assignments
+            $escapeState.Focus = 'Content'
+            Invoke-IACTuiInputEvent -State $escapeState -InputEvent (New-IACTuiKeyEvent -Key Escape) -SkipActionInvoke
+            $quitState = New-IACTuiState
+            Invoke-IACTuiInputEvent -State $quitState -InputEvent (New-IACTuiKeyEvent -Key Q -Character q) -SkipActionInvoke
+            $controlState = New-IACTuiState
+            Invoke-IACTuiInputEvent -State $controlState -InputEvent (New-IACTuiKeyEvent -Key C -Character ([char]3) -Modifiers Control) -SkipActionInvoke
+            [PSCustomObject]@{ Escape = $escapeState; Quit = $quitState; Control = $controlState }
+        }
+
+        $states.Escape.ExitRequested | Should -BeFalse
+        $states.Escape.Focus | Should -BeExactly Navigation
+        $states.Quit.ExitRequested | Should -BeTrue
+        $states.Control.ExitRequested | Should -BeTrue
+    }
+
+    It 'keeps the Settings tenant-switch shortcut available from the keyboard' {
+        Mock Invoke-IACTuiWorkflowAction -ModuleName IntuneAssignmentChecker {}
+        $state = & (Get-Module IntuneAssignmentChecker) {
+            $state = New-IACTuiState -InitialView Settings
+            $state.Focus = 'Content'
+            Invoke-IACTuiInputEvent -State $state -InputEvent (New-IACTuiKeyEvent -Key T -Character t)
+            $navigationState = New-IACTuiState -InitialView Settings
+            $navigationState.Focus = 'Navigation'
+            Invoke-IACTuiInputEvent -State $navigationState -InputEvent (New-IACTuiKeyEvent -Key T -Character t)
+            [PSCustomObject]@{ Content = $state; Navigation = $navigationState }
+        }
+
+        $state.Content.ActiveViewId | Should -BeExactly Settings
+        $state.Navigation.ActiveViewId | Should -BeExactly Settings
+        Should -Invoke Invoke-IACTuiWorkflowAction -ModuleName IntuneAssignmentChecker -Times 2 -ParameterFilter { $ActionId -eq 'SwitchTenant' }
+    }
+
+    It 'exposes structured non-prompting output on every legacy workflow command' {
+        foreach ($name in @(
+                'Get-IntuneUserDeviceAssignment', 'Get-IntuneEmptyGroup', 'Search-IntuneSetting',
+                'Compare-IntuneGroupAssignment', 'Test-IntuneGroupMembership',
+                'Test-IntuneGroupRemoval', 'Get-IntuneFailedAssignment'
+            )) {
+            (Get-Command $name).Parameters.Keys | Should -Contain PassThru -Because "$name is called inside the command center"
+        }
+    }
+
+    It 'keeps legacy one-shot switches non-interactive through PassThru dispatch' {
+        Mock Connect-IntuneAssignmentChecker -ModuleName IntuneAssignmentChecker {}
+        Mock Get-MgContext -ModuleName IntuneAssignmentChecker { [PSCustomObject]@{ TenantId = 'tenant-1' } }
+        Mock Get-IntuneEmptyGroup -ModuleName IntuneAssignmentChecker {}
+        Mock Compare-IntuneGroupAssignment -ModuleName IntuneAssignmentChecker {}
+        Mock Get-IntuneFailedAssignment -ModuleName IntuneAssignmentChecker {}
+        Mock Test-IntuneGroupMembership -ModuleName IntuneAssignmentChecker {}
+        Mock Test-IntuneGroupRemoval -ModuleName IntuneAssignmentChecker {}
+        Mock Search-IntuneSetting -ModuleName IntuneAssignmentChecker {}
+        Mock Get-IntuneUserDeviceAssignment -ModuleName IntuneAssignmentChecker {}
+
+        Invoke-IntuneAssignmentChecker -CheckEmptyGroups
+        Invoke-IntuneAssignmentChecker -CompareGroups -CompareGroupNames 'A,B'
+        Invoke-IntuneAssignmentChecker -ShowFailedAssignments
+        Invoke-IntuneAssignmentChecker -SimulateGroupMembership -UserPrincipalNames 'user@example.test' -SimulateTargetGroup Group
+        Invoke-IntuneAssignmentChecker -SimulateRemoveFromGroup -UserPrincipalNames 'user@example.test' -SimulateRemoveTargetGroup Group
+        Invoke-IntuneAssignmentChecker -SearchSetting -SettingKeyword Firewall
+        Invoke-IntuneAssignmentChecker -CheckUserAndDevice -UserPrincipalNames 'user@example.test' -DeviceNames Device
+
+        Should -Invoke Get-IntuneEmptyGroup -ModuleName IntuneAssignmentChecker -Times 1 -ParameterFilter { $PassThru }
+        Should -Invoke Compare-IntuneGroupAssignment -ModuleName IntuneAssignmentChecker -Times 1 -ParameterFilter { $PassThru }
+        Should -Invoke Get-IntuneFailedAssignment -ModuleName IntuneAssignmentChecker -Times 1 -ParameterFilter { $PassThru }
+        Should -Invoke Test-IntuneGroupMembership -ModuleName IntuneAssignmentChecker -Times 1 -ParameterFilter { $PassThru }
+        Should -Invoke Test-IntuneGroupRemoval -ModuleName IntuneAssignmentChecker -Times 1 -ParameterFilter { $PassThru }
+        Should -Invoke Search-IntuneSetting -ModuleName IntuneAssignmentChecker -Times 1 -ParameterFilter { $PassThru }
+        Should -Invoke Get-IntuneUserDeviceAssignment -ModuleName IntuneAssignmentChecker -Times 1 -ParameterFilter { $PassThru }
+    }
+
+    It 'opens disconnected and does not force authentication before the UI starts' {
+        Mock Connect-IntuneAssignmentChecker -ModuleName IntuneAssignmentChecker {}
+        Mock Start-IntuneAssignmentCheckerTui -ModuleName IntuneAssignmentChecker {}
+
+        Invoke-IntuneAssignmentChecker
+
+        Should -Invoke Connect-IntuneAssignmentChecker -ModuleName IntuneAssignmentChecker -Times 0
+        Should -Invoke Start-IntuneAssignmentCheckerTui -ModuleName IntuneAssignmentChecker -Times 1
+    }
+}
+
+Describe 'v5 operation metadata API' {
+    It 'continues to expose structured parameter metadata for automation integrations' {
         $operation = Get-IntuneAssignmentOperation -Name Test-IntuneAssignmentGovernance
 
         $operation.ParameterSets.Count | Should -BeGreaterThan 1
         @($operation.ParameterSets.Parameters.Name) | Should -Contain 'SnapshotPath'
         @($operation.ParameterSets.Parameters.Name) | Should -Contain 'FailOnSeverity'
-    }
-
-    It 'accepts multiple ValidateSet choices for array parameters' {
-        Mock Read-Host -ModuleName IntuneAssignmentChecker { 'Core,Audit' }
-        Mock Write-Host -ModuleName IntuneAssignmentChecker {}
-        $parameter = [PSCustomObject]@{
-            Name = 'Capability'; Type = 'System.String[]'; TypeName = 'String[]'; Mandatory = $false
-            ValidateSet = @('Core', 'Audit', 'Full'); IsSwitch = $false; IsArray = $true
-            HelpMessage = $null
-        }
-
-        $value = & (Get-Module IntuneAssignmentChecker) {
-            param($Parameter)
-            Read-IACTuiParameterValue -Parameter $Parameter -CommandName Connect-IntuneAssignmentChecker
-        } $parameter
-
-        $value.Supplied | Should -BeTrue
-        $value.Value | Should -Be @('Core', 'Audit')
     }
 
     It 'uses concise descriptions and parameter help instead of generated syntax' {

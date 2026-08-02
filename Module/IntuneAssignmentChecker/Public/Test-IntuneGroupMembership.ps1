@@ -7,7 +7,8 @@ function Test-IntuneGroupMembership {
         [Parameter()][string]$GroupNames,
         [Parameter()][switch]$ExportToCSV,
         [Parameter()][string]$ExportPath,
-        [Parameter()][string]$ScopeTagFilter
+        [Parameter()][string]$ScopeTagFilter,
+        [Parameter()][switch]$PassThru
     )
 
     Write-Host "Group Membership Impact Analysis selected" -ForegroundColor Green
@@ -458,5 +459,6 @@ function Test-IntuneGroupMembership {
         })
     }
 
-    Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneGroupMembershipImpact.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath -ExportToCSV:$ExportToCSV -ParameterMode:$parameterMode
+    Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneGroupMembershipImpact.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath -ExportToCSV:$ExportToCSV -ParameterMode:$PassThru
+    if ($PassThru) { $exportData }
 }

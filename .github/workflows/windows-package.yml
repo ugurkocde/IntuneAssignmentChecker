@@ -110,14 +110,27 @@ jobs:
           Import-Module IntuneAssignmentChecker -RequiredVersion $Version -Force
           $module = Get-Module IntuneAssignmentChecker | Select-Object -First 1
           if ($module.Version.ToString() -cne $Version) { throw 'Installed module version mismatch.' }
-          $catalog = @(Get-IntuneAssignmentOperation)
           $expected = @($module.ExportedFunctions.Keys | Where-Object {
               $_ -notin @('Get-IntuneAssignmentOperation', 'Invoke-IntuneAssignmentChecker', 'Start-IntuneAssignmentCheckerTui')
           })
-          if (@(Compare-Object $expected $catalog.Name).Count -gt 0) {
-              throw 'TUI operation catalog is not in parity with installed exports.'
+          $verification = & $module {
+              param([string[]]$Expected)
+              $parity = Test-IACTuiFeatureParity -CommandName $Expected
+              $state = New-IACTuiState
+              $frame = Get-IACTuiFrame -State $state -Width 120 -Height 36
+              [PSCustomObject]@{
+                  Parity = $parity
+                  Frame = $frame
+                  HitTargetCount = $state.HitTargets.Count
+              }
+          } $expected
+          if (-not $verification.Parity.Complete) {
+              throw "TUI workflow registry is not in parity with installed exports. Missing: $($verification.Parity.Missing -join ', '); unknown: $($verification.Parity.Unknown -join ', ')."
           }
-          Write-Host "Verified $($catalog.Count) installed TUI operations."
+          if ($verification.Frame -notmatch 'INTUNE ASSIGNMENT CHECKER' -or $verification.HitTargetCount -lt 12) {
+              throw 'The installed terminal command center did not render its navigation and mouse targets.'
+          }
+          Write-Host "Verified $($verification.Parity.Mapped.Count) installed TUI workflow mappings and $($verification.HitTargetCount) mouse targets."
           '@ | Set-Content -LiteralPath $verificationScript -Encoding utf8
               & (Join-Path $PSHOME 'pwsh.exe') -NoLogo -NoProfile -File $verificationScript `
                   -Version '${{ steps.package.outputs.version }}'

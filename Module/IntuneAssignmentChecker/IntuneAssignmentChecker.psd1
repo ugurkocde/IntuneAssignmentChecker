@@ -68,7 +68,8 @@
             IconUri      = ''
             ReleaseNotes = @'
 Version 5.0.0:
-- Add a PowerShell-native terminal UI whose dynamic operation catalog stays in parity with exported module commands.
+- Add a mouse- and keyboard-enabled PowerShell terminal command center with native workspaces for every exported module capability.
+- Add structured -PassThru results to the remaining legacy assignment, simulation, failure, comparison, empty-group, and setting-search commands.
 - Add assignment governance, change simulation, drift attribution, fleet orchestration, delivery health, RBAC analysis, filter-set governance, capability-based authentication, and environment diagnostics.
 - Add schema-governed structured output, MSI packaging, and WinGet release automation without converting the module to an executable.
 

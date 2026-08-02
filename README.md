@@ -40,7 +40,7 @@
 ```powershell
 winget install --id UgurKoc.IntuneAssignmentChecker --exact
 
-# Open PowerShell 7, then launch the full terminal UI
+# Open PowerShell 7, then launch the command center
 pwsh
 Start-IntuneAssignmentCheckerTui
 ```
@@ -55,13 +55,15 @@ of IntuneAssignmentChecker.
 # Install from PowerShell Gallery
 Install-Module IntuneAssignmentChecker -Scope CurrentUser
 
-# Launch the full-parity terminal UI
+# Launch the assignment-governance command center
 Start-IntuneAssignmentCheckerTui
 ```
 
 The legacy `IntuneAssignmentChecker` alias remains available. The v5 terminal UI
-discovers the module's exported commands dynamically, so every module operation is
-also available through `Start-IntuneAssignmentCheckerTui` without a separate UI codebase.
+organizes every module capability into native task workspaces: Overview, Assignments,
+Governance, Change simulator, Drift, Delivery health, RBAC & scope, Filters, Fleet,
+Reports & data, and Settings. It is implemented in the same PowerShell source as the
+cmdlets, so there is no second application codebase or converted executable.
 
 If you encounter any issues during installation, try reinstalling:
 
@@ -92,7 +94,7 @@ Start-IntuneAssignmentCheckerTui
 
 ## ✨ Features
 
-- 🖥️ Full-parity, dependency-free terminal UI generated from the module's real command metadata
+- 🖥️ Full-parity PowerShell command center with purpose-built workflows, mouse support, and complete keyboard navigation
 - 🛡️ Policy-as-code assignment governance with severity, evidence, remediation, waivers, and automation exit behavior
 - 💥 Read-only pre-change simulation for target, filter, mode, and app-intent changes
 - 🔭 Capture-and-compare drift monitoring with approved baselines, risk classification, audit attribution, JSON Lines, and webhooks
@@ -362,12 +364,15 @@ Entra ID → App registrations → Your App → API permissions → "Grant admin
 
 The module can be used in two ways:
 
-1. **Terminal UI**: Full exported-command parity (`Start-IntuneAssignmentCheckerTui`)
+1. **Terminal UI**: Task-oriented command center with full feature parity (`Start-IntuneAssignmentCheckerTui`)
 2. **Cmdlet Mode**: Individual cmdlets for automation and scripting
 
-The TUI is metadata-driven: it reads the same parameter sets, validation choices,
-and help used by direct PowerShell calls. `Get-IntuneAssignmentOperation` exposes
-that catalog for testing and integrations.
+The TUI presents domain workflows instead of PowerShell syntax. Friendly dialogs
+collect only the information each task needs, and results stay inside searchable
+lists and detail panes. The workflows call the module's shared implementation, so
+fixes apply to both the interactive and automation experiences. The separate
+`Get-IntuneAssignmentOperation` command remains available as a metadata API for
+documentation and integrations.
 
 ### 🖥️ Cmdlet Reference
 
@@ -593,9 +598,9 @@ Available cmdlets:
 | `Search-IntunePolicy`              | Reverse lookup: find all assignment targets for a policy name         |
 | `Search-IntuneSetting`             | Search configured settings across all policies                        |
 | `Update-IntuneSettingDefinition`   | Refresh the local Settings Catalog definition cache                   |
-| `Start-IntuneAssignmentCheckerTui` | Launch the metadata-driven terminal UI with parity across module commands |
+| `Start-IntuneAssignmentCheckerTui` | Launch the task-oriented terminal command center with mouse and keyboard support |
 | `Switch-IntuneAssignmentCheckerTenant` | Clear tenant-scoped state and connect the TUI or shell to another tenant |
-| `Get-IntuneAssignmentOperation`    | Return the operation and parameter catalog used by the TUI            |
+| `Get-IntuneAssignmentOperation`    | Return operation and parameter metadata for automation integrations    |
 | `Invoke-IntuneAssignmentScan`      | Run a budgeted, checkpointed assignment scan with coverage diagnostics |
 | `Test-IntuneAssignmentGovernance`  | Evaluate assignment policy-as-code rules and waivers                  |
 | `Test-IntuneAssignmentChange`      | Simulate a proposed assignment change without Graph writes           |
@@ -634,20 +639,21 @@ Common parameters on `Connect-IntuneAssignmentChecker`:
 
 ### 📋 Terminal UI controls
 
-Run `Start-IntuneAssignmentCheckerTui` (or the `IntuneAssignmentChecker` alias
-after connecting). The UI groups every exported operation by purpose and shows its
-actual PowerShell help, capability profile, parameter sets, mandatory parameters,
-switches, and validation choices.
+Run `Start-IntuneAssignmentCheckerTui` or the `IntuneAssignmentChecker` alias. The
+command center can open before authentication; connect or switch tenants from
+Settings, or use offline snapshot workflows without signing in.
 
-- Use Up/Down or J/K to navigate, Page Up/Page Down to jump, and Enter to run an operation.
-- Press `/` to filter by command, category, synopsis, or capability.
-- Press `C` to disconnect and open the tenant-switch connection command, `?` for help, or `Q` to quit.
-- Enter comma-separated array values or `@path-to-json` for structured arrays.
-- Credentials and secure strings use PowerShell's protected input prompts.
+- Click workspaces, action buttons, result rows, and dialog choices with the mouse; use the wheel to scroll.
+- Use Tab to switch focus, Up/Down or J/K to navigate, Page Up/Page Down to jump, and Enter to open the highlighted workspace. A highlighted result updates the detail pane immediately.
+- Press `R` for the workspace's primary action, `/` to filter loaded results, `T` for Settings, `?` for help, or `Q` to quit.
+- Press Escape to clear a result filter or move focus back to the workspace list. Ctrl+C also exits cleanly.
+- Pass `-DisableMouse` when a terminal multiplexer or accessibility tool should retain mouse events; every feature remains keyboard-accessible.
+- Resize the terminal to at least 90 columns by 26 rows for the full two-pane layout.
+- Set an optional scope-tag filter in Settings, and save any loaded workspace results from Reports & data as JSON, JSON Lines, or CSV.
 
-Because this list is generated from exported command metadata, adding a public
-module command automatically adds it to the TUI and to the parity test. There is
-no second feature implementation to maintain.
+A central workflow registry maps every operational export to at least one task,
+and release tests fail if that coverage is lost. Both interfaces remain one PowerShell
+module codebase and share the same scanning, governance, simulation, and reporting logic.
 
 ## 🏃‍♂️ Example Runbook
 

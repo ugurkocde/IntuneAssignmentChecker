@@ -5,7 +5,10 @@ function Get-IntuneEmptyGroup {
         [switch]$ExportToCSV,
 
         [Parameter()]
-        [string]$ExportPath
+        [string]$ExportPath,
+
+        [Parameter()]
+        [switch]$PassThru
     )
 
     Write-Host "Checking for policies assigned to empty groups..." -ForegroundColor Green
@@ -446,5 +449,6 @@ function Get-IntuneEmptyGroup {
     }
 
     # Export results if requested
-    Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneEmptyGroupAssignments.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath -ExportToCSV:$ExportToCSV -ParameterMode:$parameterMode
+    Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneEmptyGroupAssignments.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath -ExportToCSV:$ExportToCSV -ParameterMode:$PassThru
+    if ($PassThru) { $exportData }
 }

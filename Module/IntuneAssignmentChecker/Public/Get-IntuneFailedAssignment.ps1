@@ -5,7 +5,10 @@ function Get-IntuneFailedAssignment {
         [switch]$ExportToCSV,
 
         [Parameter()]
-        [string]$ExportPath
+        [string]$ExportPath,
+
+        [Parameter()]
+        [switch]$PassThru
     )
 
     Write-Host "Fetching all failed assignments..." -ForegroundColor Green
@@ -47,6 +50,7 @@ function Get-IntuneFailedAssignment {
         }
 
         # Export if requested
-        Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneFailedAssignments.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath -ExportToCSV:$ExportToCSV -ParameterMode:$parameterMode
+        Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneFailedAssignments.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath -ExportToCSV:$ExportToCSV -ParameterMode:$PassThru
     }
+    if ($PassThru) { $exportData }
 }

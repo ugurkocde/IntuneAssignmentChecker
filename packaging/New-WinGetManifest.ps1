@@ -78,8 +78,8 @@ PackageName: Intune Assignment Checker
 PackageUrl: https://github.com/ugurkocde/IntuneAssignmentChecker
 License: MIT
 LicenseUrl: https://github.com/ugurkocde/IntuneAssignmentChecker/blob/v$Version/LICENSE
-ShortDescription: Audit, simulate, and govern Microsoft Intune assignments from PowerShell or its terminal UI.
-Description: A PowerShell-native, read-only assignment governance platform for Microsoft Intune with a full-parity terminal UI, snapshots, drift analysis, change simulation, delivery health, and multi-tenant scans.
+ShortDescription: Audit, simulate, and govern Microsoft Intune assignments from PowerShell or its terminal command center.
+Description: A PowerShell-native, read-only assignment governance platform for Microsoft Intune with a task-oriented mouse and keyboard terminal UI, snapshots, drift analysis, change simulation, delivery health, and multi-tenant scans.
 Moniker: intune-assignment-checker
 Tags:
 - intune

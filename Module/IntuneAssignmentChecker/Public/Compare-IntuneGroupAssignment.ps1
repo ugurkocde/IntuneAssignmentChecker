@@ -11,7 +11,10 @@ function Compare-IntuneGroupAssignment {
         [switch]$ExportToCSV,
 
         [Parameter()]
-        [string]$ExportPath
+        [string]$ExportPath,
+
+        [Parameter()]
+        [switch]$PassThru
     )
 
     Write-Host "Compare Group Assignments chosen" -ForegroundColor Green
@@ -447,4 +450,5 @@ function Compare-IntuneGroupAssignment {
             }
         }
     }
+    if ($PassThru) { $comparisonResults }
 }

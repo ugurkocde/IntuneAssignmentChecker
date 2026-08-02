@@ -1,0 +1,1196 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>IntuneAssignmentChecker 5.0 — Selected TUI Direction</title>
+  <meta name="description" content="The selected Command Center terminal UI direction for IntuneAssignmentChecker 5.0, using the Investigation Workbench palette.">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Fragment+Mono:ital@0;1&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+    :root {
+      color-scheme: dark;
+      --page: #070a0f;
+      --paper: #dfe5ec;
+      --page-muted: #7e8b9b;
+      --page-line: #293444;
+      --a-bg: #0a0d12;
+      --a-panel: #0e131a;
+      --a-panel-2: #121923;
+      --a-line: #293444;
+      --a-text: #dfe5ec;
+      --a-muted: #7e8b9b;
+      --a-accent: #f4b860;
+      --a-accent-ink: #211504;
+      --a-green: #80d6a4;
+      --a-yellow: #f4b860;
+      --a-red: #ff7782;
+      --b-bg: #0a0d12;
+      --b-panel: #0e131a;
+      --b-panel-2: #121923;
+      --b-line: #293444;
+      --b-text: #dfe5ec;
+      --b-muted: #7e8b9b;
+      --b-accent: #f4b860;
+      --b-accent-ink: #211504;
+      --b-blue: #74b6ef;
+      --b-green: #80d6a4;
+      --b-red: #ff7782;
+    }
+
+    * { box-sizing: border-box; }
+
+    html { min-width: 320px; background: var(--page); }
+
+    body {
+      min-height: 100vh;
+      margin: 0;
+      color: var(--paper);
+      background:
+        radial-gradient(circle at 18% 4%, rgba(116, 182, 239, .07), transparent 28rem),
+        radial-gradient(circle at 83% 90%, rgba(244, 184, 96, .07), transparent 32rem),
+        var(--page);
+      font-family: "IBM Plex Mono", monospace;
+    }
+
+    button, input { font: inherit; }
+
+    button { color: inherit; }
+
+    .page {
+      width: min(1420px, calc(100% - 40px));
+      margin: 0 auto;
+      padding: 28px 0 42px;
+    }
+
+    .study-header {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: end;
+      gap: 28px;
+      margin-bottom: 20px;
+    }
+
+    .kicker {
+      margin-bottom: 7px;
+      color: var(--b-accent);
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: .2em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 0;
+      font-family: "Fragment Mono", monospace;
+      font-size: clamp(23px, 3.5vw, 40px);
+      font-weight: 400;
+      letter-spacing: -.045em;
+      line-height: 1.08;
+    }
+
+    h1 span { color: var(--page-muted); }
+
+    .principle {
+      max-width: 420px;
+      margin: 0;
+      color: var(--page-muted);
+      font-size: 11px;
+      line-height: 1.65;
+      text-align: right;
+    }
+
+    .principle strong { color: var(--b-text); font-weight: 500; }
+
+    .concept-switcher {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      margin-bottom: 14px;
+      border: 1px solid var(--page-line);
+      background: rgba(11, 16, 22, .82);
+    }
+
+    .concept-tab {
+      position: relative;
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 13px;
+      min-height: 67px;
+      padding: 11px 16px;
+      background: transparent;
+      border: 0;
+      cursor: pointer;
+      text-align: left;
+    }
+
+    .concept-tab + .concept-tab { border-left: 1px solid var(--page-line); }
+
+    .concept-tab::after {
+      position: absolute;
+      right: 0;
+      bottom: -1px;
+      left: 0;
+      height: 2px;
+      background: transparent;
+      content: "";
+    }
+
+    .concept-tab[data-concept="a"].active::after { background: var(--a-accent); }
+    .concept-tab[data-concept="b"].active::after { background: var(--b-accent); }
+
+    .concept-letter {
+      display: grid;
+      width: 32px;
+      height: 32px;
+      place-items: center;
+      border: 1px solid #394657;
+      color: #a6b0bd;
+      font-size: 13px;
+    }
+
+    .concept-tab[data-concept="a"].active .concept-letter {
+      color: var(--a-accent-ink);
+      background: var(--a-accent);
+      border-color: var(--a-accent);
+    }
+
+    .concept-tab[data-concept="b"].active .concept-letter {
+      color: var(--b-accent-ink);
+      background: var(--b-accent);
+      border-color: var(--b-accent);
+    }
+
+    .concept-name { font-size: 12px; font-weight: 600; }
+
+    .concept-description {
+      display: block;
+      margin-top: 3px;
+      color: var(--page-muted);
+      font-size: 10px;
+      font-weight: 400;
+    }
+
+    .concept-fit {
+      color: #5d6877;
+      font-size: 9px;
+      letter-spacing: .11em;
+      text-transform: uppercase;
+    }
+
+    .terminal-frame {
+      position: relative;
+      padding: 1px;
+      background: linear-gradient(120deg, #485568, #1a222d 34%, #283547 70%, #545b65);
+      box-shadow: 0 32px 80px rgba(0, 0, 0, .55);
+    }
+
+    .terminal {
+      min-height: 744px;
+      background: #080b10;
+      outline: none;
+      overflow: hidden;
+    }
+
+    .chrome {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: center;
+      height: 39px;
+      padding: 0 12px;
+      color: #718093;
+      background: #11161d;
+      border-bottom: 1px solid #29323e;
+      font-size: 10px;
+      user-select: none;
+    }
+
+    .tab-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: max-content;
+      padding: 6px 11px;
+      color: #bdc6d1;
+      background: #1a212b;
+      border: 1px solid #303b49;
+    }
+
+    .ps-icon {
+      display: grid;
+      width: 16px;
+      height: 16px;
+      place-items: center;
+      color: var(--b-accent-ink);
+      background: var(--b-accent);
+      font-size: 8px;
+      font-weight: 600;
+    }
+
+    .chrome-title { letter-spacing: .04em; }
+
+    .window-controls {
+      display: flex;
+      justify-content: flex-end;
+      gap: 17px;
+      font-size: 13px;
+    }
+
+    .concept {
+      display: none;
+      min-height: 705px;
+      animation: reveal .25s ease both;
+    }
+
+    .concept.active { display: grid; }
+
+    @keyframes reveal {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Concept A — Command Center */
+    .concept-a {
+      grid-template-columns: 224px minmax(0, 1fr);
+      background: var(--a-bg);
+      color: var(--a-text);
+    }
+
+    .a-sidebar {
+      display: flex;
+      flex-direction: column;
+      min-height: 705px;
+      background: #0c1117;
+      border-right: 1px solid var(--a-line);
+    }
+
+    .a-brand { padding: 22px 18px 19px; border-bottom: 1px solid var(--a-line); }
+
+    .a-brand-name {
+      color: var(--a-accent);
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: .055em;
+      line-height: 1.45;
+    }
+
+    .a-brand-version { margin-top: 4px; color: var(--a-muted); font-size: 9px; }
+
+    .a-nav {
+      display: grid;
+      gap: 2px;
+      padding: 13px 9px;
+    }
+
+    .a-nav-button {
+      display: grid;
+      grid-template-columns: 24px minmax(0, 1fr) auto;
+      gap: 7px;
+      align-items: center;
+      min-height: 34px;
+      padding: 6px 9px;
+      color: #8c98a7;
+      background: transparent;
+      border: 0;
+      text-align: left;
+      cursor: pointer;
+      font-size: 10px;
+    }
+
+    .a-nav-button:hover { color: var(--a-text); background: rgba(244, 184, 96, .055); }
+
+    .a-nav-button.active {
+      color: var(--a-accent-ink);
+      background: var(--a-accent);
+    }
+
+    .a-nav-key { opacity: .58; font-size: 9px; }
+
+    .a-nav-badge {
+      min-width: 18px;
+      padding: 1px 4px;
+      color: var(--a-yellow);
+      border: 1px solid rgba(244, 184, 96, .3);
+      text-align: center;
+      font-size: 8px;
+    }
+
+    .a-nav-button.active .a-nav-badge { color: var(--a-accent-ink); border-color: rgba(33, 21, 4, .34); }
+
+    .a-tenant {
+      margin: auto 12px 13px;
+      padding: 11px;
+      color: var(--a-muted);
+      background: #101721;
+      border: 1px solid var(--a-line);
+      font-size: 9px;
+      line-height: 1.65;
+    }
+
+    .a-tenant strong { display: block; color: var(--a-text); font-size: 10px; font-weight: 500; }
+
+    .connected-dot {
+      display: inline-block;
+      width: 6px;
+      height: 6px;
+      margin-right: 5px;
+      background: var(--a-green);
+      border-radius: 50%;
+      box-shadow: 0 0 9px rgba(128, 214, 164, .5);
+    }
+
+    .a-main {
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      min-width: 0;
+      min-height: 705px;
+    }
+
+    .a-topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      min-height: 62px;
+      padding: 12px 20px;
+      border-bottom: 1px solid var(--a-line);
+    }
+
+    .a-route { color: var(--a-muted); font-size: 9px; letter-spacing: .08em; text-transform: uppercase; }
+    .a-route strong { margin-left: 8px; color: var(--a-text); font-size: 13px; letter-spacing: 0; text-transform: none; }
+
+    .a-actions { display: flex; gap: 8px; }
+
+    .a-action {
+      padding: 7px 9px;
+      color: var(--a-accent);
+      background: transparent;
+      border: 1px solid rgba(244, 184, 96, .3);
+      cursor: pointer;
+      font-size: 9px;
+    }
+
+    .a-action.primary { color: var(--a-accent-ink); background: var(--a-accent); border-color: var(--a-accent); }
+
+    .a-content { min-width: 0; padding: 18px 20px; }
+
+    .a-intro {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 20px;
+      margin-bottom: 16px;
+    }
+
+    .a-heading { margin: 0; color: var(--a-text); font-size: 18px; font-weight: 500; }
+    .a-subheading { margin: 5px 0 0; color: var(--a-muted); font-size: 9px; }
+    .a-updated { color: #5f6c7c; font-size: 9px; }
+
+    .a-metrics {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .a-metric {
+      position: relative;
+      min-height: 88px;
+      padding: 13px;
+      overflow: hidden;
+      background: var(--a-panel);
+      border: 1px solid var(--a-line);
+    }
+
+    .a-metric::after {
+      position: absolute;
+      right: -11px;
+      bottom: -22px;
+      width: 68px;
+      height: 68px;
+      border: 1px solid rgba(244, 184, 96, .09);
+      border-radius: 50%;
+      content: "";
+    }
+
+    .a-metric-label { color: var(--a-muted); font-size: 8px; letter-spacing: .11em; text-transform: uppercase; }
+    .a-metric-value { margin-top: 8px; font-size: 23px; line-height: 1; }
+    .a-metric-note { margin-top: 7px; color: #627080; font-size: 8px; }
+    .a-metric-value.red { color: var(--a-red); }
+    .a-metric-value.yellow { color: var(--a-yellow); }
+    .a-metric-value.green { color: var(--a-green); }
+    .a-metric-value.accent { color: var(--a-accent); }
+
+    .a-dashboard-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.35fr) minmax(260px, .65fr);
+      gap: 10px;
+    }
+
+    .a-panel { min-width: 0; background: var(--a-panel); border: 1px solid var(--a-line); }
+
+    .a-panel-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      min-height: 37px;
+      padding: 8px 11px;
+      border-bottom: 1px solid var(--a-line);
+      font-size: 9px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+
+    .a-panel-head span:last-child { color: var(--a-muted); font-size: 8px; }
+
+    .risk-row {
+      display: grid;
+      grid-template-columns: 68px minmax(140px, .8fr) minmax(210px, 1.2fr) 58px;
+      gap: 10px;
+      align-items: center;
+      min-height: 42px;
+      padding: 6px 11px;
+      border-bottom: 1px solid rgba(41, 52, 68, .72);
+      font-size: 9px;
+      cursor: pointer;
+    }
+
+    .risk-row:hover, .risk-row.selected { background: var(--a-panel-2); }
+    .risk-row.selected { box-shadow: inset 2px 0 0 var(--a-accent); }
+    .severity { font-size: 8px; font-weight: 600; letter-spacing: .04em; }
+    .severity.critical { color: var(--a-red); }
+    .severity.high { color: var(--a-yellow); }
+    .severity.medium { color: var(--b-blue); }
+    .risk-policy { overflow: hidden; color: var(--a-text); text-overflow: ellipsis; white-space: nowrap; }
+    .risk-message { overflow: hidden; color: var(--a-muted); text-overflow: ellipsis; white-space: nowrap; }
+    .risk-age { color: #5f6c7c; text-align: right; }
+
+    .health-list { display: grid; gap: 13px; padding: 14px 12px 16px; }
+    .health-row { display: grid; gap: 6px; }
+    .health-meta { display: flex; justify-content: space-between; color: var(--a-muted); font-size: 8px; }
+    .health-meta strong { color: var(--a-text); font-weight: 500; }
+    .health-track { height: 6px; background: #1a232e; overflow: hidden; }
+    .health-fill { height: 100%; background: var(--a-green); }
+    .health-fill.warn { background: var(--a-yellow); }
+    .health-legend { margin-top: 4px; color: #5d6a7a; font-size: 8px; line-height: 1.7; }
+
+    .a-activity { grid-column: 1 / -1; margin-top: 0; }
+    .activity-row {
+      display: grid;
+      grid-template-columns: 66px 95px minmax(170px, 1fr) minmax(130px, .65fr) 54px;
+      gap: 11px;
+      padding: 8px 11px;
+      border-bottom: 1px solid rgba(41, 52, 68, .68);
+      color: var(--a-muted);
+      font-size: 8px;
+    }
+    .activity-row strong { color: var(--a-text); font-weight: 400; }
+    .activity-type { color: var(--a-accent); }
+
+    .a-footer, .b-footer {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px;
+      align-items: center;
+      min-height: 35px;
+      padding: 7px 13px;
+      font-size: 8px;
+    }
+
+    .a-footer { color: var(--a-muted); background: #0b1016; border-top: 1px solid var(--a-line); }
+    .key { margin-right: 4px; padding: 1px 4px; font-weight: 600; }
+    .a-footer .key { color: var(--a-accent-ink); background: var(--a-accent); }
+
+    .a-workflow { display: none; }
+    .a-workflow.active { display: block; animation: reveal .18s ease both; }
+
+    .governance-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1.25fr) minmax(270px, .75fr);
+      min-height: 482px;
+      border: 1px solid var(--a-line);
+    }
+
+    .findings-pane { min-width: 0; border-right: 1px solid var(--a-line); }
+    .findings-toolbar { display: flex; gap: 7px; padding: 9px; border-bottom: 1px solid var(--a-line); }
+    .a-filter {
+      flex: 1;
+      min-width: 0;
+      padding: 7px 8px;
+      color: var(--a-text);
+      background: #080c11;
+      border: 1px solid var(--a-line);
+      outline: none;
+      font-size: 9px;
+    }
+    .a-filter:focus { border-color: var(--a-accent); }
+    .filter-chip { padding: 7px 8px; color: var(--b-blue); background: #101b27; border: 1px solid #253c51; font-size: 8px; }
+    .finding-table-head, .finding-item {
+      display: grid;
+      grid-template-columns: 67px 84px minmax(140px, 1fr) minmax(105px, .65fr);
+      gap: 8px;
+      align-items: center;
+      padding: 8px 10px;
+      font-size: 8px;
+    }
+    .finding-table-head { color: var(--a-muted); border-bottom: 1px solid var(--a-line); }
+    .finding-item { min-height: 40px; border-bottom: 1px solid rgba(41, 52, 68, .7); cursor: pointer; }
+    .finding-item:hover, .finding-item.selected { background: var(--a-panel-2); }
+    .finding-item.selected { box-shadow: inset 2px 0 0 var(--a-accent); }
+    .finding-id { color: var(--a-muted); }
+    .finding-policy { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .finding-target { overflow: hidden; color: var(--a-muted); text-overflow: ellipsis; white-space: nowrap; }
+
+    .finding-detail { min-width: 0; padding: 16px; background: #0c1118; }
+    .detail-eyebrow { color: var(--a-accent); font-size: 8px; letter-spacing: .12em; text-transform: uppercase; }
+    .detail-title { margin: 8px 0 5px; color: var(--a-text); font-size: 14px; line-height: 1.35; }
+    .detail-rule { color: var(--a-muted); font-size: 9px; }
+    .detail-section { margin-top: 18px; }
+    .detail-label { margin-bottom: 6px; color: #647181; font-size: 8px; letter-spacing: .11em; text-transform: uppercase; }
+    .detail-copy { color: #a7b2be; font-size: 9px; line-height: 1.7; }
+    .evidence {
+      padding: 9px;
+      color: #b4bec9;
+      background: #080c11;
+      border-left: 2px solid var(--a-yellow);
+      font-size: 8px;
+      line-height: 1.65;
+    }
+    .detail-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 18px; }
+
+    .placeholder-workflow {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 260px;
+      min-height: 470px;
+      border: 1px solid var(--a-line);
+      background: var(--a-panel);
+    }
+    .placeholder-main { padding: 18px; border-right: 1px solid var(--a-line); }
+    .placeholder-list { margin-top: 16px; border: 1px solid var(--a-line); }
+    .placeholder-row { display: grid; grid-template-columns: 105px 1fr 90px; gap: 10px; padding: 10px; border-bottom: 1px solid var(--a-line); color: var(--a-muted); font-size: 9px; }
+    .placeholder-row.selected { color: var(--a-accent-ink); background: var(--a-accent); }
+    .placeholder-side { padding: 16px; }
+
+    /* Concept B — Investigation Workbench */
+    .concept-b {
+      grid-template-rows: auto auto minmax(0, 1fr) auto;
+      min-height: 705px;
+      color: var(--b-text);
+      background: var(--b-bg);
+    }
+
+    .b-masthead {
+      display: grid;
+      grid-template-columns: auto minmax(240px, 1fr) auto;
+      align-items: center;
+      gap: 18px;
+      min-height: 51px;
+      padding: 8px 14px;
+      background: #0d1218;
+      border-bottom: 1px solid var(--b-line);
+    }
+
+    .b-logo { color: var(--b-accent); font-size: 11px; font-weight: 600; letter-spacing: .08em; }
+    .b-search-wrap { position: relative; width: min(580px, 100%); justify-self: center; }
+    .b-search-prefix { position: absolute; top: 50%; left: 10px; color: var(--b-accent); font-size: 9px; transform: translateY(-50%); }
+    .b-search {
+      width: 100%;
+      padding: 8px 56px 8px 26px;
+      color: var(--b-text);
+      background: #080c11;
+      border: 1px solid var(--b-line);
+      outline: none;
+      font-size: 9px;
+    }
+    .b-search:focus { border-color: var(--b-accent); }
+    .b-search-hint { position: absolute; top: 50%; right: 8px; color: #556170; font-size: 8px; transform: translateY(-50%); }
+    .b-session { color: var(--b-muted); font-size: 8px; text-align: right; }
+    .b-session strong { display: block; color: var(--b-green); font-size: 9px; font-weight: 500; }
+
+    .b-workflow-tabs {
+      display: flex;
+      min-height: 34px;
+      padding-left: 11px;
+      background: #0b1016;
+      border-bottom: 1px solid var(--b-line);
+    }
+    .b-workflow-tab {
+      position: relative;
+      padding: 8px 12px;
+      color: var(--b-muted);
+      background: transparent;
+      border: 0;
+      cursor: pointer;
+      font-size: 8px;
+      letter-spacing: .05em;
+      text-transform: uppercase;
+    }
+    .b-workflow-tab:hover { color: var(--b-text); }
+    .b-workflow-tab.active { color: var(--b-accent); }
+    .b-workflow-tab.active::after { position: absolute; right: 10px; bottom: -1px; left: 10px; height: 2px; background: var(--b-accent); content: ""; }
+
+    .b-workspace {
+      display: grid;
+      grid-template-columns: 190px minmax(390px, 1fr) minmax(265px, .72fr);
+      min-height: 584px;
+      overflow: hidden;
+    }
+
+    .b-tree, .b-results, .b-inspector { min-width: 0; }
+    .b-tree { background: #0c1117; border-right: 1px solid var(--b-line); }
+    .b-results { background: var(--b-panel); border-right: 1px solid var(--b-line); }
+    .b-inspector { background: #0c1118; }
+    .pane-title { min-height: 34px; padding: 10px 11px 8px; color: var(--b-muted); border-bottom: 1px solid var(--b-line); font-size: 8px; letter-spacing: .12em; text-transform: uppercase; }
+
+    .tree-list { display: grid; padding: 8px 6px; }
+    .tree-item {
+      display: grid;
+      grid-template-columns: 15px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 5px;
+      min-height: 29px;
+      padding: 5px 7px;
+      color: #8c98a7;
+      background: transparent;
+      border: 0;
+      cursor: pointer;
+      text-align: left;
+      font-size: 9px;
+    }
+    .tree-item:hover { color: var(--b-text); background: #121923; }
+    .tree-item.active { color: var(--b-accent-ink); background: var(--b-accent); }
+    .tree-icon { opacity: .7; }
+    .tree-count { font-size: 8px; opacity: .65; }
+    .tree-divider { height: 1px; margin: 7px 7px; background: var(--b-line); }
+    .saved-view { color: #697585; }
+
+    .result-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      min-height: 45px;
+      padding: 7px 10px;
+      border-bottom: 1px solid var(--b-line);
+    }
+    .result-query { color: var(--b-text); font-size: 9px; }
+    .result-query span { color: var(--b-accent); }
+    .result-count { color: var(--b-muted); font-size: 8px; }
+    .b-chip { margin-left: 5px; padding: 3px 5px; color: var(--b-blue); background: #101b27; border: 1px solid #253c51; font-size: 7px; }
+
+    .assignment-head, .assignment-row {
+      display: grid;
+      grid-template-columns: minmax(145px, 1.15fr) minmax(105px, .8fr) 75px 74px 74px;
+      gap: 8px;
+      align-items: center;
+      padding: 0 10px;
+      font-size: 8px;
+    }
+    .assignment-head { min-height: 31px; color: var(--b-muted); background: #0d131a; border-bottom: 1px solid var(--b-line); }
+    .assignment-row { min-height: 42px; color: #aeb8c4; border-bottom: 1px solid rgba(41, 52, 68, .72); cursor: pointer; }
+    .assignment-row:hover { background: #131a24; }
+    .assignment-row.selected { color: var(--b-accent-ink); background: var(--b-accent); }
+    .assignment-name { overflow: hidden; color: var(--b-text); text-overflow: ellipsis; white-space: nowrap; }
+    .assignment-row.selected .assignment-name { color: var(--b-accent-ink); }
+    .target-type { color: var(--b-blue); }
+    .assignment-row.selected .target-type { color: var(--b-accent-ink); }
+    .intent { color: var(--b-green); }
+    .assignment-row.selected .intent { color: var(--b-accent-ink); }
+    .risk-high { color: var(--b-red); }
+    .risk-medium { color: var(--b-accent); }
+    .assignment-row.selected .risk-high, .assignment-row.selected .risk-medium { color: var(--b-accent-ink); }
+
+    .inspector-scroll { padding: 13px; }
+    .inspector-kicker { color: var(--b-accent); font-size: 7px; letter-spacing: .12em; text-transform: uppercase; }
+    .inspector-title { margin: 6px 0 3px; color: var(--b-text); font-size: 13px; line-height: 1.35; }
+    .inspector-id { overflow: hidden; color: #596676; font-size: 7px; text-overflow: ellipsis; white-space: nowrap; }
+    .inspector-section { margin-top: 16px; }
+    .inspector-label { margin-bottom: 7px; color: #647181; font-size: 7px; letter-spacing: .12em; text-transform: uppercase; }
+    .state-line { display: grid; grid-template-columns: 88px 1fr; gap: 8px; margin-bottom: 6px; color: #a9b4c0; font-size: 8px; line-height: 1.45; }
+    .state-line span:first-child { color: #687585; }
+    .effective-badge { display: inline-block; padding: 3px 6px; color: #07110c; background: var(--b-green); font-size: 7px; font-weight: 600; }
+
+    .reason-chain { position: relative; display: grid; gap: 0; margin-left: 5px; }
+    .reason-step {
+      position: relative;
+      padding: 0 0 13px 20px;
+      color: #a7b2be;
+      font-size: 8px;
+      line-height: 1.45;
+    }
+    .reason-step::before { position: absolute; top: 2px; left: 0; width: 7px; height: 7px; background: var(--b-bg); border: 1px solid var(--b-blue); border-radius: 50%; content: ""; }
+    .reason-step::after { position: absolute; top: 10px; bottom: 0; left: 3px; width: 1px; background: #304357; content: ""; }
+    .reason-step:last-child::after { display: none; }
+    .reason-step strong { display: block; color: var(--b-blue); font-weight: 400; }
+    .reason-step.final::before { background: var(--b-green); border-color: var(--b-green); }
+    .reason-step.final strong { color: var(--b-green); }
+
+    .inspector-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 15px; }
+    .b-action { padding: 7px; color: var(--b-accent); background: transparent; border: 1px solid #4b3b25; cursor: pointer; font-size: 8px; }
+    .b-action.primary { color: var(--b-accent-ink); background: var(--b-accent); border-color: var(--b-accent); }
+
+    .b-footer { color: var(--b-muted); background: #0b1016; border-top: 1px solid var(--b-line); }
+    .b-footer .key { color: var(--b-accent-ink); background: var(--b-accent); }
+    .footer-spacer { flex: 1; }
+    .read-only { color: var(--b-green); }
+
+    .draft-caption {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 13px;
+      align-items: center;
+      margin-top: 13px;
+      color: var(--page-muted);
+      font-size: 10px;
+      line-height: 1.55;
+    }
+    .caption-badge { padding: 4px 7px; color: #b8c8c3; border: 1px solid #33403c; letter-spacing: .08em; text-transform: uppercase; }
+    .caption-verdict { color: #a9b9b4; text-align: right; }
+
+    @media (max-width: 1050px) {
+      .page { width: min(100% - 20px, 1420px); }
+      .concept-a { grid-template-columns: 184px minmax(0, 1fr); }
+      .a-nav-button { grid-template-columns: 20px minmax(0, 1fr) auto; }
+      .a-metrics { grid-template-columns: repeat(2, 1fr); }
+      .a-dashboard-grid { grid-template-columns: 1fr; }
+      .a-activity { grid-column: auto; }
+      .b-workspace { grid-template-columns: 154px minmax(360px, 1fr) 250px; overflow-x: auto; }
+    }
+
+    @media (max-width: 760px) {
+      .study-header { grid-template-columns: 1fr; }
+      .principle { text-align: left; }
+      .concept-switcher { grid-template-columns: 1fr; }
+      .concept-tab + .concept-tab { border-top: 1px solid var(--page-line); border-left: 0; }
+      .concept-fit { display: none; }
+      .terminal { overflow-x: auto; }
+      .concept { min-width: 930px; }
+      .draft-caption { grid-template-columns: 1fr; }
+      .caption-verdict { text-align: left; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="study-header">
+      <div>
+        <div class="kicker">IntuneAssignmentChecker 5.0 · Selected TUI direction</div>
+        <h1>Command Center. <span>Workbench palette.</span></h1>
+      </div>
+      <p class="principle"><strong>Draft A is now the selected structure.</strong> It uses Draft B’s navy, amber, blue, and slate color system while keeping the dashboard-first operational workflow.</p>
+    </header>
+
+    <div class="concept-switcher" role="tablist" aria-label="TUI concepts">
+      <button class="concept-tab active" data-concept="a" role="tab" aria-selected="true">
+        <span class="concept-letter">A</span>
+        <span class="concept-name">Command Center · Selected<span class="concept-description">Posture overview → prioritize → investigate → act</span></span>
+        <span class="concept-fit">Selected direction</span>
+      </button>
+      <button class="concept-tab" data-concept="b" role="tab" aria-selected="false">
+        <span class="concept-letter">B</span>
+        <span class="concept-name">Workbench · Reference<span class="concept-description">Search entities → trace targeting → inspect reason chain</span></span>
+        <span class="concept-fit">Palette source</span>
+      </button>
+    </div>
+
+    <section class="terminal-frame" aria-label="Interactive terminal UI concepts">
+      <div class="terminal" id="terminal" tabindex="0">
+        <div class="chrome">
+          <div class="tab-title"><span class="ps-icon">&gt;_</span><span>PowerShell 7</span></div>
+          <div class="chrome-title">IntuneAssignmentChecker 5.0</div>
+          <div class="window-controls"><span>—</span><span>□</span><span>×</span></div>
+        </div>
+
+        <div class="concept concept-a active" id="concept-a" role="tabpanel">
+          <aside class="a-sidebar">
+            <div class="a-brand">
+              <div class="a-brand-name">INTUNE ASSIGNMENT<br>CHECKER</div>
+              <div class="a-brand-version">v5.0 · governance console</div>
+            </div>
+            <nav class="a-nav" aria-label="Command Center sections">
+              <button class="a-nav-button active" data-view="overview"><span class="a-nav-key">01</span><span>Overview</span><span></span></button>
+              <button class="a-nav-button" data-view="assignments"><span class="a-nav-key">02</span><span>Assignments</span><span></span></button>
+              <button class="a-nav-button" data-view="governance"><span class="a-nav-key">03</span><span>Governance</span><span class="a-nav-badge">12</span></button>
+              <button class="a-nav-button" data-view="simulator"><span class="a-nav-key">04</span><span>Change simulator</span><span></span></button>
+              <button class="a-nav-button" data-view="drift"><span class="a-nav-key">05</span><span>Drift</span><span class="a-nav-badge">7</span></button>
+              <button class="a-nav-button" data-view="health"><span class="a-nav-key">06</span><span>Delivery health</span><span></span></button>
+              <button class="a-nav-button" data-view="access"><span class="a-nav-key">07</span><span>RBAC &amp; scope</span><span></span></button>
+              <button class="a-nav-button" data-view="filters"><span class="a-nav-key">08</span><span>Filters</span><span class="a-nav-badge">3</span></button>
+              <button class="a-nav-button" data-view="fleet"><span class="a-nav-key">09</span><span>Fleet</span><span></span></button>
+            </nav>
+            <div class="a-tenant">
+              <strong><span class="connected-dot"></span>Contoso Production</strong>
+              Global · 14/14 capabilities<br>Last scan 36 seconds ago
+            </div>
+          </aside>
+
+          <div class="a-main">
+            <header class="a-topbar">
+              <div class="a-route">Workspace <strong id="aRoute">Overview</strong></div>
+              <div class="a-actions"><button class="a-action">[T] Switch tenant</button><button class="a-action primary">[R] Refresh scan</button></div>
+            </header>
+
+            <div class="a-content">
+              <section class="a-workflow active" data-workflow="overview">
+                <div class="a-intro">
+                  <div><h2 class="a-heading">Assignment posture</h2><p class="a-subheading">What requires attention across this tenant right now.</p></div>
+                  <div class="a-updated">SCAN 2026-08-02 08:14:26Z · 1,842 ASSIGNMENTS</div>
+                </div>
+
+                <div class="a-metrics">
+                  <div class="a-metric"><div class="a-metric-label">Scan coverage</div><div class="a-metric-value green">14/14</div><div class="a-metric-note">All workload providers complete</div></div>
+                  <div class="a-metric"><div class="a-metric-label">Critical findings</div><div class="a-metric-value red">3</div><div class="a-metric-note">+1 since approved baseline</div></div>
+                  <div class="a-metric"><div class="a-metric-label">Unapproved drift</div><div class="a-metric-value yellow">7</div><div class="a-metric-note">2 changes attributed</div></div>
+                  <div class="a-metric"><div class="a-metric-label">Delivery healthy</div><div class="a-metric-value accent">91.4%</div><div class="a-metric-note">226 failures · 41 stale</div></div>
+                </div>
+
+                <div class="a-dashboard-grid">
+                  <section class="a-panel">
+                    <div class="a-panel-head"><span>Priority queue</span><span>Enter to investigate</span></div>
+                    <div class="risk-row selected"><span class="severity critical">CRITICAL</span><span class="risk-policy">Windows Security Baseline</span><span class="risk-message">Required on All Devices without an exclusion</span><span class="risk-age">8m</span></div>
+                    <div class="risk-row"><span class="severity critical">CRITICAL</span><span class="risk-policy">Microsoft 365 Apps</span><span class="risk-message">Required on All Users; no staged rollout</span><span class="risk-age">21m</span></div>
+                    <div class="risk-row"><span class="severity high">HIGH</span><span class="risk-policy">BitLocker Compliance</span><span class="risk-message">Assignment filter result is unknown</span><span class="risk-age">1h</span></div>
+                    <div class="risk-row"><span class="severity high">HIGH</span><span class="risk-policy">EDR — Windows</span><span class="risk-message">43 devices excluded by overlapping groups</span><span class="risk-age">2h</span></div>
+                  </section>
+
+                  <section class="a-panel">
+                    <div class="a-panel-head"><span>Delivery by workload</span><span>Last 14 days</span></div>
+                    <div class="health-list">
+                      <div class="health-row"><div class="health-meta"><strong>Device configuration</strong><span>96%</span></div><div class="health-track"><div class="health-fill" style="width:96%"></div></div></div>
+                      <div class="health-row"><div class="health-meta"><strong>Compliance</strong><span>88%</span></div><div class="health-track"><div class="health-fill warn" style="width:88%"></div></div></div>
+                      <div class="health-row"><div class="health-meta"><strong>Applications</strong><span>90%</span></div><div class="health-track"><div class="health-fill" style="width:90%"></div></div></div>
+                      <div class="health-legend">✓ 8,441 successful&nbsp;&nbsp; × 226 failed<br>~ 41 stale&nbsp;&nbsp; — 19 not applicable</div>
+                    </div>
+                  </section>
+
+                  <section class="a-panel a-activity">
+                    <div class="a-panel-head"><span>Recent assignment drift</span><span>Approved baseline · 2026-08-01</span></div>
+                    <div class="activity-row"><span>08:02:11</span><span class="activity-type">TARGET ADDED</span><strong>Microsoft 365 Apps</strong><span>All Users</span><span>HIGH</span></div>
+                    <div class="activity-row"><span>07:48:37</span><span class="activity-type">FILTER CHANGED</span><strong>Windows Update Ring — Broad</strong><span>DeviceOwnership</span><span>MED</span></div>
+                    <div class="activity-row"><span>06:15:09</span><span class="activity-type">EXCLUSION REMOVED</span><strong>Windows Security Baseline</strong><span>Pilot Devices</span><span>CRIT</span></div>
+                  </section>
+                </div>
+              </section>
+
+              <section class="a-workflow" data-workflow="governance">
+                <div class="a-intro">
+                  <div><h2 class="a-heading">Governance findings</h2><p class="a-subheading">Evidence, impact, remediation, and approved exceptions in one workflow.</p></div>
+                  <div class="a-updated">12 OPEN · 4 WAIVED · 2 NEW</div>
+                </div>
+                <div class="governance-layout">
+                  <div class="findings-pane">
+                    <div class="findings-toolbar"><input class="a-filter" value="severity:high+ status:open" aria-label="Filter governance findings"><span class="filter-chip">RULES 10/10</span></div>
+                    <div class="finding-table-head"><span>SEVERITY</span><span>RULE</span><span>POLICY</span><span>TARGET</span></div>
+                    <div class="finding-item selected" data-finding="0"><span class="severity critical">CRITICAL</span><span class="finding-id">IAC-GOV-001</span><span class="finding-policy">Windows Security Baseline</span><span class="finding-target">All Devices</span></div>
+                    <div class="finding-item" data-finding="1"><span class="severity critical">CRITICAL</span><span class="finding-id">IAC-GOV-002</span><span class="finding-policy">Microsoft 365 Apps</span><span class="finding-target">All Users</span></div>
+                    <div class="finding-item" data-finding="2"><span class="severity high">HIGH</span><span class="finding-id">IAC-GOV-004</span><span class="finding-policy">EDR — Windows</span><span class="finding-target">Corporate Windows</span></div>
+                    <div class="finding-item" data-finding="3"><span class="severity high">HIGH</span><span class="finding-id">IAC-GOV-007</span><span class="finding-policy">BitLocker Compliance</span><span class="finding-target">Finance Devices</span></div>
+                    <div class="finding-item" data-finding="4"><span class="severity medium">MEDIUM</span><span class="finding-id">IAC-GOV-009</span><span class="finding-policy">Edge Security Settings</span><span class="finding-target">All Users</span></div>
+                  </div>
+                  <aside class="finding-detail" id="findingDetail"></aside>
+                </div>
+              </section>
+
+              <section class="a-workflow" data-workflow="assignments simulator drift health access filters fleet">
+                <div class="a-intro">
+                  <div><h2 class="a-heading" id="placeholderHeading">Assignments</h2><p class="a-subheading" id="placeholderSubheading">Browse targeting state without knowing which cmdlet provides it.</p></div>
+                  <div class="a-updated">TASK-ORIENTED WORKFLOW</div>
+                </div>
+                <div class="placeholder-workflow">
+                  <div class="placeholder-main">
+                    <div class="detail-eyebrow" id="placeholderEyebrow">Browse and inspect</div>
+                    <div class="placeholder-list">
+                      <div class="placeholder-row selected"><span>SELECTED</span><span id="placeholderSelected">Windows Security Baseline</span><span>OPEN</span></div>
+                      <div class="placeholder-row"><span>RELATED</span><span>Corporate Windows Devices</span><span>1,284</span></div>
+                      <div class="placeholder-row"><span>RELATED</span><span>Privileged Device Exclusions</span><span>42</span></div>
+                      <div class="placeholder-row"><span>STATUS</span><span>Coverage and evidence available</span><span>READY</span></div>
+                    </div>
+                  </div>
+                  <aside class="placeholder-side">
+                    <div class="detail-label">Workflow intent</div>
+                    <div class="detail-copy" id="placeholderCopy">Search policies, applications, users, devices, or groups. Open a record to see targeting, exclusions, filters, effective subjects, and delivery state.</div>
+                    <div class="detail-actions"><button class="a-action primary">[ENTER] Continue</button><button class="a-action">[E] Export</button></div>
+                  </aside>
+                </div>
+              </section>
+            </div>
+
+            <footer class="a-footer"><span><span class="key">↑↓</span>navigate</span><span><span class="key">Enter</span>open</span><span><span class="key">/</span>search</span><span><span class="key">S</span>simulate</span><span><span class="key">E</span>export</span><span><span class="key">T</span>tenant</span><span><span class="key">?</span>help</span></footer>
+          </div>
+        </div>
+
+        <div class="concept concept-b" id="concept-b" role="tabpanel" hidden>
+          <header class="b-masthead">
+            <div class="b-logo">IAC // WORKBENCH</div>
+            <label class="b-search-wrap"><span class="b-search-prefix">/</span><input class="b-search" id="entitySearch" value="security" aria-label="Search all entities"><span class="b-search-hint">CTRL+K</span></label>
+            <div class="b-session"><strong>● CONTOSO PROD</strong>14/14 CAPABILITIES</div>
+          </header>
+
+          <nav class="b-workflow-tabs" aria-label="Workbench modes">
+            <button class="b-workflow-tab active">Explore</button>
+            <button class="b-workflow-tab">Governance <span>12</span></button>
+            <button class="b-workflow-tab">Simulate</button>
+            <button class="b-workflow-tab">Drift <span>7</span></button>
+            <button class="b-workflow-tab">Health</button>
+            <button class="b-workflow-tab">Access</button>
+          </nav>
+
+          <div class="b-workspace">
+            <aside class="b-tree">
+              <div class="pane-title">Entity browser</div>
+              <div class="tree-list">
+                <button class="tree-item active"><span class="tree-icon">◆</span><span>All results</span><span class="tree-count">24</span></button>
+                <button class="tree-item"><span class="tree-icon">▰</span><span>Policies</span><span class="tree-count">11</span></button>
+                <button class="tree-item"><span class="tree-icon">◫</span><span>Applications</span><span class="tree-count">3</span></button>
+                <button class="tree-item"><span class="tree-icon">◎</span><span>Groups</span><span class="tree-count">6</span></button>
+                <button class="tree-item"><span class="tree-icon">◇</span><span>Devices</span><span class="tree-count">2</span></button>
+                <button class="tree-item"><span class="tree-icon">○</span><span>Users</span><span class="tree-count">0</span></button>
+                <button class="tree-item"><span class="tree-icon">⌁</span><span>Filters</span><span class="tree-count">2</span></button>
+                <div class="tree-divider"></div>
+                <button class="tree-item saved-view"><span class="tree-icon">★</span><span>Broad assignments</span><span class="tree-count">8</span></button>
+                <button class="tree-item saved-view"><span class="tree-icon">★</span><span>Changed today</span><span class="tree-count">7</span></button>
+                <button class="tree-item saved-view"><span class="tree-icon">★</span><span>Delivery failures</span><span class="tree-count">226</span></button>
+              </div>
+            </aside>
+
+            <section class="b-results">
+              <div class="pane-title">Search results</div>
+              <div class="result-toolbar"><div class="result-query">Query: <span id="queryText">security</span><span class="b-chip">LIVE TENANT</span></div><div class="result-count">24 matches · 18 ms</div></div>
+              <div class="assignment-head"><span>NAME</span><span>TYPE</span><span>TARGET</span><span>INTENT</span><span>RISK</span></div>
+              <div id="assignmentRows"></div>
+            </section>
+
+            <aside class="b-inspector">
+              <div class="pane-title">Assignment inspector</div>
+              <div class="inspector-scroll" id="inspector"></div>
+            </aside>
+          </div>
+
+          <footer class="b-footer"><span><span class="key">/</span>search</span><span><span class="key">Tab</span>change pane</span><span><span class="key">↑↓</span>select</span><span><span class="key">Enter</span>inspect</span><span><span class="key">S</span>simulate</span><span><span class="key">G</span>governance</span><span class="footer-spacer"></span><span class="read-only">● READ-ONLY SESSION</span></footer>
+        </div>
+      </div>
+    </section>
+
+    <div class="draft-caption">
+      <span class="caption-badge" id="captionBadge">Selected A+B</span>
+      <span id="captionText">Draft A’s monitoring-oriented Command Center, now using Draft B’s restrained navy surfaces and amber interaction color.</span>
+      <span class="caption-verdict" id="captionVerdict">Dashboard structure · Workbench palette</span>
+    </div>
+  </main>
+
+  <script>
+    const conceptTabs = document.querySelectorAll(".concept-tab");
+    const concepts = document.querySelectorAll(".concept");
+    const terminal = document.getElementById("terminal");
+    const captionBadge = document.getElementById("captionBadge");
+    const captionText = document.getElementById("captionText");
+    const captionVerdict = document.getElementById("captionVerdict");
+
+    const captions = {
+      a: {
+        badge: "Selected A+B",
+        text: "Draft A’s monitoring-oriented Command Center, now using Draft B’s restrained navy surfaces and amber interaction color.",
+        verdict: "Dashboard structure · Workbench palette"
+      },
+      b: {
+        badge: "Draft B",
+        text: "A relationship-oriented workbench that keeps the entity list, assignment state, and complete reason chain visible at the same time.",
+        verdict: "Higher density · Faster investigations"
+      }
+    };
+
+    function switchConcept(id) {
+      conceptTabs.forEach(tab => {
+        const active = tab.dataset.concept === id;
+        tab.classList.toggle("active", active);
+        tab.setAttribute("aria-selected", String(active));
+      });
+      concepts.forEach(concept => {
+        const active = concept.id === `concept-${id}`;
+        concept.classList.toggle("active", active);
+        concept.hidden = !active;
+      });
+      captionBadge.textContent = captions[id].badge;
+      captionText.textContent = captions[id].text;
+      captionVerdict.textContent = captions[id].verdict;
+      terminal.focus();
+    }
+
+    conceptTabs.forEach(tab => tab.addEventListener("click", () => switchConcept(tab.dataset.concept)));
+
+    const findingDetails = [
+      {
+        severity: "Critical finding",
+        title: "Required assignment has no exclusion",
+        rule: "IAC-GOV-001 · Windows Security Baseline",
+        evidence: "Target = All Devices · Mode = Include · Intent = required · Exclusions = 0",
+        impact: "Every managed device is in scope, including pilot, privileged, kiosk, and exception populations.",
+        remediation: "Add an explicit exclusion group, document its owner, and validate the proposed change in the simulator before updating Intune."
+      },
+      {
+        severity: "Critical finding",
+        title: "Broad required application assignment",
+        rule: "IAC-GOV-002 · Microsoft 365 Apps",
+        evidence: "Target = All Users · Intent = required · Filter = none · Exclusions = 0",
+        impact: "The application will be required for every licensed user without a controlled rollout ring.",
+        remediation: "Stage deployment through pilot and broad groups, then compare the effective user and device population."
+      },
+      {
+        severity: "High finding",
+        title: "Conflicting inclusion and exclusion",
+        rule: "IAC-GOV-004 · EDR — Windows",
+        evidence: "43 devices resolve through both Corporate Windows and Privileged Device Exclusions.",
+        impact: "Effective delivery depends on exclusion precedence and may differ from the operator’s intended targeting.",
+        remediation: "Inspect the reason chain for affected devices and remove the overlapping group path."
+      },
+      {
+        severity: "High finding",
+        title: "Assignment filter result is unknown",
+        rule: "IAC-GOV-007 · BitLocker Compliance",
+        evidence: "Filter = Corporate Windows · Property = device.deviceOwnership · Evaluation = unknown for 18 devices",
+        impact: "Compliance targeting cannot be proven for the unresolved devices.",
+        remediation: "Review missing inventory properties, test the filter against affected devices, and rerun the scan."
+      },
+      {
+        severity: "Medium finding",
+        title: "All Users assignment lacks a filter",
+        rule: "IAC-GOV-009 · Edge Security Settings",
+        evidence: "Target = All Users · Filter = none · Known devices = 2,814",
+        impact: "The policy applies across platforms where parts of the configuration may not be applicable.",
+        remediation: "Evaluate a platform-specific assignment filter and compare before/after coverage."
+      }
+    ];
+
+    function renderFinding(index) {
+      const finding = findingDetails[index];
+      document.querySelectorAll(".finding-item").forEach((item, itemIndex) => item.classList.toggle("selected", itemIndex === index));
+      document.getElementById("findingDetail").innerHTML = `
+        <div class="detail-eyebrow">${finding.severity}</div>
+        <h3 class="detail-title">${finding.title}</h3>
+        <div class="detail-rule">${finding.rule}</div>
+        <div class="detail-section"><div class="detail-label">Evidence</div><div class="evidence">${finding.evidence}</div></div>
+        <div class="detail-section"><div class="detail-label">Blast radius</div><div class="detail-copy">${finding.impact}</div></div>
+        <div class="detail-section"><div class="detail-label">Recommended next step</div><div class="detail-copy">${finding.remediation}</div></div>
+        <div class="detail-actions"><button class="a-action primary">[S] Simulate fix</button><button class="a-action">[V] View assignments</button><button class="a-action">[W] Waiver</button></div>`;
+    }
+
+    document.querySelectorAll(".finding-item").forEach(item => item.addEventListener("click", () => renderFinding(Number(item.dataset.finding))));
+    renderFinding(0);
+
+    const workflowCopy = {
+      assignments: ["Assignments", "Browse and inspect", "Search policies, applications, users, devices, or groups. Open a record to see targeting, exclusions, filters, effective subjects, and delivery state.", "Windows Security Baseline"],
+      simulator: ["Change simulator", "Build proposed change", "Choose a policy, define a target or filter change, then review the before/after population and full reason chain without writing to Intune.", "Replace All Devices with deployment rings"],
+      drift: ["Drift timeline", "Compare with approved baseline", "Review added, removed, and modified assignments. Filter by risk and inspect the actor, application, timestamp, and changed properties.", "7 unapproved assignment changes"],
+      health: ["Delivery health", "Targeting versus outcome", "Separate assignment intent from actual deployment state across configuration, compliance, and application workloads, including partial coverage.", "226 failed · 41 stale"],
+      access: ["RBAC & scope", "Administrative boundary", "Trace administrator to role assignment, scope group, scope tags, and the policies they can see or manage.", "Helpdesk Operator — Europe"],
+      filters: ["Assignment filters", "Inventory and evaluation", "Find orphaned, duplicate, unsupported, overly broad, and empty filters, then test a filter against selected devices.", "3 filters need attention"],
+      fleet: ["Fleet", "Cross-tenant posture", "Scan tenants independently, preserve isolation, continue after failures, and compare governance patterns across the managed fleet.", "12 tenants · 11 healthy"]
+    };
+
+    document.querySelectorAll(".a-nav-button").forEach(button => {
+      button.addEventListener("click", () => {
+        const view = button.dataset.view;
+        document.querySelectorAll(".a-nav-button").forEach(item => item.classList.toggle("active", item === button));
+        document.getElementById("aRoute").textContent = button.querySelector("span:nth-child(2)").textContent;
+        document.querySelectorAll(".a-workflow").forEach(section => section.classList.remove("active"));
+        if (view === "overview" || view === "governance") {
+          document.querySelector(`[data-workflow="${view}"]`).classList.add("active");
+        } else {
+          const placeholder = document.querySelector('[data-workflow*="assignments"]');
+          placeholder.classList.add("active");
+          const [heading, eyebrow, copy, selected] = workflowCopy[view];
+          document.getElementById("placeholderHeading").textContent = heading;
+          document.getElementById("placeholderEyebrow").textContent = eyebrow;
+          document.getElementById("placeholderCopy").textContent = copy;
+          document.getElementById("placeholderSelected").textContent = selected;
+        }
+      });
+    });
+
+    const assignments = [
+      { name: "Windows Security Baseline", type: "Endpoint security", target: "All Devices", intent: "Required", risk: "Critical", subject: "WIN-SEC-027", user: "alex@contoso.com", groups: ["All Devices", "Corporate Windows"], filter: "Corporate Windows 11", result: "Included" },
+      { name: "Security Update Ring — Broad", type: "Update ring", target: "Corporate", intent: "Required", risk: "Medium", subject: "WIN-SEC-027", user: "alex@contoso.com", groups: ["Corporate Windows", "Broad Ring"], filter: "Windows 11", result: "Included" },
+      { name: "Defender Antivirus — Managed", type: "Endpoint security", target: "Security Devices", intent: "Required", risk: "Low", subject: "WIN-SEC-027", user: "alex@contoso.com", groups: ["Security Devices"], filter: "none", result: "Included" },
+      { name: "Microsoft 365 Apps", type: "Win32 application", target: "All Users", intent: "Required", risk: "High", subject: "alex@contoso.com", user: "alex@contoso.com", groups: ["All Users", "Licensed Employees"], filter: "none", result: "Included" },
+      { name: "Edge Security Settings", type: "Settings catalog", target: "All Users", intent: "Required", risk: "Medium", subject: "alex@contoso.com", user: "alex@contoso.com", groups: ["All Users"], filter: "none", result: "Included" },
+      { name: "Security Team Local Admin", type: "Account protection", target: "Security Users", intent: "Required", risk: "Low", subject: "WIN-SEC-027", user: "alex@contoso.com", groups: ["Security Users", "Privileged Workstations"], filter: "Corporate owned", result: "Excluded" },
+      { name: "Security Browser Extension", type: "Win32 application", target: "Security Users", intent: "Available", risk: "Low", subject: "alex@contoso.com", user: "alex@contoso.com", groups: ["Security Users"], filter: "Windows desktop", result: "Included" }
+    ];
+
+    let selectedAssignment = 0;
+
+    function renderAssignments(filter = "") {
+      const needle = filter.trim().toLowerCase();
+      const visible = assignments.filter(item => !needle || [item.name, item.type, item.target, item.intent, item.risk].some(value => value.toLowerCase().includes(needle)));
+      selectedAssignment = Math.min(selectedAssignment, Math.max(0, visible.length - 1));
+      document.getElementById("assignmentRows").innerHTML = visible.length ? visible.map((item, index) => `
+        <div class="assignment-row ${index === selectedAssignment ? "selected" : ""}" data-assignment="${index}">
+          <span class="assignment-name">${item.name}</span><span>${item.type}</span><span class="target-type">${item.target}</span><span class="intent">${item.intent}</span><span class="${item.risk === "Critical" || item.risk === "High" ? "risk-high" : item.risk === "Medium" ? "risk-medium" : ""}">${item.risk}</span>
+        </div>`).join("") : `<div class="assignment-row"><span class="assignment-name">No matching entities</span><span>—</span><span>—</span><span>—</span><span>—</span></div>`;
+      document.querySelectorAll(".assignment-row[data-assignment]").forEach(row => row.addEventListener("click", () => { selectedAssignment = Number(row.dataset.assignment); renderAssignments(document.getElementById("entitySearch").value); }));
+      renderInspector(visible[selectedAssignment] || assignments[0]);
+    }
+
+    function renderInspector(item) {
+      document.getElementById("inspector").innerHTML = `
+        <div class="inspector-kicker">Effective assignment</div>
+        <h3 class="inspector-title">${item.name}</h3>
+        <div class="inspector-id">Assignment 7d3d83b0 · Policy 07f2c36a</div>
+        <div class="inspector-section">
+          <div class="inspector-label">Resolved state</div>
+          <div class="state-line"><span>Subject</span><strong>${item.subject}</strong></div>
+          <div class="state-line"><span>User</span><strong>${item.user}</strong></div>
+          <div class="state-line"><span>Intent</span><strong>${item.intent}</strong></div>
+          <div class="state-line"><span>Effective</span><strong><span class="effective-badge">${item.result.toUpperCase()}</span></strong></div>
+        </div>
+        <div class="inspector-section">
+          <div class="inspector-label">Reason chain</div>
+          <div class="reason-chain">
+            <div class="reason-step"><strong>Direct target</strong>${item.target}</div>
+            <div class="reason-step"><strong>Membership resolved</strong>${item.groups.join(" → ")}</div>
+            <div class="reason-step"><strong>Filter evaluation</strong>${item.filter === "none" ? "No assignment filter" : `${item.filter} = true`}</div>
+            <div class="reason-step"><strong>Exclusion precedence</strong>${item.result === "Excluded" ? "Matching exclusion wins" : "No matching exclusion"}</div>
+            <div class="reason-step final"><strong>Effective state</strong>${item.result} · ${item.intent}</div>
+          </div>
+        </div>
+        <div class="inspector-actions"><button class="b-action primary">[S] Simulate</button><button class="b-action">[G] Governance</button></div>`;
+    }
+
+    const entitySearch = document.getElementById("entitySearch");
+    entitySearch.addEventListener("input", () => {
+      document.getElementById("queryText").textContent = entitySearch.value || "all";
+      selectedAssignment = 0;
+      renderAssignments(entitySearch.value);
+    });
+    entitySearch.addEventListener("keydown", event => {
+      if (event.key === "Escape") { entitySearch.value = ""; entitySearch.blur(); renderAssignments(""); }
+    });
+
+    document.querySelectorAll(".tree-item").forEach(item => item.addEventListener("click", () => {
+      document.querySelectorAll(".tree-item").forEach(entry => entry.classList.toggle("active", entry === item));
+    }));
+
+    document.querySelectorAll(".b-workflow-tab").forEach(tab => tab.addEventListener("click", () => {
+      document.querySelectorAll(".b-workflow-tab").forEach(entry => entry.classList.toggle("active", entry === tab));
+    }));
+
+    terminal.addEventListener("keydown", event => {
+      if (event.target.matches("input")) return;
+      const activeConcept = document.querySelector(".concept-tab.active").dataset.concept;
+      if (event.key === "1") switchConcept("a");
+      if (event.key === "2") switchConcept("b");
+      if (activeConcept === "a" && (event.key === "g" || event.key === "G")) document.querySelector('[data-view="governance"]').click();
+      if (activeConcept === "b" && event.key === "/") { event.preventDefault(); entitySearch.focus(); entitySearch.select(); }
+      if (activeConcept === "b" && event.key === "ArrowDown") { event.preventDefault(); selectedAssignment = Math.min(assignments.length - 1, selectedAssignment + 1); renderAssignments(entitySearch.value); }
+      if (activeConcept === "b" && event.key === "ArrowUp") { event.preventDefault(); selectedAssignment = Math.max(0, selectedAssignment - 1); renderAssignments(entitySearch.value); }
+    });
+
+    renderAssignments("security");
+    terminal.focus();
+  </script>
+</body>
+</html>

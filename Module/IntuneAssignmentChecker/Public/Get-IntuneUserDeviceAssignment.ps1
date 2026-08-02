@@ -26,7 +26,10 @@ function Get-IntuneUserDeviceAssignment {
         [string]$ExportPath,
 
         [Parameter(Mandatory = $false)]
-        [string]$ScopeTagFilter
+        [string]$ScopeTagFilter,
+
+        [Parameter(Mandatory = $false)]
+        [switch]$PassThru
     )
 
     Write-Host "What-If: User on Device - effective policy preview" -ForegroundColor Green
@@ -602,5 +605,6 @@ function Get-IntuneUserDeviceAssignment {
     Add-ExportData -ExportData $exportData -Category "Windows Driver Update Profile"         -Items $relevantPolicies.WindowsDriverUpdates        -AssignmentReason { param($i) "$($i.Source) | $($i.AssignmentReason)" }
     Add-ExportData -ExportData $exportData -Category "Windows Quality Update Policy"         -Items $relevantPolicies.WindowsQualityUpdatePolicies -AssignmentReason { param($i) "$($i.Source) | $($i.AssignmentReason)" }
 
-    Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneUserDeviceAssignments.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath -ExportToCSV:$ExportToCSV -ParameterMode:$parameterMode
+    Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneUserDeviceAssignments.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath -ExportToCSV:$ExportToCSV -ParameterMode:$PassThru
+    if ($PassThru) { $exportData }
 }

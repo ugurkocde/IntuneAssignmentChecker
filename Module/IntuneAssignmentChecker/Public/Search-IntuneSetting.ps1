@@ -11,7 +11,10 @@ function Search-IntuneSetting {
         [switch]$ExportToCSV,
 
         [Parameter()]
-        [string]$ExportPath
+        [string]$ExportPath,
+
+        [Parameter()]
+        [switch]$PassThru
     )
 
     # Requires active Graph connection
@@ -290,7 +293,8 @@ function Search-IntuneSetting {
     Write-Host (Get-Separator -Character "=") -ForegroundColor Cyan
 
     # ── Export ───────────────────────────────────────────────────────────
-    Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneSettingSearch.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath -ExportToCSV:$ExportToCSV -ParameterMode:$parameterMode
+    Export-ResultsIfRequested -ExportData $exportData -DefaultFileName "IntuneSettingSearch.csv" -ForceExport:$ExportToCSV -CustomExportPath $ExportPath -ExportToCSV:$ExportToCSV -ParameterMode:$PassThru
+    if ($PassThru) { $exportData }
 }
 
 # ── Helper: extract configured value from a setting instance ─────────

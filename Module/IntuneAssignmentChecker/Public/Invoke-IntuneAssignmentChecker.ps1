@@ -163,19 +163,32 @@ function Invoke-IntuneAssignmentChecker {
     if ($AccessToken -and $AccessToken.Length -gt 0) { $connectParams['AccessToken'] = $AccessToken }
     if ($Environment)           { $connectParams['Environment']           = $Environment }
 
+    # A plain invocation opens the command center immediately. Connection is a
+    # first-class Settings workflow, so users can inspect offline snapshots and
+    # diagnostics without signing in first. Explicit authentication arguments
+    # retain the convenient connect-then-open behavior.
+    if (-not $parameterMode) {
+        $connectionParameterNames = @(
+            'AppId', 'TenantId', 'CertificateThumbprint', 'ClientSecret',
+            'ClientSecretCredential', 'AccessToken', 'Environment'
+        )
+        $explicitConnectionRequest = @($connectionParameterNames | Where-Object { $PSBoundParameters.ContainsKey($_) }).Count -gt 0
+        if ($explicitConnectionRequest) {
+            Connect-IntuneAssignmentChecker @connectParams
+            if (-not (Get-MgContext -ErrorAction SilentlyContinue)) {
+                Write-Host "Not connected to Microsoft Graph. Exiting." -ForegroundColor Red
+                return
+            }
+        }
+        Start-IntuneAssignmentCheckerTui
+        return
+    }
+
     Connect-IntuneAssignmentChecker @connectParams
 
     # Abort if connection failed (no Graph context)
     if (-not (Get-MgContext -ErrorAction SilentlyContinue)) {
         Write-Host "Not connected to Microsoft Graph. Exiting." -ForegroundColor Red
-        return
-    }
-
-    # The v5 interactive surface is generated from the exported command catalog.
-    # Keep the legacy feature switches below for non-interactive compatibility,
-    # but route the alias/default invocation to the full-parity terminal UI.
-    if (-not $parameterMode) {
-        Start-IntuneAssignmentCheckerTui
         return
     }
 
@@ -240,19 +253,22 @@ function Invoke-IntuneAssignmentChecker {
             '9' {
                 Get-IntuneEmptyGroup `
                     -ExportToCSV:$ExportToCSV `
-                    -ExportPath $ExportPath
+                    -ExportPath $ExportPath `
+                    -PassThru | Out-Null
             }
             '10' {
                 Compare-IntuneGroupAssignment `
                     -CompareGroupNames $CompareGroupNames `
                     -IncludeNestedGroups:$IncludeNestedGroups `
                     -ExportToCSV:$ExportToCSV `
-                    -ExportPath $ExportPath
+                    -ExportPath $ExportPath `
+                    -PassThru | Out-Null
             }
             '11' {
                 Get-IntuneFailedAssignment `
                     -ExportToCSV:$ExportToCSV `
-                    -ExportPath $ExportPath
+                    -ExportPath $ExportPath `
+                    -PassThru | Out-Null
             }
             '12' {
                 Test-IntuneGroupMembership `
@@ -262,7 +278,8 @@ function Invoke-IntuneAssignmentChecker {
                     -GroupNames $GroupNames `
                     -ExportToCSV:$ExportToCSV `
                     -ExportPath $ExportPath `
-                    -ScopeTagFilter $ScopeTagFilter
+                    -ScopeTagFilter $ScopeTagFilter `
+                    -PassThru | Out-Null
             }
             '13' {
                 Test-IntuneGroupRemoval `
@@ -272,7 +289,8 @@ function Invoke-IntuneAssignmentChecker {
                     -GroupNames $GroupNames `
                     -ExportToCSV:$ExportToCSV `
                     -ExportPath $ExportPath `
-                    -ScopeTagFilter $ScopeTagFilter
+                    -ScopeTagFilter $ScopeTagFilter `
+                    -PassThru | Out-Null
             }
             '14' {
                 Search-IntunePolicy `
@@ -284,7 +302,8 @@ function Invoke-IntuneAssignmentChecker {
                 Search-IntuneSetting `
                     -Keyword $SettingKeyword `
                     -ExportToCSV:$ExportToCSV `
-                    -ExportPath $ExportPath
+                    -ExportPath $ExportPath `
+                    -PassThru | Out-Null
             }
             '16' {
                 Get-IntuneUserDeviceAssignment `
@@ -292,7 +311,8 @@ function Invoke-IntuneAssignmentChecker {
                     -DeviceName $DeviceNames `
                     -ExportToCSV:$ExportToCSV `
                     -ExportPath $ExportPath `
-                    -ScopeTagFilter $ScopeTagFilter
+                    -ScopeTagFilter $ScopeTagFilter `
+                    -PassThru | Out-Null
             }
         }
 }
