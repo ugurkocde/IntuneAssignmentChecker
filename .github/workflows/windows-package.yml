@@ -117,7 +117,7 @@ jobs:
               $env:IAC_LAUNCHER_PATH = $launcherPath
               $launcherOutput = @(& $env:ComSpec /d /s /c 'call "%IAC_LAUNCHER_PATH%" --check' 2>&1)
               if ($LASTEXITCODE -ne 0) {
-                  throw "The installed command launcher check failed with exit code $LASTEXITCODE: $($launcherOutput -join ' ')"
+                  throw "The installed command launcher check failed with exit code ${LASTEXITCODE}: $($launcherOutput -join ' ')"
               }
               if (($launcherOutput -join [Environment]::NewLine) -notmatch 'is ready in PowerShell 7') {
                   throw "The installed command launcher did not confirm a PowerShell 7 handoff: $($launcherOutput -join ' ')"
