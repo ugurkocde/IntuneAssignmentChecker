@@ -84,6 +84,7 @@ jobs:
           $msi = '${{ steps.package.outputs.installer }}'
           $installLog = Join-Path $env:RUNNER_TEMP 'intune-assignment-checker-install.log'
           $removeLog = Join-Path $env:RUNNER_TEMP 'intune-assignment-checker-remove.log'
+          $verificationScript = Join-Path $env:RUNNER_TEMP 'verify-intune-assignment-checker.ps1'
           $installed = $false
           try {
               Write-Host "Installing $msi"
@@ -103,16 +104,30 @@ jobs:
               $available | Format-List Name, Version, Path
               if ($available.Count -eq 0) { throw 'The installed module was not discoverable through PSModulePath.' }
 
-              Import-Module IntuneAssignmentChecker -RequiredVersion '${{ steps.package.outputs.version }}' -Force
-              $module = Get-Module IntuneAssignmentChecker | Select-Object -First 1
-              if ($module.Version.ToString() -cne '${{ steps.package.outputs.version }}') { throw 'Installed module version mismatch.' }
-              $catalog = @(Get-IntuneAssignmentOperation)
-              $expected = @($module.ExportedFunctions.Keys | Where-Object { $_ -notin @('Get-IntuneAssignmentOperation', 'Invoke-IntuneAssignmentChecker', 'Start-IntuneAssignmentCheckerTui') })
-              if (@(Compare-Object $expected $catalog.Name).Count -gt 0) { throw 'TUI operation catalog is not in parity with installed exports.' }
-              Write-Host "Verified $($catalog.Count) installed TUI operations."
+              @'
+          param([Parameter(Mandatory)][string]$Version)
+          $ErrorActionPreference = 'Stop'
+          Import-Module IntuneAssignmentChecker -RequiredVersion $Version -Force
+          $module = Get-Module IntuneAssignmentChecker | Select-Object -First 1
+          if ($module.Version.ToString() -cne $Version) { throw 'Installed module version mismatch.' }
+          $catalog = @(Get-IntuneAssignmentOperation)
+          $expected = @($module.ExportedFunctions.Keys | Where-Object {
+              $_ -notin @('Get-IntuneAssignmentOperation', 'Invoke-IntuneAssignmentChecker', 'Start-IntuneAssignmentCheckerTui')
+          })
+          if (@(Compare-Object $expected $catalog.Name).Count -gt 0) {
+              throw 'TUI operation catalog is not in parity with installed exports.'
+          }
+          Write-Host "Verified $($catalog.Count) installed TUI operations."
+          '@ | Set-Content -LiteralPath $verificationScript -Encoding utf8
+              & (Join-Path $PSHOME 'pwsh.exe') -NoLogo -NoProfile -File $verificationScript `
+                  -Version '${{ steps.package.outputs.version }}'
+              $verificationExitCode = $LASTEXITCODE
+              if ($verificationExitCode -ne 0) {
+                  throw "Installed-module verification failed with exit code $verificationExitCode."
+              }
           }
           finally {
-              Remove-Module IntuneAssignmentChecker -ErrorAction SilentlyContinue
+              Remove-Item -LiteralPath $verificationScript -Force -ErrorAction SilentlyContinue
               if ($installed) {
                   $remove = Start-Process msiexec.exe -ArgumentList @(
                       '/x', '${{ steps.package.outputs.product_code }}', '/qn', '/norestart', '/L*V', $removeLog
