@@ -87,8 +87,10 @@ jobs:
           $installed = $false
           try {
               Write-Host "Installing $msi"
-              & msiexec.exe /i $msi /qn /norestart /L*V $installLog
-              $installExitCode = $LASTEXITCODE
+              $install = Start-Process msiexec.exe -ArgumentList @(
+                  '/i', $msi, '/qn', '/norestart', '/L*V', $installLog
+              ) -Wait -PassThru
+              $installExitCode = $install.ExitCode
               Write-Host "MSI install exit code: $installExitCode"
               if ($installExitCode -ne 0) {
                   Get-Content -LiteralPath $installLog -Tail 200 -ErrorAction SilentlyContinue
@@ -112,8 +114,10 @@ jobs:
           finally {
               Remove-Module IntuneAssignmentChecker -ErrorAction SilentlyContinue
               if ($installed) {
-                  & msiexec.exe /x '${{ steps.package.outputs.product_code }}' /qn /norestart /L*V $removeLog
-                  $removeExitCode = $LASTEXITCODE
+                  $remove = Start-Process msiexec.exe -ArgumentList @(
+                      '/x', '${{ steps.package.outputs.product_code }}', '/qn', '/norestart', '/L*V', $removeLog
+                  ) -Wait -PassThru
+                  $removeExitCode = $remove.ExitCode
                   Write-Host "MSI removal exit code: $removeExitCode"
                   if ($removeExitCode -ne 0) {
                       Get-Content -LiteralPath $removeLog -Tail 200 -ErrorAction SilentlyContinue
