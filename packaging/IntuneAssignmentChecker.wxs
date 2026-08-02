@@ -24,6 +24,7 @@
     <Feature Id="Complete" Title="Intune Assignment Checker" Level="1">
       <ComponentGroupRef Id="PowerShellModuleFiles" />
       <ComponentRef Id="CommandLauncher" />
+      <ComponentRef Id="PowerShellLauncher" />
     </Feature>
   </Package>
 
@@ -43,6 +44,9 @@
           Action="set"
           Part="last"
           System="yes" />
+    </Component>
+    <Component Id="PowerShellLauncher" Directory="CommandFolder" Guid="{D2E84724-3F47-4A89-A67A-52C0430123B7}">
+      <File Id="PowerShellLauncherFile" Source="!(bindpath.LauncherSource)\Start-IntuneAssignmentChecker.ps1" KeyPath="yes" />
     </Component>
   </Fragment>
 </Wix>

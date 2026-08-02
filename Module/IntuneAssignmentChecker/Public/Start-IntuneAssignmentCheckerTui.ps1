@@ -44,13 +44,27 @@ function Start-IntuneAssignmentCheckerTui {
     }
 
     $state = New-IACTuiState -InitialView $InitialView
+    $launchNotice = [Environment]::GetEnvironmentVariable('IAC_LAUNCH_NOTICE', 'Process')
+    if (-not [string]::IsNullOrWhiteSpace($launchNotice)) {
+        [Environment]::SetEnvironmentVariable('IAC_LAUNCH_NOTICE', $null, 'Process')
+    }
     try {
         $terminal = Enable-IACTuiTerminal -State $state -DisableMouse:$DisableMouse
+        $statusMessages = @()
+        $statusStyle = 'Muted'
         if ($DisableMouse) {
-            Set-IACTuiStatus -State $state -Message 'Mouse input disabled; all features remain available from the keyboard.' -Style Muted
+            $statusMessages += 'Mouse input disabled; all features remain available from the keyboard.'
         }
         elseif (-not $terminal.MouseEnabled) {
-            Set-IACTuiStatus -State $state -Message 'Mouse reporting is unavailable in this terminal; keyboard navigation is fully supported.' -Style Warning
+            $statusMessages += 'Mouse reporting is unavailable in this terminal; keyboard navigation is fully supported.'
+            $statusStyle = 'Warning'
+        }
+        if (-not [string]::IsNullOrWhiteSpace($launchNotice)) {
+            $statusMessages += $launchNotice
+            $statusStyle = 'Warning'
+        }
+        if ($statusMessages.Count -gt 0) {
+            Set-IACTuiStatus -State $state -Message ($statusMessages -join ' ') -Style $statusStyle
         }
 
         while (-not $state.ExitRequested) {

@@ -48,6 +48,144 @@ function Test-IntuneAssignmentCheckerEnvironment {
     }
 
     & $addResult 'PowerShellVersion' $(if ($PSVersionTable.PSVersion.Major -ge 7) { 'Passed' } else { 'Failed' }) "$($PSVersionTable.PSVersion)" 'Install PowerShell 7 or newer.' 'Core'
+
+    $loadedModule = $MyInvocation.MyCommand.Module
+    if (-not $loadedModule -or [string]::IsNullOrWhiteSpace($loadedModule.Path)) {
+        $loadedModule = Get-Module -Name IntuneAssignmentChecker -ErrorAction SilentlyContinue |
+            Where-Object { -not [string]::IsNullOrWhiteSpace($_.Path) } |
+            Sort-Object Version -Descending |
+            Select-Object -First 1
+    }
+    $availableModules = @(
+        Get-Module -ListAvailable -Name IntuneAssignmentChecker -ErrorAction SilentlyContinue |
+            Where-Object { -not [string]::IsNullOrWhiteSpace($_.Path) }
+    )
+    $scopePathComparer = [StringComparer]::OrdinalIgnoreCase
+    $getModuleBase = {
+        param($Module)
+        $moduleBase = if ($Module -and -not [string]::IsNullOrWhiteSpace($Module.ModuleBase)) {
+            $Module.ModuleBase
+        }
+        elseif ($Module -and -not [string]::IsNullOrWhiteSpace($Module.Path)) {
+            [IO.Path]::GetDirectoryName($Module.Path)
+        }
+        else {
+            $null
+        }
+        if ($moduleBase) {
+            [IO.Path]::GetFullPath($moduleBase).TrimEnd(
+                [IO.Path]::DirectorySeparatorChar,
+                [IO.Path]::AltDirectorySeparatorChar
+            )
+        }
+    }
+    $loadedBase = & $getModuleBase $loadedModule
+    $availableLoadedBase = @(
+        $availableModules | Where-Object {
+            $availableBase = & $getModuleBase $_
+            $loadedBase -and $availableBase -and $scopePathComparer.Equals($availableBase, $loadedBase)
+        }
+    )
+    if ($loadedModule -and $availableLoadedBase.Count -eq 0) {
+        $availableModules = @($loadedModule) + $availableModules
+    }
+
+    $moduleSearchRootPaths = [Collections.Generic.HashSet[string]]::new($scopePathComparer)
+    $moduleSearchRoots = @(
+        foreach ($searchRoot in @($env:PSModulePath -split [IO.Path]::PathSeparator)) {
+            if (-not [string]::IsNullOrWhiteSpace($searchRoot)) {
+                $normalizedRoot = [IO.Path]::GetFullPath($searchRoot).TrimEnd(
+                    [IO.Path]::DirectorySeparatorChar,
+                    [IO.Path]::AltDirectorySeparatorChar
+                )
+                if ($moduleSearchRootPaths.Add($normalizedRoot)) {
+                    $normalizedRoot
+                }
+            }
+        }
+    )
+    $moduleSearchRoots = @($moduleSearchRoots | Sort-Object Length -Descending)
+    $moduleIdentities = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    $moduleInstallations = @(
+        $availableModules |
+            ForEach-Object {
+                $prerelease = "$($_.PrivateData.PSData.Prerelease)"
+                $displayVersion = "$($_.Version)"
+                if (-not [string]::IsNullOrWhiteSpace($prerelease)) {
+                    $displayVersion += "-$prerelease"
+                }
+                $moduleBase = & $getModuleBase $_
+                [PSCustomObject]@{
+                    Version        = [version]$_.Version
+                    IsStable       = [string]::IsNullOrWhiteSpace($prerelease)
+                    Prerelease     = $prerelease
+                    DisplayVersion = $displayVersion
+                    Path           = [IO.Path]::GetFullPath($_.Path)
+                    ModuleBase     = $moduleBase
+                    Identity       = "$moduleBase|$displayVersion"
+                }
+            } |
+            Sort-Object -Property @(
+                @{ Expression = { $_.Version }; Descending = $true }
+                @{ Expression = { $_.IsStable }; Descending = $true }
+                @{ Expression = { $_.Prerelease }; Descending = $true }
+                @{ Expression = { $_.Path }; Ascending = $true }
+            ) |
+            Where-Object { $moduleIdentities.Add($_.Identity) }
+    )
+    $moduleScopes = [Collections.Generic.HashSet[string]]::new($scopePathComparer)
+    foreach ($installation in $moduleInstallations) {
+        $installationPath = [IO.Path]::GetFullPath($installation.Path)
+        $scopeRoot = $null
+        foreach ($searchRoot in $moduleSearchRoots) {
+            $searchPrefix = $searchRoot + [IO.Path]::DirectorySeparatorChar
+            if ($installationPath.StartsWith($searchPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+                $scopeRoot = $searchRoot
+                break
+            }
+        }
+        if (-not $scopeRoot) {
+            $manifestDirectory = [IO.Path]::GetDirectoryName($installationPath)
+            $scopeRoot = [IO.Path]::GetDirectoryName($manifestDirectory)
+            $versionDirectoryName = [IO.Path]::GetFileName($manifestDirectory)
+            $isVersionDirectory = $false
+            try {
+                [void][version]$versionDirectoryName
+                $isVersionDirectory = $true
+            }
+            catch {
+                try {
+                    [void][System.Management.Automation.SemanticVersion]$versionDirectoryName
+                    $isVersionDirectory = $true
+                }
+                catch {
+                    # A non-versioned module lives directly beneath its scope root.
+                }
+            }
+            if ($isVersionDirectory) {
+                $scopeRoot = [IO.Path]::GetDirectoryName($scopeRoot)
+            }
+        }
+        [void]$moduleScopes.Add($scopeRoot)
+    }
+    $installationDetails = @(
+        foreach ($installation in $moduleInstallations) {
+            $installationPath = [IO.Path]::GetFullPath($installation.Path)
+            $isLoaded = $loadedBase -and $installation.ModuleBase -and $scopePathComparer.Equals($installation.ModuleBase, $loadedBase)
+            $loadedLabel = if ($isLoaded) { ' [loaded]' } else { '' }
+            "v$($installation.DisplayVersion) at $installationPath$loadedLabel"
+        }
+    )
+    $installationStatus = if ($moduleScopes.Count -gt 1) { 'Warning' } elseif ($moduleInstallations.Count -ge 1) { 'Passed' } else { 'Failed' }
+    $installationDetail = if ($installationDetails.Count -gt 0) { $installationDetails -join '; ' } else { 'No installation was discovered.' }
+    $installationRemediation = if ($moduleScopes.Count -gt 1) {
+        'Keep one installation scope, or remove the extra copy with the package manager that installed it (Uninstall-Module or winget uninstall).'
+    }
+    else {
+        'Install from PowerShell Gallery or WinGet if the module is unavailable.'
+    }
+    & $addResult 'ModuleInstallations' $installationStatus $installationDetail $installationRemediation 'Core'
+
     $graphModule = Get-Module -ListAvailable -Name Microsoft.Graph.Authentication | Sort-Object Version -Descending | Select-Object -First 1
     & $addResult 'GraphAuthenticationModule' $(if ($graphModule) { 'Passed' } else { 'Failed' }) $(if ($graphModule) { "$($graphModule.Version)" } else { 'Not installed' }) 'Install-Module Microsoft.Graph.Authentication -Scope CurrentUser' 'Core'
 

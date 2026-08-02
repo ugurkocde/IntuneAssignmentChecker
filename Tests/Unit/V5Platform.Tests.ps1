@@ -791,6 +791,87 @@ Describe 'v5 coverage-aware commands' {
 }
 
 Describe 'v5 environment diagnostics' {
+    It 'reports every module installation and identifies the loaded copy' {
+        $loadedModule = Get-Module IntuneAssignmentChecker
+        $galleryPath = [IO.Path]::GetFullPath((Join-Path (Join-Path (Join-Path $TestDrive 'CurrentUser') 'IntuneAssignmentChecker/5.0.0') 'IntuneAssignmentChecker.psd1'))
+        $machinePath = [IO.Path]::GetFullPath((Join-Path (Join-Path (Join-Path $TestDrive 'AllUsers') 'IntuneAssignmentChecker/5.0.0') 'IntuneAssignmentChecker.psd1'))
+        $loadedManifestPath = Join-Path $loadedModule.ModuleBase 'IntuneAssignmentChecker.psd1'
+        Mock Get-Module -ModuleName IntuneAssignmentChecker -ParameterFilter {
+            $ListAvailable -and $Name -eq 'IntuneAssignmentChecker'
+        } {
+            @(
+                [PSCustomObject]@{ Version = [version]'5.0.0'; Path = $galleryPath }
+                [PSCustomObject]@{ Version = [version]'5.0.0'; Path = $machinePath }
+                [PSCustomObject]@{ Version = [version]'5.0.0'; Path = $galleryPath }
+                [PSCustomObject]@{
+                    Version = $loadedModule.Version
+                    Path = $loadedManifestPath
+                    ModuleBase = $loadedModule.ModuleBase
+                }
+            )
+        }
+        Mock Get-Module -ModuleName IntuneAssignmentChecker -ParameterFilter {
+            $ListAvailable -and $Name -eq 'Microsoft.Graph.Authentication'
+        } {
+            [PSCustomObject]@{ Version = [version]'2.38.1' }
+        }
+
+        $diagnostic = Test-IntuneAssignmentCheckerEnvironment -SkipGraphProbe |
+            Where-Object Check -EQ ModuleInstallations
+
+        $diagnostic.Status | Should -BeExactly Warning
+        $diagnostic.Detail | Should -Match ([regex]::Escape($galleryPath))
+        $diagnostic.Detail | Should -Match ([regex]::Escape($machinePath))
+        $diagnostic.Detail | Should -Match ([regex]::Escape($loadedManifestPath))
+        $diagnostic.Detail | Should -Not -Match ([regex]::Escape($loadedModule.Path))
+        $diagnostic.Detail | Should -Match '\[loaded\]'
+        @($diagnostic.Detail -split '; ').Count | Should -Be 3
+        @([regex]::Matches($diagnostic.Detail, [regex]::Escape($galleryPath))).Count | Should -Be 1
+    }
+
+    It 'treats side-by-side versions in one module scope as healthy' {
+        $loadedModule = Get-Module IntuneAssignmentChecker
+        $moduleScope = Split-Path (Split-Path $loadedModule.Path -Parent) -Parent
+        $olderPath = [IO.Path]::GetFullPath(
+            (Join-Path (Join-Path (Join-Path $moduleScope 'IntuneAssignmentChecker') '4.9.0') 'IntuneAssignmentChecker.psd1')
+        )
+        $fourPartPath = [IO.Path]::GetFullPath(
+            (Join-Path (Join-Path (Join-Path $moduleScope 'IntuneAssignmentChecker') '4.8.0.1') 'IntuneAssignmentChecker.psd1')
+        )
+        Mock Get-Module -ModuleName IntuneAssignmentChecker -ParameterFilter {
+            $ListAvailable -and $Name -eq 'IntuneAssignmentChecker'
+        } {
+            @(
+                $loadedModule
+                [PSCustomObject]@{
+                    Version = [version]'4.9.0'
+                    Path = $olderPath
+                    PrivateData = @{ PSData = @{ Prerelease = 'preview1' } }
+                }
+                [PSCustomObject]@{ Version = [version]'4.8.0.1'; Path = $fourPartPath }
+            )
+        }
+        Mock Get-Module -ModuleName IntuneAssignmentChecker -ParameterFilter {
+            $ListAvailable -and $Name -eq 'Microsoft.Graph.Authentication'
+        } {
+            [PSCustomObject]@{ Version = [version]'2.38.1' }
+        }
+        $savedModulePath = $env:PSModulePath
+        try {
+            $env:PSModulePath = $moduleScope
+            $diagnostic = Test-IntuneAssignmentCheckerEnvironment -SkipGraphProbe |
+                Where-Object Check -EQ ModuleInstallations
+        }
+        finally {
+            $env:PSModulePath = $savedModulePath
+        }
+
+        $diagnostic.Status | Should -BeExactly Passed
+        @($diagnostic.Detail -split '; ').Count | Should -Be 3
+        $diagnostic.Detail | Should -Match 'v4\.9\.0-preview1'
+        $diagnostic.Detail | Should -Match 'v4\.8\.0\.1'
+    }
+
     It 'uses first-page-only beta probes for every applicable workload' {
         & (Get-Module IntuneAssignmentChecker) {
             $script:GraphEndpoint = 'https://graph.microsoft.com'

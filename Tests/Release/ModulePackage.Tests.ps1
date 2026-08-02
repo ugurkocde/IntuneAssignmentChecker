@@ -77,22 +77,126 @@ Describe 'IntuneAssignmentChecker release package' {
 
     It 'ships a PowerShell 7 command handoff without duplicating application logic' {
         $launcherPath = Join-Path $repoRoot 'packaging/IntuneAssignmentChecker.cmd'
+        $bootstrapPath = Join-Path $repoRoot 'packaging/Start-IntuneAssignmentChecker.ps1'
         Test-Path -LiteralPath $launcherPath -PathType Leaf | Should -BeTrue
+        Test-Path -LiteralPath $bootstrapPath -PathType Leaf | Should -BeTrue
         $launcher = Get-Content -LiteralPath $launcherPath -Raw
+        $bootstrap = Get-Content -LiteralPath $bootstrapPath -Raw
         $launcher | Should -Match 'pwsh\.exe'
-        $launcher | Should -Match 'Start-IntuneAssignmentCheckerTui'
+        $launcher | Should -Match 'Start-IntuneAssignmentChecker\.ps1'
         $launcher | Should -Match 'requires PowerShell 7'
         $launcher | Should -Not -Match '(?i)powershell\.exe'
+        @([regex]::Matches($launcher, '-ExecutionPolicy Bypass')).Count | Should -Be 3
+        $launcher | Should -Match ':bootstrap_not_found'
+        $launcher | Should -Match 'winget install --id UgurKoc\.IntuneAssignmentChecker --exact --force'
+        $bootstrap | Should -Match 'Start-IntuneAssignmentCheckerTui'
+        $bootstrap | Should -Match 'Get-Module -ListAvailable'
+        $bootstrap | Should -Match 'IsMachineInstallation'
+        $bootstrap | Should -Match 'Import-Module -Name \$selected\.Path'
+        $bootstrap | Should -Match 'IAC_LAUNCH_NOTICE'
+        $tuiLauncher = Get-Content -LiteralPath (Join-Path $moduleRoot 'Public/Start-IntuneAssignmentCheckerTui.ps1') -Raw
+        $tuiLauncher | Should -Match 'IAC_LAUNCH_NOTICE'
 
         $wix = Get-Content (Join-Path $repoRoot 'packaging/IntuneAssignmentChecker.wxs') -Raw
         $wix | Should -Match 'LauncherSource'
+        $wix | Should -Match 'Start-IntuneAssignmentChecker\.ps1'
+        $wix | Should -Match 'Component Id="PowerShellLauncher"'
         $wix | Should -Match 'Name="PATH"'
         $wix | Should -Match 'System="yes"'
 
         $buildScript = Get-Content (Join-Path $repoRoot 'packaging/Build-WindowsInstaller.ps1') -Raw
         $buildScript | Should -Match 'launcherStagingRoot'
+        $buildScript | Should -Match 'bootstrapDestination'
         $buildScript | Should -Match 'Replace\("`r`n", "`n"\)'
         $buildScript | Should -Match 'UTF8Encoding.*false'
+    }
+
+    It 'selects the newest module and uses the MSI scope to break version ties' {
+        $bootstrapPath = Join-Path $repoRoot 'packaging/Start-IntuneAssignmentChecker.ps1'
+        $programFiles = Join-Path $TestDrive 'Program Files'
+        $machineModules = Join-Path (Join-Path $programFiles 'PowerShell') 'Modules'
+        $userModules = Join-Path $TestDrive 'UserModules'
+
+        function Add-TestModule {
+            param([string]$Root, [string]$Version, [string]$Prerelease)
+            $versionRoot = Join-Path (Join-Path $Root 'IntuneAssignmentChecker') $Version
+            New-Item -ItemType Directory -Path $versionRoot -Force | Out-Null
+            [IO.File]::WriteAllText(
+                (Join-Path $versionRoot 'IntuneAssignmentChecker.psm1'),
+                'function Start-IntuneAssignmentCheckerTui { param([switch]$DisableMouse) }',
+                [Text.UTF8Encoding]::new($false)
+            )
+            $manifestParameters = @{
+                Path              = Join-Path $versionRoot 'IntuneAssignmentChecker.psd1'
+                RootModule        = 'IntuneAssignmentChecker.psm1'
+                ModuleVersion     = $Version
+                FunctionsToExport = 'Start-IntuneAssignmentCheckerTui'
+            }
+            if ($Prerelease) { $manifestParameters.Prerelease = $Prerelease }
+            New-ModuleManifest @manifestParameters
+            return [IO.Path]::GetFullPath((Join-Path $versionRoot 'IntuneAssignmentChecker.psd1'))
+        }
+
+        $machineManifest = Add-TestModule -Root $machineModules -Version '5.0.0'
+        $null = Add-TestModule -Root $userModules -Version '5.0.0'
+        $pathSeparator = [IO.Path]::PathSeparator
+        $savedModulePath = $env:PSModulePath
+        $savedProgramFiles = $env:ProgramFiles
+        $savedProgramW6432 = $env:ProgramW6432
+        try {
+            $env:PSModulePath = "$userModules$pathSeparator$machineModules"
+            $env:ProgramFiles = Join-Path $TestDrive 'Program Files (x86)'
+            $env:ProgramW6432 = $programFiles
+            $tieOutput = @(& pwsh -NoLogo -NoProfile -File $bootstrapPath -Check 2>&1)
+            $tieExitCode = $LASTEXITCODE
+
+            $newestManifest = Add-TestModule -Root $userModules -Version '5.1.0'
+            $newestOutput = @(& pwsh -NoLogo -NoProfile -File $bootstrapPath -Check 2>&1)
+            $newestExitCode = $LASTEXITCODE
+
+            $null = Add-TestModule -Root $machineModules -Version '5.1.0' -Prerelease 'preview1'
+            $stableOutput = @(& pwsh -NoLogo -NoProfile -File $bootstrapPath -Check 2>&1)
+            $stableExitCode = $LASTEXITCODE
+
+            $fourPartManifest = Add-TestModule -Root $userModules -Version '5.2.0.1'
+            $fourPartOutput = @(& pwsh -NoLogo -NoProfile -File $bootstrapPath -Check 2>&1)
+            $fourPartExitCode = $LASTEXITCODE
+
+            $env:PSModulePath = $userModules
+            $singleScopeOutput = @(& pwsh -NoLogo -NoProfile -File $bootstrapPath -Check 2>&1)
+            $singleScopeExitCode = $LASTEXITCODE
+
+            $emptyModules = Join-Path $TestDrive 'EmptyModules'
+            New-Item -ItemType Directory -Path $emptyModules -Force | Out-Null
+            $env:PSModulePath = $emptyModules
+            $notInstalledOutput = @(& pwsh -NoLogo -NoProfile -File $bootstrapPath -Check 2>&1)
+            $notInstalledExitCode = $LASTEXITCODE
+        }
+        finally {
+            $env:PSModulePath = $savedModulePath
+            $env:ProgramFiles = $savedProgramFiles
+            $env:ProgramW6432 = $savedProgramW6432
+        }
+
+        $tieExitCode | Should -Be 0
+        ($tieOutput -join "`n") | Should -Match ([regex]::Escape($machineManifest))
+        ($tieOutput -join "`n") | Should -Match 'multiple module scopes'
+        $newestExitCode | Should -Be 0
+        ($newestOutput -join "`n") | Should -Match ([regex]::Escape($newestManifest))
+        $stableExitCode | Should -Be 0
+        ($stableOutput -join "`n") | Should -Match ([regex]::Escape($newestManifest))
+        ($stableOutput -join "`n") | Should -Not -Match '5\.1\.0-preview1'
+
+        $singleScopeExitCode | Should -Be 0
+        ($singleScopeOutput -join "`n") | Should -Not -Match 'multiple module scopes'
+        ($singleScopeOutput -join "`n") | Should -Match ([regex]::Escape($fourPartManifest))
+        $fourPartExitCode | Should -Be 0
+        ($fourPartOutput -join "`n") | Should -Match ([regex]::Escape($fourPartManifest))
+        ($fourPartOutput -join "`n") | Should -Match '5\.2\.0\.1'
+        $notInstalledExitCode | Should -Not -Be 0
+        ($notInstalledOutput -join "`n") | Should -Match 'UgurKoc\.IntuneAssignmentChecker'
+        ($notInstalledOutput -join "`n") | Should -Match 'Install-Module'
+        ($notInstalledOutput -join "`n") | Should -Match 'IntuneAssignmentChecker -Scope CurrentUser'
     }
 
     It 'publishes the launch command and PowerShell 5.1 guidance in WinGet metadata' {

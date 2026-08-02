@@ -6,6 +6,8 @@ if defined ProgramW6432 if exist "%ProgramW6432%\PowerShell\7\pwsh.exe" set "IAC
 if not defined IAC_PWSH if exist "%ProgramFiles%\PowerShell\7\pwsh.exe" set "IAC_PWSH=%ProgramFiles%\PowerShell\7\pwsh.exe"
 if not defined IAC_PWSH for /f "delims=" %%P in ('where pwsh.exe 2^>nul') do if not defined IAC_PWSH set "IAC_PWSH=%%P"
 if not defined IAC_PWSH goto powershell_not_found
+set "IAC_BOOTSTRAP=%~dp0Start-IntuneAssignmentChecker.ps1"
+if not exist "%IAC_BOOTSTRAP%" goto bootstrap_not_found
 
 if "%~1"=="" goto launch
 if not "%~2"=="" goto usage
@@ -17,24 +19,31 @@ goto usage
 echo Intune Assignment Checker requires PowerShell 7.
 echo Starting it now...
 echo.
-"%IAC_PWSH%" -NoLogo -NoProfile -Command "Import-Module IntuneAssignmentChecker -ErrorAction Stop; Start-IntuneAssignmentCheckerTui"
+"%IAC_PWSH%" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%IAC_BOOTSTRAP%"
 goto finish
 
 :launch_without_mouse
 echo Intune Assignment Checker requires PowerShell 7.
 echo Starting it now with terminal mouse reporting disabled...
 echo.
-"%IAC_PWSH%" -NoLogo -NoProfile -Command "Import-Module IntuneAssignmentChecker -ErrorAction Stop; Start-IntuneAssignmentCheckerTui -DisableMouse"
+"%IAC_PWSH%" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%IAC_BOOTSTRAP%" -DisableMouse
 goto finish
 
 :check
-"%IAC_PWSH%" -NoLogo -NoProfile -Command "$required = [version]'7.0'; if ($PSVersionTable.PSVersion -lt $required) { Write-Error 'Intune Assignment Checker requires PowerShell 7 or newer.'; exit 1 }; Import-Module IntuneAssignmentChecker -ErrorAction Stop; $module = Get-Module IntuneAssignmentChecker; Write-Output ('Intune Assignment Checker {0} is ready in PowerShell {1}.' -f $module.Version, $PSVersionTable.PSVersion)"
+"%IAC_PWSH%" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%IAC_BOOTSTRAP%" -Check
 goto finish
 
 :powershell_not_found
 echo Intune Assignment Checker requires PowerShell 7, but pwsh.exe was not found.
 echo Install it with:
 echo   winget install --id Microsoft.PowerShell --exact
+exit /b 1
+
+:bootstrap_not_found
+echo Intune Assignment Checker's PowerShell launcher was not found:
+echo   %IAC_BOOTSTRAP%
+echo Reinstall it with:
+echo   winget install --id UgurKoc.IntuneAssignmentChecker --exact --force
 exit /b 1
 
 :usage

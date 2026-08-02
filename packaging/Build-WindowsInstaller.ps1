@@ -72,6 +72,9 @@ $launcherDestination = Join-Path $launcherStagingRoot 'IntuneAssignmentChecker.c
 $launcherText = [IO.File]::ReadAllText($launcherSource)
 $launcherText = $launcherText.Replace("`r`n", "`n").Replace("`r", "`n").Replace("`n", "`r`n")
 [IO.File]::WriteAllText($launcherDestination, $launcherText, [Text.UTF8Encoding]::new($false))
+$bootstrapSource = Join-Path $PSScriptRoot 'Start-IntuneAssignmentChecker.ps1'
+$bootstrapDestination = Join-Path $launcherStagingRoot 'Start-IntuneAssignmentChecker.ps1'
+Copy-Item -LiteralPath $bootstrapSource -Destination $bootstrapDestination -Force
 
 $outputPath = Join-Path $resolvedOutput "IntuneAssignmentChecker-$Version-x64.msi"
 $wixOutput = @(& wix build (Join-Path $PSScriptRoot 'IntuneAssignmentChecker.wxs') -arch x64 `

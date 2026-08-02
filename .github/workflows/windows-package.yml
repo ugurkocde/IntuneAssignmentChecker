@@ -88,6 +88,7 @@ jobs:
           $commandFolder = Join-Path $env:ProgramFiles 'Intune Assignment Checker\bin'
           $normalizedCommandFolder = $commandFolder.TrimEnd([IO.Path]::DirectorySeparatorChar)
           $launcherPath = Join-Path $commandFolder 'IntuneAssignmentChecker.cmd'
+          $bootstrapPath = Join-Path $commandFolder 'Start-IntuneAssignmentChecker.ps1'
           $installed = $false
           try {
               Write-Host "Installing $msi"
@@ -109,6 +110,9 @@ jobs:
               if (-not (Test-Path -LiteralPath $launcherPath -PathType Leaf)) {
                   throw "The PowerShell 7 command launcher was not installed at '$launcherPath'."
               }
+              if (-not (Test-Path -LiteralPath $bootstrapPath -PathType Leaf)) {
+                  throw "The deterministic PowerShell launcher was not installed at '$bootstrapPath'."
+              }
               $machinePath = [Environment]::GetEnvironmentVariable('PATH', 'Machine')
               $machinePathEntries = @($machinePath -split ';' | ForEach-Object { $_.Trim().TrimEnd([IO.Path]::DirectorySeparatorChar) })
               if ($machinePathEntries -notcontains $normalizedCommandFolder) {
@@ -121,6 +125,10 @@ jobs:
               }
               if (($launcherOutput -join [Environment]::NewLine) -notmatch 'is ready in PowerShell 7') {
                   throw "The installed command launcher did not confirm a PowerShell 7 handoff: $($launcherOutput -join ' ')"
+              }
+              $expectedModuleRoot = Join-Path $env:ProgramFiles 'PowerShell\Modules\IntuneAssignmentChecker'
+              if (($launcherOutput -join [Environment]::NewLine) -notmatch [regex]::Escape($expectedModuleRoot)) {
+                  throw "The command launcher did not report the MSI module source '$expectedModuleRoot': $($launcherOutput -join ' ')"
               }
 
               @'
