@@ -1,0 +1,88 @@
+name: MCP parity gate
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "Module/**"
+      - "Tests/Parity/**"
+      - "Tests/Unit/McpParityFixtures.Tests.ps1"
+      - ".github/workflows/mcp-parity.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "Module/**"
+      - "Tests/Parity/**"
+      - "Tests/Unit/McpParityFixtures.Tests.ps1"
+      - ".github/workflows/mcp-parity.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fixture:
+    name: Verify deterministic PowerShell fixture
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout PowerShell change
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: powershell-reference
+          persist-credentials: false
+
+      - name: Verify the committed PowerShell fixture is deterministic
+        shell: pwsh
+        run: |
+          $generated = Join-Path $env:RUNNER_TEMP 'assignment-parity.v1.json'
+          ./powershell-reference/Tests/Parity/Export-McpParityFixtures.ps1 -OutputPath $generated | Out-Null
+          $committed = './powershell-reference/Tests/Parity/assignment-parity.v1.json'
+          $generatedContent = [System.IO.File]::ReadAllText($generated).Replace("`r`n", "`n")
+          $committedContent = [System.IO.File]::ReadAllText($committed).Replace("`r`n", "`n")
+          if ($generatedContent -cne $committedContent) {
+              throw 'PowerShell behavior changed without regenerating the MCP parity fixture.'
+          }
+
+  parity:
+    name: Verify TypeScript MCP compatibility
+    needs: fixture
+    if: ${{ vars.IAC_MCP_REPOSITORY != '' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout PowerShell change
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: powershell-reference
+          persist-credentials: false
+
+      - name: Checkout MCP implementation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ vars.IAC_MCP_REPOSITORY }}
+          path: mcp
+          token: ${{ secrets.IAC_MCP_REPOSITORY_TOKEN || github.token }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mcp/package-lock.json
+
+      - name: Install MCP dependencies
+        working-directory: mcp
+        run: npm ci
+
+      - name: Test the MCP against this PowerShell change
+        working-directory: mcp
+        env:
+          IAC_POWERSHELL_REPO: ${{ github.workspace }}/powershell-reference
+        run: |
+          npm run parity:sync
+          npm run check
+          npm run build
