@@ -24,6 +24,9 @@ network. The full suite normally completes in under a minute.
 - Graph transport fixtures - verify beta paging plus structured 400, 403, 429,
   and 5xx handling, retry limits, throttling delays, and output contracts
   using `Tests/Fixtures/GraphTransport.json`
+- `Search-IntuneSettingDeep` - mocked Graph coverage of paging, friendly names,
+  choice labels, Base64 XML/plist decoding, XML entity safety, secret redaction,
+  CSV safety, malformed payloads, empty results, API failures, and menu routing
 
 **Why these tests matter:** most regressions in this codebase are string-format
 changes that slip past static analysis. Unit tests at this layer catch them.

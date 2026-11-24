@@ -86,6 +86,7 @@ IntuneAssignmentChecker
 - 🔄 Version check on connect with an update notice when a newer PSGallery release is available
 - 📊 Detailed reporting of Configuration Profiles, Compliance Policies, and Applications
 - 🧩 Imported Administrative Template coverage across assignment checks, search, CSV exports, and HTML reports
+- 🔎 Deep search of configured setting names and values across Settings Catalog, device configuration, custom OMA-URI, macOS/iOS XML payloads, Administrative Templates, and compliance policies, with secret values redacted
 - 🔄 Windows Update for Business coverage for Feature Update, Quality Update, and Driver Update profiles plus Quality Update policies
 - 👥 First-class Microsoft 365 group recognition with group type, membership mode, and mail address in group assignment checks and exports
 - 📈 Interactive HTML reports with charts and filterable tables
@@ -388,6 +389,11 @@ Search-IntunePolicy -PolicySearchTerm "BitLocker"
 # Search configured settings across policies (Settings Catalog + Endpoint Security)
 Search-IntuneSetting -SearchTerm "BitLocker"
 
+# Deep search configured names and values across policy families, including decoded XML/plist payloads
+Search-IntuneSettingDeep -Keyword "Audit Group Membership"
+Search-IntuneSettingDeep -Keyword "MicrosoftEntraSSO" -ExportPath "C:\Temp\DeepSearch.csv"
+$settings = Search-IntuneSettingDeep -Keyword "Telemetry" -IncludeCompliance:$false -PassThru
+
 # Return automation-friendly objects while retaining the normal console experience
 $records = Get-IntuneAllPolicies -PassThru
 $records | Where-Object AssignmentMode -eq 'Exclude'
@@ -535,6 +541,7 @@ Available cmdlets:
 | `Test-IntuneAssignmentFilter`      | Safely evaluate a managed-device assignment filter with tri-state output  |
 | `Search-IntunePolicy`              | Reverse lookup: find all assignment targets for a policy name         |
 | `Search-IntuneSetting`             | Search configured settings across all policies                        |
+| `Search-IntuneSettingDeep`         | Search configured setting names and values across policy families     |
 | `Update-IntuneSettingDefinition`   | Refresh the local Settings Catalog definition cache                   |
 | `Invoke-IntuneAssignmentChecker`   | Launch the interactive menu (aliased as `IntuneAssignmentChecker`)    |
 
@@ -658,6 +665,14 @@ Running `IntuneAssignmentChecker` opens a menu-driven interface with the followi
     - Search 17,000+ setting definitions across Settings Catalog and Endpoint Security policies
     - Shows which policies configure a given setting and the configured value
     - Supports abbreviation expansion and fuzzy matching
+
+- **[17] Deep Search Configured Intune Settings (Read Only)**
+  - Searches what is configured in Settings Catalog, Endpoint Security, device configuration, custom OMA-URI, Administrative Template, and device compliance policies
+  - Decodes macOS/iOS XML and plist payloads with DTD processing and external entity resolution disabled
+  - Resolves Settings Catalog choice IDs to their Microsoft Graph labels and keeps the raw ID in `RawValue`
+  - Never matches or displays values identified as secret. Text values under sensitive names such as "password" are hidden. On/off values stay visible, as do number and choice values in Microsoft-defined settings such as minimum password length. Treat exported CSV files as internal configuration data
+  - Also available as `Search-IntuneSettingDeep` or `Invoke-IntuneAssignmentChecker -SearchSettingDeep -SettingKeyword <text>`; requires no additional Graph permissions
+  - Reports policies it could not read, because a search with scan errors cannot prove a setting is absent. Signed profiles, plist array values, and Administrative Template presentation values are not searched
 
 ### 🛠️ System Options
 
