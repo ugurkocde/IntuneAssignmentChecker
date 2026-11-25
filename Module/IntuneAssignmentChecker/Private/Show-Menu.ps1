@@ -43,6 +43,7 @@ function Show-Menu {
     Write-Host "  [14] Search Policy Assignments" -ForegroundColor White
     Write-Host "  [15] Search for Specific Settings" -ForegroundColor White
     Write-Host "  [16] What-If: All Policies for a User on a Specific Device" -ForegroundColor White
+    Write-Host "  [17] Deep Search Configured Intune Settings (Read Only)" -ForegroundColor White
     Write-Host ""
 
     Write-Host "System:" -ForegroundColor Cyan

@@ -31,6 +31,7 @@
         'Test-IntuneAssignmentFilter'
         'Search-IntunePolicy'
         'Search-IntuneSetting'
+        'Search-IntuneSettingDeep'
         'Update-IntuneSettingDefinition'
     )
     CmdletsToExport   = @()

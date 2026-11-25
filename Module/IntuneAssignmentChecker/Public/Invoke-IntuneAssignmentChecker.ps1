@@ -100,6 +100,12 @@ function Invoke-IntuneAssignmentChecker {
         [Parameter(Mandatory = $false, HelpMessage = "Search for a setting keyword across all Settings Catalog policies")]
         [switch]$SearchSetting,
 
+        [Parameter(Mandatory = $false, HelpMessage = "Deep search configured setting names and values across policy families")]
+        [switch]$SearchSettingDeep,
+
+        [Parameter(Mandatory = $false, HelpMessage = "Include device compliance policies in deep search (default); use :`$false to exclude")]
+        [switch]$IncludeComplianceInDeepSearch,
+
         [Parameter(Mandatory = $false, HelpMessage = "Setting keyword to search for")]
         [string]$SettingKeyword,
 
@@ -146,6 +152,7 @@ function Invoke-IntuneAssignmentChecker {
     elseif ($SearchPolicy)             { $parameterMode = $true; $selectedOption = '14' }
     elseif ($SearchSetting)            { $parameterMode = $true; $selectedOption = '15' }
     elseif ($CheckUserAndDevice)       { $parameterMode = $true; $selectedOption = '16' }
+    elseif ($SearchSettingDeep)        { $parameterMode = $true; $selectedOption = '17' }
 
     # Any report output option implies GenerateHTMLReport.
     if (-not $parameterMode -and ($HTMLReportPath -or $CSVReportPath -or $NoCSVReport)) {
@@ -292,6 +299,39 @@ function Invoke-IntuneAssignmentChecker {
                     -ExportPath $ExportPath `
                     -ScopeTagFilter $ScopeTagFilter
             }
+            '17' {
+                $deepKeyword = $SettingKeyword
+                if ([string]::IsNullOrWhiteSpace($deepKeyword)) {
+                    $deepKeyword = Read-Host 'Search configured settings for keyword (blank to cancel)'
+                }
+                if ([string]::IsNullOrWhiteSpace($deepKeyword)) {
+                    Write-Host 'Deep setting search cancelled.' -ForegroundColor Yellow
+                    break
+                }
+
+                $deepSearchParams = @{ Keyword = $deepKeyword }
+                if ($parameterMode) {
+                    if ($PSBoundParameters.ContainsKey('IncludeComplianceInDeepSearch')) {
+                        $deepSearchParams['IncludeCompliance'] = [bool]$IncludeComplianceInDeepSearch
+                    }
+                    if ($ExportPath) {
+                        $deepSearchParams['ExportPath'] = $ExportPath
+                    }
+                    elseif ($ExportToCSV) {
+                        Write-Warning 'Use -ExportPath with -SearchSettingDeep to select a CSV destination.'
+                    }
+                }
+                else {
+                    $includeAnswer = Read-Host 'Include device compliance policies? (Y/n)'
+                    $deepSearchParams['IncludeCompliance'] = $includeAnswer -notmatch '^(?i:n|no)$'
+                    $deepExportPath = Read-Host 'CSV export path (blank for none)'
+                    if (-not [string]::IsNullOrWhiteSpace($deepExportPath)) {
+                        $deepSearchParams['ExportPath'] = $deepExportPath
+                    }
+                }
+
+                Search-IntuneSettingDeep @deepSearchParams
+            }
             {$_ -eq 'T' -or $_ -eq 't'} {
                 Switch-Tenant
             }
@@ -314,7 +354,7 @@ function Invoke-IntuneAssignmentChecker {
                 Start-Process "https://github.com/ugurkocde/IntuneAssignmentChecker"
             }
             default {
-                Write-Host "Invalid choice, please select 1-16, T, 98, 99, or 0." -ForegroundColor Red
+                Write-Host "Invalid choice, please select 1-17, T, 98, 99, or 0." -ForegroundColor Red
             }
         }
 
