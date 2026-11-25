@@ -669,7 +669,7 @@ Running `IntuneAssignmentChecker` opens a menu-driven interface with the followi
 - **[17] Deep Search Configured Intune Settings (Read Only)**
   - Searches what is configured in Settings Catalog, Endpoint Security, device configuration, custom OMA-URI, Administrative Template, and device compliance policies
   - Decodes macOS/iOS XML and plist payloads with DTD processing and external entity resolution disabled
-  - Resolves Settings Catalog choice IDs to their Microsoft Graph labels and keeps the raw ID in `RawValue`
+  - Resolves Settings Catalog choice IDs to their Microsoft Graph labels, so you can search by a label such as "Success", and keeps the raw ID in `RawValue`
   - Never matches or displays values identified as secret. Text values under sensitive names such as "password" are hidden. On/off values stay visible, as do number and choice values in Microsoft-defined settings such as minimum password length. Treat exported CSV files as internal configuration data
   - Also available as `Search-IntuneSettingDeep` or `Invoke-IntuneAssignmentChecker -SearchSettingDeep -SettingKeyword <text>`; requires no additional Graph permissions
   - Reports policies it could not read, because a search with scan errors cannot prove a setting is absent. Signed profiles, plist array values, and Administrative Template presentation values are not searched

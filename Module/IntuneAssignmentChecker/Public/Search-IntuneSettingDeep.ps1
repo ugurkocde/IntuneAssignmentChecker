@@ -133,7 +133,7 @@ function Search-IntuneSettingDeep {
         $state.ChoiceWarnings | Format-Table DefinitionId, Error -Wrap | Out-Host
     }
     if ($state.ScanErrors.Count -gt 0) {
-        Write-Warning "$($state.ScanErrors.Count) policy or list request(s) failed. Negative results are NOT conclusive."
+        Write-Warning "$($state.ScanErrors.Count) scan error(s): some policies or settings were not fully searched. Negative results are NOT conclusive."
         $state.ScanErrors | Format-Table Family, Policy, Error -Wrap | Out-Host
     }
     elseif ($state.PoliciesScanned -eq 0) {

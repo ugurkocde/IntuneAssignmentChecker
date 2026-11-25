@@ -149,6 +149,40 @@ function Format-IACDeepValue {
     return $Value
 }
 
+# The walkers stop 40 levels down. They emit this marker so the caller can report the
+# skipped part as a scan error while keeping the matches already found.
+function New-IACTruncationMarker {
+    [CmdletBinding()]
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    [PSCustomObject]@{ PSTypeName = 'IntuneAssignmentChecker.DeepSearchTruncation'; SettingPath = $Path }
+}
+
+function Test-IACTruncationMarker {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([AllowNull()][object]$InputObject)
+
+    return $null -ne $InputObject -and
+        $InputObject.PSObject.TypeNames -contains 'IntuneAssignmentChecker.DeepSearchTruncation'
+}
+
+function Add-IACTruncationError {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][hashtable]$State,
+        [Parameter(Mandatory = $true)][hashtable]$Family,
+        [Parameter(Mandatory = $true)][string]$PolicyName,
+        [Parameter(Mandatory = $true)][string]$Location
+    )
+
+    $State.ScanErrors.Add([PSCustomObject]@{
+            Family = $Family.Name
+            Policy = $PolicyName
+            Error  = "$Location is nested more than 40 levels deep; deeper settings were not searched."
+        })
+}
+
 function ConvertFrom-IACConfigurationPayload {
     [CmdletBinding()]
     [OutputType([string])]
@@ -246,7 +280,7 @@ function Find-IACPlistMatch {
         [int]$Depth = 0
     )
 
-    if ($Depth -gt 40) { return }
+    if ($Depth -gt 40) { New-IACTruncationMarker -Path $Path; return }
     $elements = @(Get-IACXmlChildElement -Node $Container)
     $isArray = $Container.get_LocalName() -eq 'array'
 
@@ -322,7 +356,7 @@ function Find-IACXmlElementMatch {
         [int]$Depth = 0
     )
 
-    if ($Depth -gt 40) { return }
+    if ($Depth -gt 40) { New-IACTruncationMarker -Path $Path; return }
     $elements = @(Get-IACXmlChildElement -Node $Container)
 
     $labelSensitive = $false
@@ -370,7 +404,9 @@ function Find-IACXmlSettingMatch {
     if ([string]::IsNullOrWhiteSpace($Xml)) { return }
     $document = ConvertTo-IACSafeXmlDocument -Xml $Xml
     $root = $document.get_DocumentElement()
-    if ($null -ne $document.SelectSingleNode('//key')) {
+    # Use the plist walker for a plist root or a fragment of top-level key/value pairs, not
+    # for ordinary XML that happens to contain a <key> element.
+    if ($null -ne $document.SelectSingleNode('/iac-fragment/plist | /iac-fragment/dict | /iac-fragment/key')) {
         Find-IACPlistMatch -Container $root -Keyword $Keyword -Path $Property
     }
     else {
@@ -389,7 +425,8 @@ function Find-IACGraphValueMatch {
         [int]$Depth = 0
     )
 
-    if ($null -eq $Node -or $Depth -gt 40) { return }
+    if ($null -eq $Node) { return }
+    if ($Depth -gt 40) { New-IACTruncationMarker -Path $Path; return }
 
     if ($Node -is [string] -or $Node -is [ValueType]) {
         $text = [string]$Node
@@ -438,16 +475,19 @@ function Find-IACCatalogInstance {
     param(
         [AllowNull()][object]$Node,
         [Parameter(Mandatory = $true)][string]$Path,
+        [AllowNull()][System.Collections.IDictionary]$Definitions,
         [bool]$Sensitive = $false,
         [int]$Depth = 0
     )
 
-    if ($null -eq $Node -or $Depth -gt 40 -or $Node -is [string] -or $Node -is [ValueType]) { return }
+    if ($null -eq $Node -or $Node -is [string] -or $Node -is [ValueType]) { return }
+    if ($Depth -gt 40) { New-IACTruncationMarker -Path $Path; return }
 
     if ($Node -isnot [System.Collections.IDictionary] -and $Node -is [System.Collections.IEnumerable]) {
         $index = 0
         foreach ($item in $Node) {
-            Find-IACCatalogInstance -Node $item -Path "${Path}[$index]" -Sensitive $Sensitive -Depth ($Depth + 1)
+            Find-IACCatalogInstance -Node $item -Path "${Path}[$index]" -Definitions $Definitions `
+                -Sensitive $Sensitive -Depth ($Depth + 1)
             $index++
         }
         return
@@ -456,7 +496,10 @@ function Find-IACCatalogInstance {
     $instanceSensitive = $Sensitive
     $definitionId = [string](Get-IACDeepProperty -InputObject $Node -Name 'settingDefinitionId')
     if (-not [string]::IsNullOrWhiteSpace($definitionId)) {
-        $instanceSensitive = $Sensitive -or (Test-IACSensitiveSettingName -Name $definitionId)
+        # Children inherit sensitivity from a parent's ID or friendly name.
+        $friendlyName = [string](Get-IACDeepProperty -InputObject $Definitions -Name $definitionId)
+        $instanceSensitive = $Sensitive -or (Test-IACSensitiveSettingName -Name $definitionId) -or
+            (Test-IACSensitiveSettingName -Name $friendlyName)
         [PSCustomObject]@{
             Node         = $Node
             Path         = $Path
@@ -466,10 +509,11 @@ function Find-IACCatalogInstance {
     }
 
     foreach ($entry in @(Get-IACDeepEntry -InputObject $Node)) {
-        if ($entry.Name -in @('auditRuleInformation', 'settingInstanceTemplateReference', 'settingValueTemplateReference')) {
+        # settingDefinitions holds expanded metadata, not configured settings.
+        if ($entry.Name -in @('auditRuleInformation', 'settingDefinitions', 'settingInstanceTemplateReference', 'settingValueTemplateReference')) {
             continue
         }
-        Find-IACCatalogInstance -Node $entry.Value -Path "$Path.$($entry.Name)" `
+        Find-IACCatalogInstance -Node $entry.Value -Path "$Path.$($entry.Name)" -Definitions $Definitions `
             -Sensitive $instanceSensitive -Depth ($Depth + 1)
     }
 }
@@ -514,6 +558,45 @@ function Get-IACCatalogValue {
     }
 }
 
+function ConvertTo-IACChoiceOptionMap {
+    [CmdletBinding()]
+    [OutputType([System.Collections.Generic.Dictionary[string, string]])]
+    param([AllowNull()][object]$Definition)
+
+    $optionMap = [System.Collections.Generic.Dictionary[string, string]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach ($option in @(Get-IACDeepProperty -InputObject $Definition -Name 'options')) {
+        if ($null -eq $option) { continue }
+        $itemId = [string](Get-IACDeepProperty -InputObject $option -Name 'itemId')
+        $label = [string](Get-IACDeepProperty -InputObject $option -Name 'displayName')
+        if ([string]::IsNullOrWhiteSpace($label)) {
+            $label = [string](Get-IACDeepProperty -InputObject $option -Name 'name')
+        }
+        if (-not [string]::IsNullOrWhiteSpace($itemId) -and -not [string]::IsNullOrWhiteSpace($label)) {
+            $optionMap[$itemId] = $label
+        }
+    }
+    return $optionMap
+}
+
+function Add-IACExpandedChoiceOption {
+    [CmdletBinding()]
+    param(
+        [AllowNull()][object]$Settings,
+        [Parameter(Mandatory = $true)][hashtable]$State
+    )
+
+    # Settings are requested with $expand=settingDefinitions, so their choice labels arrive
+    # with the policy. Caching them avoids one metadata request per choice definition.
+    foreach ($setting in @($Settings)) {
+        foreach ($definition in @(Get-IACDeepProperty -InputObject $setting -Name 'settingDefinitions')) {
+            $definitionId = [string](Get-IACDeepProperty -InputObject $definition -Name 'id')
+            if ([string]::IsNullOrWhiteSpace($definitionId) -or $State.ChoiceCache.ContainsKey($definitionId)) { continue }
+            $optionMap = ConvertTo-IACChoiceOptionMap -Definition $definition
+            if ($optionMap.Count -gt 0) { $State.ChoiceCache[$definitionId] = $optionMap }
+        }
+    }
+}
+
 function Get-IACChoiceOptionMap {
     [CmdletBinding()]
     param(
@@ -530,18 +613,7 @@ function Get-IACChoiceOptionMap {
         $encodedId = [uri]::EscapeDataString($DefinitionId)
         $uri = "$($script:GraphEndpoint.TrimEnd('/'))/beta/deviceManagement/configurationSettings/$encodedId"
         $definition = Invoke-IACGraphRequest -Uri $uri -Method GET
-        $optionMap = [System.Collections.Generic.Dictionary[string, string]]::new([StringComparer]::OrdinalIgnoreCase)
-        foreach ($option in @(Get-IACDeepProperty -InputObject $definition -Name 'options')) {
-            if ($null -eq $option) { continue }
-            $itemId = [string](Get-IACDeepProperty -InputObject $option -Name 'itemId')
-            $label = [string](Get-IACDeepProperty -InputObject $option -Name 'displayName')
-            if ([string]::IsNullOrWhiteSpace($label)) {
-                $label = [string](Get-IACDeepProperty -InputObject $option -Name 'name')
-            }
-            if (-not [string]::IsNullOrWhiteSpace($itemId) -and -not [string]::IsNullOrWhiteSpace($label)) {
-                $optionMap[$itemId] = $label
-            }
-        }
+        $optionMap = ConvertTo-IACChoiceOptionMap -Definition $definition
         if ($optionMap.Count -eq 0) {
             $State.ChoiceWarnings.Add([PSCustomObject]@{
                     DefinitionId = $DefinitionId
@@ -627,7 +699,8 @@ function Get-IACSettingDefinitionLookup {
                 $displayName = [string](Get-IACDeepProperty -InputObject $definition -Name 'displayName')
                 if ($id -and $displayName -and -not $lookup.ContainsKey($id)) { $lookup.Add($id, $displayName) }
             }
-            return $lookup
+            if ($lookup.Count -gt 0) { return $lookup }
+            Write-Warning "Setting definitions in '$path' contain no usable entries."
         }
         catch {
             $lookup.Clear()
@@ -648,7 +721,7 @@ function Get-IACDeepSearchFamily {
             Name   = 'Settings Catalog / Endpoint Security'
             Kind   = 'SettingsCatalog'
             List   = 'deviceManagement/configurationPolicies'
-            Detail = 'deviceManagement/configurationPolicies/{id}/settings'
+            Detail = 'deviceManagement/configurationPolicies/{id}/settings?$expand=settingDefinitions'
         }
         @{
             Name   = 'Device configuration / custom OMA-URI'
@@ -730,21 +803,34 @@ function Find-IACCatalogSettingMatch {
         [Parameter(Mandatory = $true)][string]$PolicyId
     )
 
-    foreach ($instance in @(Find-IACCatalogInstance -Node $Settings -Path 'settings')) {
+    Add-IACExpandedChoiceOption -Settings $Settings -State $State
+
+    $found = @(Find-IACCatalogInstance -Node $Settings -Path 'settings' -Definitions $Definitions)
+    if (@($found | Where-Object { Test-IACTruncationMarker -InputObject $_ }).Count -gt 0) {
+        Add-IACTruncationError -State $State -Family $Family -PolicyName $PolicyName -Location 'A setting'
+    }
+
+    foreach ($instance in @($found | Where-Object { -not (Test-IACTruncationMarker -InputObject $_) })) {
         $definitionId = $instance.DefinitionId
         $friendlyName = Get-IACDeepProperty -InputObject $Definitions -Name $definitionId
         if ([string]::IsNullOrWhiteSpace($friendlyName)) { $friendlyName = $definitionId }
 
         $configured = Get-IACCatalogValue -Instance $instance.Node
-        $protection = if ($configured.IsSecret) { 'Secret' }
-        elseif ($instance.Sensitive -or (Test-IACSensitiveSettingName -Name $friendlyName)) { 'Name' }
-        else { 'None' }
+        $protection = if ($configured.IsSecret) { 'Secret' } elseif ($instance.Sensitive) { 'Name' } else { 'None' }
         $hidden = Test-IACHiddenValue -Protection $protection -Kind $configured.Kind
         $isMatch = (Test-IACDeepKeywordMatch -Text $definitionId -Keyword $Keyword) -or
             (Test-IACDeepKeywordMatch -Text $friendlyName -Keyword $Keyword)
         if (-not $isMatch -and -not $hidden) {
             foreach ($value in $configured.Values) {
                 if (Test-IACDeepKeywordMatch -Text $value -Keyword $Keyword) { $isMatch = $true; break }
+            }
+        }
+        if (-not $isMatch -and -not $hidden -and $configured.IsChoice) {
+            # Match the labels of the selected options only, not every option of the setting.
+            $optionMap = Get-IACChoiceOptionMap -DefinitionId $definitionId -State $State
+            foreach ($value in $configured.Values) {
+                if ($null -ne $optionMap -and $optionMap.ContainsKey($value) -and
+                    (Test-IACDeepKeywordMatch -Text $optionMap[$value] -Keyword $Keyword)) { $isMatch = $true; break }
             }
         }
         if (-not $isMatch) { continue }
@@ -773,11 +859,14 @@ function Find-IACAdministrativeTemplateMatch {
         $definition = Get-IACDeepProperty -InputObject $definitionValue -Name 'definition'
         $name = [string](Get-IACDeepProperty -InputObject $definition -Name 'displayName')
         $category = [string](Get-IACDeepProperty -InputObject $definition -Name 'categoryPath')
-        if (-not (Test-IACDeepKeywordMatch -Text $name -Keyword $Keyword) -and
-            -not (Test-IACDeepKeywordMatch -Text $category -Keyword $Keyword)) { continue }
-
         $enabled = Get-IACDeepProperty -InputObject $definitionValue -Name 'enabled'
         $state = if ($null -eq $enabled) { 'Unknown' } elseif ($enabled) { 'Enabled' } else { 'Disabled' }
+        # Only a configured state is searchable; 'Unknown' is a placeholder, not a value.
+        $stateMatches = $null -ne $enabled -and (Test-IACDeepKeywordMatch -Text $state -Keyword $Keyword)
+        if (-not (Test-IACDeepKeywordMatch -Text $name -Keyword $Keyword) -and
+            -not (Test-IACDeepKeywordMatch -Text $category -Keyword $Keyword) -and
+            -not $stateMatches) { continue }
+
         New-IACDeepSearchResult -Family $Family -PolicyName $PolicyName -PolicyId $PolicyId `
             -SettingPath "definitionValues[$index]" -SettingName $(if ($name) { $name } else { $category }) `
             -MatchedValue $state -RawValue $state `
@@ -805,7 +894,10 @@ function Find-IACPolicyObjectMatch {
             $xmlText = ConvertFrom-IACConfigurationPayload -Encoded $encoded
             $xmlMatches = @(Find-IACXmlSettingMatch -Xml $xmlText -Keyword $Keyword -Property $propertyName)
             $State.DecodedPayloads++
-            foreach ($match in $xmlMatches) {
+            if (@($xmlMatches | Where-Object { Test-IACTruncationMarker -InputObject $_ }).Count -gt 0) {
+                Add-IACTruncationError -State $State -Family $Family -PolicyName $PolicyName -Location "The decoded $propertyName"
+            }
+            foreach ($match in @($xmlMatches | Where-Object { -not (Test-IACTruncationMarker -InputObject $_) })) {
                 New-IACDeepSearchResult -Family $Family -PolicyName $PolicyName -PolicyId $PolicyId `
                     -SettingPath $match.SettingPath -SettingName $match.SettingName `
                     -MatchedValue $match.MatchedValue -RawValue $match.MatchedValue
@@ -821,7 +913,11 @@ function Find-IACPolicyObjectMatch {
     }
 
     $metadataPattern = '(?:^|\.)(?:id|createdDateTime|lastModifiedDateTime)$|\.roleScopeTagIds(?:\[\d+\])?$|@odata\.[A-Za-z]+$'
-    foreach ($match in @(Find-IACGraphValueMatch -Node $Policy -Path 'settings' -Name 'settings' -Keyword $Keyword)) {
+    $graphMatches = @(Find-IACGraphValueMatch -Node $Policy -Path 'settings' -Name 'settings' -Keyword $Keyword)
+    if (@($graphMatches | Where-Object { Test-IACTruncationMarker -InputObject $_ }).Count -gt 0) {
+        Add-IACTruncationError -State $State -Family $Family -PolicyName $PolicyName -Location 'A policy property'
+    }
+    foreach ($match in @($graphMatches | Where-Object { -not (Test-IACTruncationMarker -InputObject $_) })) {
         if (-not $IncludePolicyMetadata -and $match.SettingPath -match $metadataPattern) { continue }
         New-IACDeepSearchResult -Family $Family -PolicyName $PolicyName -PolicyId $PolicyId `
             -SettingPath $match.SettingPath -SettingName $match.SettingName `

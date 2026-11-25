@@ -28,6 +28,7 @@ BeforeAll {
     $script:TemplateList = "$script:ApiBase/groupPolicyConfigurations"
     $script:ComplianceList = "$script:ApiBase/deviceCompliancePolicies"
     $script:AuditDefinition = 'device_vendor_msft_policy_config_audit_accountmanagement_auditgroupmembership'
+    $script:SettingsExpand = '?$expand=settingDefinitions'
 
     function ConvertTo-TestBase64 {
         param([string]$Text, [System.Text.Encoding]$Encoding = [System.Text.UTF8Encoding]::new($false))
@@ -62,7 +63,7 @@ BeforeAll {
     function Set-CatalogPolicy {
         param([string]$Id = 'catalog-1', [string]$Name = 'Catalog Policy', [object[]]$Settings = @())
         $script:GraphRoutes[$script:CatalogList] = @{ value = @(@{ id = $Id; name = $Name }) }
-        $script:GraphRoutes["$script:CatalogList/$Id/settings"] = @{ value = $Settings }
+        $script:GraphRoutes["$script:CatalogList/$Id/settings$script:SettingsExpand"] = @{ value = $Settings }
     }
 
     function Set-ProfilePolicy {
@@ -111,14 +112,14 @@ Describe 'Search-IntuneSettingDeep' {
                 '@odata.nextLink' = "$script:CatalogList`?`$skiptoken=2"
             }
             $script:GraphRoutes["$script:CatalogList`?`$skiptoken=2"] = @{ value = @(@{ id = 'p2'; name = 'Second' }) }
-            $script:GraphRoutes["$script:CatalogList/p1/settings"] = @{
+            $script:GraphRoutes["$script:CatalogList/p1/settings$script:SettingsExpand"] = @{
                 value             = @(New-SimpleSetting -DefinitionId 'needle_one' -Value 'a')
                 '@odata.nextLink' = "$script:CatalogList/p1/settings?`$skiptoken=2"
             }
             $script:GraphRoutes["$script:CatalogList/p1/settings?`$skiptoken=2"] = @{
                 value = @(New-SimpleSetting -DefinitionId 'needle_two' -Value 'b')
             }
-            $script:GraphRoutes["$script:CatalogList/p2/settings"] = @{
+            $script:GraphRoutes["$script:CatalogList/p2/settings$script:SettingsExpand"] = @{
                 value = @(New-SimpleSetting -DefinitionId 'needle_three' -Value 'c')
             }
 
@@ -177,7 +178,7 @@ Describe 'Search-IntuneSettingDeep' {
             $child = (New-SimpleSetting -DefinitionId 'parent_child_needle' -Value 'nested').settingInstance
             Set-CatalogPolicy -Settings @(New-ChoiceSetting -DefinitionId 'parent_setting' -Value 'parent_setting_1' -Children @($child))
 
-            $rows = @(Search-IntuneSettingDeep -Keyword child_needle -PassThru)
+            $rows = @(Search-IntuneSettingDeep -Keyword child_needle -PassThru -WarningAction SilentlyContinue)
 
             $rows.Count | Should -Be 1
             $rows[0].MatchedValue | Should -BeExactly 'nested'
@@ -197,6 +198,22 @@ Describe 'Search-IntuneSettingDeep' {
             $rows.Count | Should -Be 1
             $rows[0].SettingName | Should -BeExactly 'Block third party cookies'
             $rows[0].MatchedValue | Should -BeExactly 'Disabled'
+        }
+
+        It 'matches the configured state of an Administrative Template setting' {
+            $script:GraphRoutes[$script:TemplateList] = @{ value = @(@{ id = 'gp1'; displayName = 'Edge Template' }) }
+            $script:GraphRoutes["$script:TemplateList/gp1/definitionValues?`$expand=definition"] = @{
+                value = @(
+                    @{ id = 'value-1'; enabled = $false; definition = @{ id = 'def-1'; displayName = 'Block third party cookies'; categoryPath = '\Edge' } }
+                    @{ id = 'value-2'; definition = @{ id = 'def-2'; displayName = 'State not returned'; categoryPath = '\Edge' } }
+                )
+            }
+
+            $rows = @(Search-IntuneSettingDeep -Keyword Disabled -PassThru)
+
+            $rows.Count | Should -Be 1
+            $rows[0].SettingDefinitionId | Should -BeExactly 'def-1'
+            @(Search-IntuneSettingDeep -Keyword Unknown -PassThru) | Should -BeNullOrEmpty
         }
     }
 
@@ -272,6 +289,54 @@ Describe 'Search-IntuneSettingDeep' {
 
             $row.MatchedValue | Should -BeExactly 'needle_choice_9'
         }
+
+        Context 'Searching by label' {
+            BeforeEach {
+                $script:AuditSetting = New-ChoiceSetting -DefinitionId $script:AuditDefinition -Value "$($script:AuditDefinition)_1"
+                $script:AuditSetting['settingDefinitions'] = @(@{
+                        id      = $script:AuditDefinition
+                        options = @(
+                            @{ itemId = "$($script:AuditDefinition)_0"; displayName = 'No Auditing' }
+                            @{ itemId = "$($script:AuditDefinition)_1"; displayName = 'Success' }
+                        )
+                    })
+            }
+
+            It 'matches the label of the selected option without extra Graph requests' {
+                Set-CatalogPolicy -Settings @($script:AuditSetting)
+
+                $rows = @(Search-IntuneSettingDeep -Keyword Success -PassThru)
+
+                $rows.Count | Should -Be 1
+                $rows[0].MatchedValue | Should -BeExactly 'Success'
+                @($script:GraphCalls | Where-Object { $_ -like '*configurationSettings*' }).Count | Should -Be 0
+            }
+
+            It 'does not match labels of options the policy did not select' {
+                Set-CatalogPolicy -Settings @($script:AuditSetting)
+
+                @(Search-IntuneSettingDeep -Keyword 'No Auditing' -PassThru) | Should -BeNullOrEmpty
+            }
+
+            It 'falls back to a definition request when Graph returns no expanded definitions' {
+                Set-CatalogPolicy -Settings @(New-ChoiceSetting -DefinitionId 'vendor_choice' -Value 'vendor_choice_1')
+                $script:GraphRoutes["$script:ApiBase/configurationSettings/vendor_choice"] = @{
+                    options = @(@{ itemId = 'vendor_choice_1'; displayName = 'Block downloads' })
+                }
+
+                $rows = @(Search-IntuneSettingDeep -Keyword 'Block downloads' -PassThru)
+
+                $rows.Count | Should -Be 1
+                @($script:GraphCalls | Where-Object { $_ -like '*configurationSettings/vendor_choice' }).Count | Should -Be 1
+            }
+
+            It 'does not treat expanded definition metadata as configured settings' {
+                $script:AuditSetting['settingDefinitions'][0]['referredSettingInformationList'] = @(@{ settingDefinitionId = 'needle_phantom' })
+                Set-CatalogPolicy -Settings @($script:AuditSetting)
+
+                @(Search-IntuneSettingDeep -Keyword needle_phantom -PassThru) | Should -BeNullOrEmpty
+            }
+        }
     }
 
     Context 'Base64 XML and plist decoding' {
@@ -321,6 +386,16 @@ Describe 'Search-IntuneSettingDeep' {
             $row = @(Search-IntuneSettingDeep -Keyword intranet -PassThru)[0]
 
             $row.SettingPath | Should -BeExactly 'payload.configuration.browser.homepage'
+        }
+
+        It 'does not read ordinary XML as a plist because it contains a key element' {
+            $xml = '<portal><key>region</key><homepage>https://intranet.contoso.test</homepage></portal>'
+            Set-ProfilePolicy -Detail @{ payload = (ConvertTo-TestBase64 -Text $xml) }
+
+            $row = @(Search-IntuneSettingDeep -Keyword homepage -PassThru)[0]
+
+            $row.SettingPath | Should -BeExactly 'payload.portal.homepage'
+            $row.MatchedValue | Should -BeExactly 'https://intranet.contoso.test'
         }
 
         It 'is not confused by elements named after .NET XML members' {
@@ -395,8 +470,8 @@ Describe 'Search-IntuneSettingDeep' {
             $child = (New-SimpleSetting -DefinitionId 'vendor_child_value' -Value 'CorrectHorse').settingInstance
             Set-CatalogPolicy -Settings @(New-ChoiceSetting -DefinitionId 'vendor_credential_group' -Value 'vendor_credential_group_1' -Children @($child))
 
-            @(Search-IntuneSettingDeep -Keyword CorrectHorse -PassThru) | Should -BeNullOrEmpty
-            (@(Search-IntuneSettingDeep -Keyword vendor_child -PassThru)[0]).MatchedValue | Should -BeExactly '[REDACTED]'
+            @(Search-IntuneSettingDeep -Keyword CorrectHorse -PassThru -WarningAction SilentlyContinue) | Should -BeNullOrEmpty
+            (@(Search-IntuneSettingDeep -Keyword vendor_child -PassThru -WarningAction SilentlyContinue)[0]).MatchedValue | Should -BeExactly '[REDACTED]'
         }
 
         It 'shows number and choice values of Settings Catalog settings with sensitive names' {
@@ -426,6 +501,19 @@ Describe 'Search-IntuneSettingDeep' {
 
             @(Search-IntuneSettingDeep -Keyword CorrectHorse -PassThru) | Should -BeNullOrEmpty
             (@(Search-IntuneSettingDeep -Keyword 'logon notification' -PassThru)[0]).MatchedValue | Should -BeExactly '[REDACTED]'
+        }
+
+        It 'passes sensitivity from a parent friendly name to its children' {
+            Mock Get-IACSettingDefinitionLookup {
+                $lookup = [System.Collections.Generic.Dictionary[string, string]]::new([StringComparer]::OrdinalIgnoreCase)
+                $lookup['vendor_service_group'] = 'Service credentials'
+                return $lookup
+            }
+            $child = (New-SimpleSetting -DefinitionId 'vendor_service_child' -Value 'CorrectHorse').settingInstance
+            Set-CatalogPolicy -Settings @(New-ChoiceSetting -DefinitionId 'vendor_service_group' -Value 'vendor_service_group_1' -Children @($child))
+
+            @(Search-IntuneSettingDeep -Keyword CorrectHorse -PassThru -WarningAction SilentlyContinue) | Should -BeNullOrEmpty
+            (@(Search-IntuneSettingDeep -Keyword vendor_service_child -PassThru -WarningAction SilentlyContinue)[0]).MatchedValue | Should -BeExactly '[REDACTED]'
         }
 
         It 'shows true/false and number policy properties with sensitive names but hides text' {
@@ -557,11 +645,64 @@ Describe 'Search-IntuneSettingDeep' {
             Set-ProfilePolicy -Detail @{ needleField = 'b' }
             $export = Join-Path $TestDrive 'columns.csv'
 
-            $null = Search-IntuneSettingDeep -Keyword needle -ExportPath $export
+            $results = @(Search-IntuneSettingDeep -Keyword needle -ExportPath $export -PassThru)
+
+            # Export-Csv takes its header from the first row, so compare the rows before export.
+            $catalogRow = $results | Where-Object PolicyType -like 'Settings Catalog*'
+            $profileRow = $results | Where-Object PolicyType -like 'Device configuration*'
+            @($profileRow.PSObject.Properties.Name) | Should -Be @($catalogRow.PSObject.Properties.Name)
 
             $rows = @(Import-Csv -LiteralPath $export)
             $rows.Count | Should -Be 2
-            $rows[0].PSObject.Properties.Name | Should -Contain 'SettingDefinitionId'
+            ($rows | Where-Object SettingDefinitionId -eq 'needle_catalog').RawValue | Should -BeExactly 'a'
+            ($rows | Where-Object SettingName -eq 'needleField').RawValue | Should -BeExactly 'b'
+        }
+    }
+
+    Context 'Nesting limit' {
+        BeforeEach {
+            $script:DeepExport = Join-Path $TestDrive 'deep.csv'
+            Remove-Item -LiteralPath $script:DeepExport, ([IO.Path]::ChangeExtension($script:DeepExport, '.errors.csv')) -ErrorAction SilentlyContinue
+        }
+
+        It 'reports <Name> nested too deeply and keeps the matches above the limit' -ForEach @(
+            @{ Name = 'a policy property'; Location = 'A policy property' }
+            @{ Name = 'a plist payload'; Location = 'The decoded payload' }
+            @{ Name = 'an XML payload'; Location = 'The decoded payload' }
+            @{ Name = 'a Settings Catalog setting'; Location = 'A setting' }
+        ) {
+            switch ($Name) {
+                'a policy property' {
+                    $node = @{ needleDeep = 'x' }
+                    foreach ($level in 1..45) { $node = @{ child = $node } }
+                    Set-ProfilePolicy -Detail @{ needleTop = 'y'; nested = $node }
+                }
+                'a plist payload' {
+                    $plist = '<plist><dict><key>needleTop</key><string>y</string><key>nest</key>' +
+                        ('<dict><key>needleDeep</key>' * 45) + '<string>x</string>' + ('</dict>' * 45) + '</dict></plist>'
+                    Set-ProfilePolicy -Detail @{ payload = (ConvertTo-TestBase64 -Text $plist) }
+                }
+                'an XML payload' {
+                    $xml = '<config><needleTop>y</needleTop>' + ('<n>' * 45) + '<needleDeep>x</needleDeep>' + ('</n>' * 45) + '</config>'
+                    Set-ProfilePolicy -Detail @{ payload = (ConvertTo-TestBase64 -Text $xml) }
+                }
+                'a Settings Catalog setting' {
+                    $instance = (New-SimpleSetting -DefinitionId 'needleDeep' -Value 'x').settingInstance
+                    foreach ($level in 1..20) {
+                        $instance = (New-ChoiceSetting -DefinitionId "group_$level" -Value "group_${level}_1" -Children @($instance)).settingInstance
+                    }
+                    Set-CatalogPolicy -Settings @(@{ id = '0'; settingInstance = $instance }, (New-SimpleSetting -DefinitionId 'needleTop' -Value 'y'))
+                }
+            }
+
+            $rows = @(Search-IntuneSettingDeep -Keyword needle -PassThru -ExportPath $script:DeepExport `
+                    -WarningVariable warnings -WarningAction SilentlyContinue)
+
+            @($rows | Where-Object { $_.SettingName -eq 'needleTop' -or $_.SettingDefinitionId -eq 'needleTop' }).Count | Should -Be 1
+            ($warnings -join ' ') | Should -Match 'NOT conclusive'
+            $errors = @(Import-Csv -LiteralPath ([IO.Path]::ChangeExtension($script:DeepExport, '.errors.csv')))
+            $errors.Count | Should -Be 1
+            $errors[0].Error | Should -BeExactly "$Location is nested more than 40 levels deep; deeper settings were not searched."
         }
     }
 
@@ -741,6 +882,19 @@ Describe 'Get-IACSettingDefinitionLookup' {
 
         $lookup['SETTING_A'] | Should -BeExactly 'Setting A'
         ($loadWarnings -join ' ') | Should -Match 'could not be loaded'
+    }
+
+    It 'falls back to the next file when a readable file has no usable entries' {
+        $empty = Join-Path $TestDrive 'empty.json'
+        $valid = Join-Path $TestDrive 'bundled.json'
+        Set-Content -LiteralPath $empty -Value '[]'
+        Set-Content -LiteralPath $valid -Value '[{"id":"setting_b","displayName":"Setting B"}]'
+
+        $lookup = Get-IACSettingDefinitionLookup -CandidatePath @($empty, $valid) `
+            -WarningVariable loadWarnings -WarningAction SilentlyContinue
+
+        $lookup['setting_b'] | Should -BeExactly 'Setting B'
+        ($loadWarnings -join ' ') | Should -Match 'no usable entries'
     }
 
     It 'returns an empty lookup with a warning when no file exists' {
